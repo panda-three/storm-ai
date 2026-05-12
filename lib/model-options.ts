@@ -42,7 +42,7 @@ export const imageModelSettings: Record<
     ratios: ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "2:1", "1:2", "21:9", "9:21"],
   },
   [gptImage2AllModelName]: {
-    qualities: ["1K", "2K", "4K"],
+    qualities: ["2K"],
     ratios: ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "2:1", "1:2", "21:9", "9:21"],
   },
 }
@@ -114,9 +114,9 @@ export const videoModelSettings: Record<
     qualities: ["480P", "720P"],
   },
   [grokVideo3ModelName]: {
-    aspectRatios: ["16:9", "9:16", "1:1", "3:2", "2:3"],
-    durations: ["6 秒", "10 秒", "15 秒", "30 秒"],
-    qualities: ["480P", "720P"],
+    aspectRatios: ["1:1", "2:3", "3:2"],
+    durations: ["6 秒"],
+    qualities: ["720P"],
   },
 }
 

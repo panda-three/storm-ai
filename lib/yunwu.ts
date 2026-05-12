@@ -9,7 +9,7 @@ const YUNWU_BASE_URL = process.env.YUNWU_BASE_URL ?? "https://yunwu.ai"
 const yunwuDefaultTimeoutMs = 60_000
 const yunwuGeminiImageTimeoutMs = 180_000
 const yunwuGptImageTimeoutMs = 180_000
-const yunwuVeo31FastApiModel = "veo3.1-fast-components"
+const yunwuVeo31FastApiModel = "veo3.1-fast"
 
 export interface YunwuReferenceImage {
   buffer: Buffer
