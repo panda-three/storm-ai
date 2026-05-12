@@ -126,11 +126,6 @@ export async function requireAuthenticatedUser(
     throw new ServerResponseError("登录状态缺少会话标识，请重新登录。", 401)
   }
 
-  await assertActiveServerSession({
-    sessionId,
-    userId: data.user.id,
-  })
-
   if (!options.allowPasswordChangeRequired) {
     const { data: account, error: accountError } = await getSupabaseServerClient()
       .from("user_accounts")
@@ -167,43 +162,6 @@ function getSessionIdFromAccessToken(token: string) {
     return typeof parsed.session_id === "string" ? parsed.session_id : ""
   } catch {
     return ""
-  }
-}
-
-async function assertActiveServerSession({
-  sessionId,
-  userId,
-}: {
-  sessionId: string
-  userId: string
-}) {
-  const supabase = getSupabaseServerClient()
-  const { data, error } = await supabase
-    .from("user_active_sessions")
-    .select("session_id, revoked_at")
-    .eq("user_id", userId)
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(describeServerError(error, "读取登录设备状态失败。"), { cause: error })
-  }
-
-  if (!data || data.session_id !== sessionId || data.revoked_at) {
-    throw new ServerResponseError("该账号已在其他设备登录或已被解除登录占用，请重新登录。", 401)
-  }
-
-  const { error: updateError } = await supabase
-    .from("user_active_sessions")
-    .update({
-      last_seen_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("user_id", userId)
-    .eq("session_id", sessionId)
-    .is("revoked_at", null)
-
-  if (updateError) {
-    throw new Error(describeServerError(updateError, "更新登录设备状态失败。"), { cause: updateError })
   }
 }
 
@@ -343,6 +301,21 @@ export async function persistRemoteGeneratedImage({
   sourceUrl: string
   userId: string
 }) {
+  const dataImage = parseDataImageUrl(sourceUrl)
+  if (dataImage) {
+    const buffer = Buffer.from(dataImage.data, "base64")
+    if (buffer.byteLength > remoteImageMaxBytes) {
+      throw new Error("生成图片超过 25MB，无法保存到历史项目。")
+    }
+
+    const uploaded = await uploadGeneratedImage({
+      buffer,
+      contentType: dataImage.contentType,
+      userId,
+    })
+    return uploaded.publicUrl
+  }
+
   let response: Response
   let parsedSourceUrl: URL
 
@@ -384,6 +357,16 @@ export async function persistRemoteGeneratedImage({
     userId,
   })
   return uploaded.publicUrl
+}
+
+function parseDataImageUrl(value: string) {
+  const match = value.match(/^data:(image\/(?:jpeg|png|webp|gif|avif));base64,([a-z0-9+/=_-]+)$/i)
+  if (!match) return null
+
+  return {
+    contentType: match[1].toLowerCase(),
+    data: match[2],
+  }
 }
 
 export function describeServerError(error: unknown, fallback: string) {

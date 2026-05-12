@@ -5,7 +5,7 @@ import { AlertCircle, CheckCircle2, Loader2, LockKeyhole, LogOut } from "lucide-
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { getSupabaseClient } from "@/lib/supabase"
+import { signInAndClaimSession, getSupabaseClient } from "@/lib/supabase"
 
 interface ForcedPasswordChangeProps {
   onChanged: () => Promise<void> | void
@@ -23,6 +23,19 @@ async function getAccessToken() {
   if (!token) throw new Error("登录状态已失效，请重新登录。")
 
   return token
+}
+
+async function getCurrentEmail() {
+  const supabase = getSupabaseClient()
+  if (!supabase) throw new Error("Supabase 未配置。")
+
+  const { data, error } = await supabase.auth.getUser()
+  if (error) throw error
+
+  const email = data.user?.email
+  if (!email) throw new Error("当前账号没有可用邮箱，请重新登录。")
+
+  return email
 }
 
 export function ForcedPasswordChange({ onChanged, onSignOut }: ForcedPasswordChangeProps) {
@@ -55,6 +68,7 @@ export function ForcedPasswordChange({ onChanged, onSignOut }: ForcedPasswordCha
 
     try {
       const token = await getAccessToken()
+      const email = await getCurrentEmail()
       const response = await fetch("/api/account/change-password", {
         body: JSON.stringify({
           currentPassword,
@@ -76,6 +90,17 @@ export function ForcedPasswordChange({ onChanged, onSignOut }: ForcedPasswordCha
       setCurrentPassword("")
       setNewPassword("")
       setConfirmPassword("")
+      const supabase = getSupabaseClient()
+      try {
+        await signInAndClaimSession({
+          email,
+          password: newPassword,
+          supabase,
+        })
+      } catch {
+        await onSignOut()
+        throw new Error("密码已修改，请使用新密码重新登录。")
+      }
       await onChanged()
     } catch (error) {
       setError(error instanceof Error ? error.message : "修改密码失败。")

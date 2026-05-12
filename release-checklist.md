@@ -46,8 +46,8 @@
 
 ## 功能验收
 
-- 生图：选择 Gemini Nano Banana Pro 或 GPT-Image-2，提交任务后能轮询并展示真实图片；选择 Gemini 3.1 Flash Image Preview 后能直接返回 Supabase Storage 图片 URL。
-- 视频：选择 VEO3 或 Grok Imagine，提交任务后能轮询并展示真实视频。
+- 生图：选择 `gemini-3.1-flash-image-preview` 或 `gpt-image-2-all`，提交任务后能展示真实图片。
+- 视频：选择 `veo_3_1-fast` 或 `grok-video-3`，提交任务后能轮询并展示真实视频。
 - 历史项目：生成结果、任务 ID、上游任务 ID、预览 URL、失败原因可保存并查看；刷新后不应同时出现同一任务的“已完成”和“生成中”重复记录。
 - 点数兑换：有效兑换码可增加点数，重复兑换会被拦截，兑换流水可查看。
 - 本地持久化和 Supabase 同步：刷新页面后点数、历史项目、兑换记录不丢失；服务端生成历史能覆盖本地旧 pending 记录。
@@ -57,17 +57,24 @@
 - 替换正式客服微信二维码。
 - 确认点数扣减规则和不同模型价格。
 - 配置生产环境变量，确认 API Key 不进入前端代码和仓库。
-- 确认 APIMart 额度、并发限制、失败重试和超时策略。
-- 确认 MengFactory 额度、并发限制、失败重试和超时策略。
+- 确认云雾额度、并发限制、失败重试和超时策略。
+- 确认旧 APIMart/MengFactory 渠道仍隐藏，历史任务兼容路径未被删除。
 - 配置外部 cron 每分钟调用 `/api/cron/sync-generation-jobs`，请求头为 `Authorization: Bearer <CRON_SECRET>`。
 - 部署后手动调用一次 `/api/cron/sync-generation-jobs`，用于立刻同步未终态任务、处理超时退款和清理过期历史。
 - 使用一个新账号和一个已有历史缓存的浏览器分别验收，确认历史列表不会出现同一生成任务的重复 pending 项。
 
 ## 验证命令
 
+- `pnpm check:env`
 - `pnpm lint`
 - `pnpm exec tsc --noEmit`
 - `pnpm build`
+
+## 自托管 Supabase 迁移确认
+
+- 已按 `docs/self-hosted-supabase.md` 完成自托管实例、SMTP、Storage、权限收紧、备份和回滚准备。
+- 已确认 `supabase-schema.sql` 末尾的 RPC `grant/revoke` 生效，客户端不能直接调用服务端专用 RPC。
+- 已完成一次外部备份恢复演练，再切换生产 `.env.production`。
 
 ## 当前限制
 

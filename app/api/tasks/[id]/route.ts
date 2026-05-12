@@ -13,11 +13,11 @@ import {
   asyncVideoTimeoutMs,
   type GenerationJob,
 } from "@/lib/generation-jobs"
-import { getTaskStatus } from "@/lib/apimart"
-import { getMengfactoryVideoTaskStatus } from "@/lib/mengfactory"
 import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
-import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
+import { syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
 import { getServerErrorStatus, requireAuthenticatedUser } from "@/lib/server-supabase"
+
+const videoMissingResultRetryMs = 90 * 1000
 
 export async function GET(
   request: Request,
@@ -37,11 +37,6 @@ export async function GET(
         return NextResponse.json(createOrphanedTaskStatus(id), { status: 410 })
       }
 
-      if (id.startsWith("mock_")) {
-        const legacyResult = await getTaskStatus(id)
-        return NextResponse.json(legacyResult)
-      }
-
       return NextResponse.json({ ok: false, error: "任务不存在或无权访问。" }, { status: 404 })
     }
 
@@ -55,11 +50,8 @@ export async function GET(
       return NextResponse.json(normalizeJobTaskStatus(recoveredJob))
     }
 
-    if (recoveredJob.provider === "mengfactory" || (recoveredJob.provider === "yunwu" && recoveredJob.type === "video")) {
-      const result = await (recoveredJob.provider === "yunwu"
-        ? getYunwuVideoTaskStatus(recoveredJob.upstream_task_id)
-        : getMengfactoryVideoTaskStatus(recoveredJob.upstream_task_id)
-      ).catch(async (error) => {
+    if (recoveredJob.provider === "yunwu" && recoveredJob.type === "video") {
+      const result = await getYunwuVideoTaskStatus(recoveredJob.upstream_task_id).catch(async (error) => {
         const message = error instanceof Error ? error.message : "任务状态查询失败。"
         return updateActiveGenerationJob(recoveredJob.id, {
           last_checked_at: new Date().toISOString(),
@@ -73,8 +65,21 @@ export async function GET(
       }
 
       const resultUrls = result.videoUrl ? [result.videoUrl] : []
-      const taskError = result.taskError || (result.status === "completed" && resultUrls.length === 0 ? "任务已完成，但接口没有返回视频地址。" : "")
-      const status = taskError && result.status === "completed" ? "failed" : result.status
+      const missingResultError =
+        result.status === "completed" && resultUrls.length === 0 && shouldStopWaitingForVideoUrl(recoveredJob)
+          ? "任务已完成，但接口没有返回视频地址。"
+          : ""
+      const shouldRetryMissingVideoResult = result.status === "completed" && resultUrls.length === 0 && !missingResultError
+      const taskError = result.taskError || missingResultError
+      const status = taskError && result.status === "completed" ? "failed" : shouldRetryMissingVideoResult ? "processing" : result.status
+
+      if (shouldRetryMissingVideoResult) {
+        console.warn("[Tasks] video completed without url, retrying", {
+          jobId: recoveredJob.id,
+          provider: recoveredJob.provider,
+          upstreamTaskId: recoveredJob.upstream_task_id,
+        })
+      }
 
       if (status === "failed") {
         const failedJob = await failGenerationJobWithRefund({
@@ -100,7 +105,7 @@ export async function GET(
       return NextResponse.json(normalizeJobTaskStatus(nextJob ?? recoveredJob))
     }
 
-    const result = await syncApimartGenerationJob(recoveredJob, { mode: "interactive" })
+    const result = await syncYunwuGenerationJob(recoveredJob, { mode: "interactive" })
     return NextResponse.json(normalizeJobTaskStatus(result.job))
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务状态查询失败。"
@@ -112,6 +117,10 @@ export async function GET(
       { status: getServerErrorStatus(error) }
     )
   }
+}
+
+function shouldStopWaitingForVideoUrl(job: GenerationJob) {
+  return Date.now() - Date.parse(job.created_at) >= videoMissingResultRetryMs
 }
 
 export async function DELETE(
@@ -145,7 +154,7 @@ async function recoverStaleGenerationJobIfDue(job: GenerationJob) {
 
   const ageMs = Date.now() - Date.parse(job.created_at)
   const isSynchronousImageOrphan =
-    job.provider === "mengfactory" && job.type === "image" && !job.upstream_task_id && ageMs >= synchronousImageOrphanTimeoutMs
+    job.provider === "yunwu" && job.type === "image" && !job.upstream_task_id && ageMs >= synchronousImageOrphanTimeoutMs
   const isAsyncImageTimeout = job.type === "image" && Boolean(job.upstream_task_id) && ageMs >= asyncImageTimeoutMs
   const isAsyncVideoTimeout = job.type === "video" && Boolean(job.upstream_task_id) && ageMs >= asyncVideoTimeoutMs
 
@@ -161,7 +170,7 @@ function createOrphanedTaskStatus(taskId: string) {
 
   return {
     ok: false,
-    mode: "apimart",
+    mode: "yunwu",
     taskId,
     status: "failed",
     progress: 0,

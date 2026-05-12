@@ -1,7 +1,6 @@
 import { getSupabaseServerClient } from "@/lib/server-supabase"
 import { deleteGeneratedImageByPublicUrl, describeServerError, getGeneratedStorageObjectPath } from "@/lib/server-supabase"
-import { getTaskStatus, type GenerationKind, type NormalizedTaskStatus } from "@/lib/apimart"
-import { getMengfactoryVideoTaskStatus } from "@/lib/mengfactory"
+import type { GenerationKind, NormalizedTaskStatus } from "@/lib/generation-types"
 import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 
 export type GenerationJobStatus = "submitted" | "processing" | "completed" | "failed" | "partial_completed"
@@ -12,8 +11,10 @@ export const asyncImageTimeoutMs = 20 * 60 * 1000
 export const asyncVideoTimeoutMs = 60 * 60 * 1000
 export const generationHistoryRetentionHours = 24
 export const generationHistoryRetentionMs = generationHistoryRetentionHours * 60 * 60 * 1000
+const videoMissingResultRetryMs = 90 * 1000
 
 export interface GenerationJob {
+  already_exists?: boolean
   id: string
   amount: number
   check_attempts: number
@@ -381,12 +382,12 @@ function isMissingSyncColumnError(error: unknown) {
   )
 }
 
-export async function loadDueApimartGenerationJobs({ limit = 20 } = {}) {
+export async function loadDueYunwuGenerationJobs({ limit = 20 } = {}) {
   const now = new Date().toISOString()
   const { data, error } = await getSupabaseServerClient()
     .from("generation_jobs")
     .select(generationJobSelect)
-    .in("provider", ["apimart", "yunwu"])
+    .eq("provider", "yunwu")
     .in("status", ["submitted", "processing"])
     .not("upstream_task_id", "is", null)
     .lte("next_check_at", now)
@@ -401,7 +402,7 @@ export async function loadDueApimartGenerationJobs({ limit = 20 } = {}) {
   return (data ?? []) as GenerationJob[]
 }
 
-export async function loadInteractiveApimartGenerationJobsForUser({
+export async function loadInteractiveYunwuGenerationJobsForUser({
   limit = 20,
   userId,
 }: {
@@ -412,7 +413,7 @@ export async function loadInteractiveApimartGenerationJobsForUser({
   const { data, error } = await getSupabaseServerClient()
     .from("generation_jobs")
     .select(generationJobSelect)
-    .in("provider", ["apimart", "yunwu"])
+    .eq("provider", "yunwu")
     .eq("user_id", userId)
     .in("status", ["submitted", "processing"])
     .not("upstream_task_id", "is", null)
@@ -426,11 +427,11 @@ export async function loadInteractiveApimartGenerationJobsForUser({
   return (data ?? []) as GenerationJob[]
 }
 
-export async function loadApimartImageJobsForMirroring({ limit = 20 } = {}) {
+export async function loadYunwuImageJobsForMirroring({ limit = 20 } = {}) {
   const { data, error } = await getSupabaseServerClient()
     .from("generation_jobs")
     .select(generationJobSelect)
-    .in("provider", ["apimart", "yunwu"])
+    .eq("provider", "yunwu")
     .eq("type", "image")
     .in("status", ["completed", "partial_completed"])
     .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
@@ -462,7 +463,7 @@ export async function loadStaleGenerationJobs({
     .lte("created_at", newestCreatedAt)
     .or(
       [
-        `and(provider.eq.mengfactory,type.eq.image,upstream_task_id.is.null,created_at.lte.${new Date(Date.now() - synchronousImageOrphanTimeoutMs).toISOString()})`,
+        `and(provider.eq.yunwu,type.eq.image,upstream_task_id.is.null,created_at.lte.${new Date(Date.now() - synchronousImageOrphanTimeoutMs).toISOString()})`,
         `and(type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
         `and(type.eq.video,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncVideoTimeoutMs).toISOString()})`,
       ].join(",")
@@ -496,17 +497,28 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
   }
 
   try {
-    const result =
-      job.provider === "mengfactory" && job.type === "video"
-        ? await getMengfactoryVideoTaskStatus(job.upstream_task_id)
-        : job.provider === "yunwu" && job.type === "video"
-          ? await getYunwuVideoTaskStatus(job.upstream_task_id)
-        : await getTaskStatus(job.upstream_task_id)
-    const resultUrls = job.type === "image" ? result.imageUrls : result.videoUrl ? [result.videoUrl] : []
+    if (job.provider !== "yunwu" || job.type !== "video") {
+      return updateGenerationJob(job.id, {
+        last_checked_at: new Date().toISOString(),
+        last_sync_error: "旧上游任务已停止自动查询。",
+        next_check_at: null,
+        sync_locked_until: null,
+      })
+    }
+
+    const result = await getYunwuVideoTaskStatus(job.upstream_task_id)
+    const resultUrls = result.videoUrl ? [result.videoUrl] : []
+    const missingResultError =
+      result.status === "completed" && resultUrls.length === 0 && shouldStopWaitingForVideoUrl(job)
+        ? "任务已完成，但接口没有返回结果地址。"
+        : ""
+    const shouldRetryMissingVideoResult =
+      job.type === "video" && result.status === "completed" && resultUrls.length === 0 && !missingResultError
     const taskError =
       result.taskError ||
-      (result.status === "completed" && resultUrls.length === 0 ? "任务已完成，但接口没有返回结果地址。" : "")
-    const status: GenerationJobStatus = taskError && result.status === "completed" ? "failed" : result.status
+      missingResultError
+    const status: GenerationJobStatus =
+      taskError && result.status === "completed" ? "failed" : shouldRetryMissingVideoResult ? "processing" : result.status
 
     if (!isTerminalGenerationJobStatus(status)) {
       return updateGenerationJob(job.id, {
@@ -556,6 +568,11 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
   }
 }
 
+function shouldStopWaitingForVideoUrl(job: GenerationJob) {
+  if (job.type !== "video") return true
+  return Date.now() - Date.parse(job.created_at) >= videoMissingResultRetryMs
+}
+
 export async function lockGenerationJobForSync(id: string, lockMs = 2 * 60 * 1000) {
   const now = new Date().toISOString()
   const lockUntil = new Date(Date.now() + lockMs).toISOString()
@@ -582,14 +599,7 @@ export function normalizeJobTaskStatus(job: GenerationJob): NormalizedTaskStatus
 
   return {
     ok: true,
-    mode:
-      job.provider === "mengfactory"
-        ? "mengfactory"
-        : job.provider === "yunwu"
-          ? "yunwu"
-          : job.provider === "mock"
-            ? "mock"
-            : "apimart",
+    mode: job.provider === "mock" ? "mock" : job.provider === "yunwu" ? "yunwu" : "mock",
     taskId: job.id,
     status: job.status,
     progress: isTerminalGenerationJobStatus(job.status) ? 100 : 0,

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server"
-import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
-import { loadGenerationJobsForUser, loadInteractiveApimartGenerationJobsForUser, recoverStaleGenerationJobsForUser } from "@/lib/generation-jobs"
+import { syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
+import { loadGenerationJobsForUser, loadInteractiveYunwuGenerationJobsForUser, recoverStaleGenerationJobsForUser } from "@/lib/generation-jobs"
 import { generationJobToProjectItem } from "@/lib/project-history"
 import { getServerErrorStatus, requireAuthenticatedUser } from "@/lib/server-supabase"
 
 export async function GET(request: Request) {
   try {
     const auth = await requireAuthenticatedUser(request)
-    const jobsToSync = await loadInteractiveApimartGenerationJobsForUser({ userId: auth.userId })
-    await Promise.allSettled(jobsToSync.map((job) => syncApimartGenerationJob(job, { mode: "interactive" })))
+    const jobsToSync = await loadInteractiveYunwuGenerationJobsForUser({ userId: auth.userId })
+    await Promise.allSettled(jobsToSync.map((job) => syncYunwuGenerationJob(job, { mode: "interactive" })))
     await recoverStaleGenerationJobsForUser({ userId: auth.userId })
     const jobs = await loadGenerationJobsForUser({ userId: auth.userId })
 

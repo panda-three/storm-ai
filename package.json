@@ -5,7 +5,15 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build",
+    "check:env": "node scripts/check-production-env.mjs",
+    "check:supabase:selfhosted": "node scripts/check-self-hosted-supabase.mjs",
+    "backup:supabase:selfhosted": "node scripts/backup-self-hosted-supabase.mjs",
+    "migrate:supabase:public": "node scripts/migrate-supabase-public-data.mjs",
+    "migrate:supabase:storage": "node scripts/migrate-supabase-storage.mjs",
+    "migrate:supabase:storage:db": "node scripts/migrate-supabase-storage.mjs --from-database",
+    "reset:supabase:selfhosted-passwords": "node scripts/reset-self-hosted-user-passwords.mjs",
     "start": "next start",
+    "start:production": "node scripts/check-production-env.mjs && next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },

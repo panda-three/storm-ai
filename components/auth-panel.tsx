@@ -16,8 +16,8 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
-  claimCurrentAuthSession,
   clearSupabaseLocalSession,
+  claimCurrentAuthSession,
   getSupabaseClient,
   getSupabaseErrorMessage,
   isSupabaseConfigured,
@@ -341,7 +341,7 @@ export function AuthPanel({ onAuthed, variant = "page" }: AuthPanelProps) {
           return
         }
 
-        await claimCurrentAuthSession()
+        await claimCurrentAuthSession(supabase)
       } else {
         await clearSupabaseLocalSession(supabase)
 
@@ -352,12 +352,7 @@ export function AuthPanel({ onAuthed, variant = "page" }: AuthPanelProps) {
 
         if (error) throw error
 
-        try {
-          await claimCurrentAuthSession()
-        } catch (error) {
-          await supabase.auth.signOut({ scope: "local" }).catch(() => undefined)
-          throw error
-        }
+        await claimCurrentAuthSession(supabase)
       }
 
       onAuthed()

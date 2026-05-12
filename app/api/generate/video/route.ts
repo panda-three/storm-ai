@@ -4,8 +4,6 @@ import {
   failGenerationJobWithRefund,
   updateActiveGenerationJob,
 } from "@/lib/generation-jobs"
-import { createVideoGeneration, normalizeVideoDuration, uploadApimartImage } from "@/lib/apimart"
-import { createMengfactoryVideo } from "@/lib/mengfactory"
 import { createYunwuVideo } from "@/lib/yunwu"
 import { calculatePricingCredits, type ModelPricing } from "@/lib/supabase"
 import {
@@ -15,19 +13,16 @@ import {
   requireAuthenticatedUser,
   uploadGeneratedImage,
 } from "@/lib/server-supabase"
-import {
-  isMengfactoryVeoVideoModel,
-  isYunwuVideoModel,
-  legacyApimartVeoVideoModelName,
-  videoModelSettings,
-} from "@/lib/model-options"
+import { isSelectableVideoModel, videoModelSettings, yunwuVeo31FastVideoModelName } from "@/lib/model-options"
 import {
   getReferenceImageBucket,
   getReferenceImagePathPrefix,
-  maxReferenceImages,
   type StoredReferenceImage,
   validateReferenceImageMetadata,
 } from "@/lib/reference-images"
+
+const maxDefaultVideoReferenceImages = 4
+const maxYunwuVeoComponentsReferenceImages = 3
 
 interface PreparedVideoReferenceImage {
   bucket?: string
@@ -59,8 +54,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "请先输入视频提示词。" }, { status: 400 })
     }
 
-    const model = String(getValue("model") ?? legacyApimartVeoVideoModelName)
-    const duration = String(getValue("duration") ?? "5 秒")
+    const model = String(getValue("model") ?? yunwuVeo31FastVideoModelName)
+    const duration = String(getValue("duration") ?? "8 秒")
     const quality = String(getValue("quality") ?? "720P")
     const aspectRatio = String(getValue("aspectRatio") ?? "16:9")
     clientRequestId = String(getValue("clientRequestId") ?? "").trim()
@@ -68,7 +63,7 @@ export async function POST(request: Request) {
     const storedReferenceImages = body instanceof FormData ? [] : parseStoredReferenceImages(getValue("referenceImages"))
     const modelSettings = videoModelSettings[model]
 
-    if (!modelSettings) {
+    if (!isSelectableVideoModel(model) || !modelSettings) {
       return NextResponse.json({ ok: false, error: "请选择有效视频模型。" }, { status: 400 })
     }
 
@@ -76,12 +71,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "请选择当前模型支持的视频清晰度。" }, { status: 400 })
     }
 
+    if (!modelSettings.durations.includes(duration)) {
+      return NextResponse.json({ ok: false, error: "请选择当前模型支持的视频时长。" }, { status: 400 })
+    }
+
     if (!modelSettings.aspectRatios.includes(aspectRatio)) {
       return NextResponse.json({ ok: false, error: "请选择当前模型支持的视频比例。" }, { status: 400 })
     }
 
-    validateReferenceFiles(referenceFiles)
-    validateStoredReferenceImages(storedReferenceImages, userId)
+    const maxReferenceImages = getMaxVideoReferenceImages(model)
+    validateReferenceFiles(referenceFiles, maxReferenceImages)
+    validateStoredReferenceImages(storedReferenceImages, userId, maxReferenceImages)
 
     if (referenceFiles.length > 0 && storedReferenceImages.length > 0) {
       return NextResponse.json(
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
       clientRequestId,
       model,
       prompt,
-      provider: isMengfactoryVeoVideoModel(model) ? "mengfactory" : isYunwuVideoModel(model) ? "yunwu" : "apimart",
+      provider: "yunwu",
       quality,
       aspectRatio,
       durationSeconds: normalizeVideoDuration(duration),
@@ -138,97 +138,51 @@ export async function POST(request: Request) {
     })
     jobId = job.id
 
+    if (job.already_exists) {
+      if (job.status === "failed") {
+        return NextResponse.json({
+          ok: false,
+          error: job.task_error ?? "该视频任务已失败。",
+          taskId: job.id,
+          clientRequestId: job.client_request_id ?? clientRequestId,
+        })
+      }
+
+      return NextResponse.json({
+        ok: true,
+        mode: "yunwu",
+        status: job.status,
+        taskId: job.id,
+        upstreamTaskId: job.upstream_task_id ?? "",
+        type: "video",
+        clientRequestId: job.client_request_id ?? clientRequestId,
+        taskError: job.task_error ?? "",
+      })
+    }
+
     preparedReferenceImages = await prepareReferenceImages({
       referenceFiles,
       storedReferenceImages,
       userId,
     })
 
-    if (isMengfactoryVeoVideoModel(model)) {
-      const imageUrls = getPreparedReferencePublicUrls(preparedReferenceImages)
-      const generationInput = {
-        imageUrls,
-        model,
-        prompt,
-        quality,
-        aspectRatio,
-      }
-      logGenerateVideo("generation input", generationInput)
-
-      const result = await createMengfactoryVideo(generationInput)
-      upstreamTaskId = result.taskId
-      cleanupPreparedReferenceImages = false
-      const nextJob = await updateActiveGenerationJob(job.id, {
-        next_check_at: new Date(Date.now() + 5000).toISOString(),
-        status: result.status === "submitted" ? "submitted" : "processing",
-        storage_urls: imageUrls,
-        upstream_task_id: result.taskId,
-      })
-
-      if (!nextJob) {
-        throw new Error("生成任务已结束，不能提交上游任务。")
-      }
-
-      logGenerateVideo("output", result)
-
-      return NextResponse.json({
-        ...result,
-        clientRequestId,
-        taskId: job.id,
-        upstreamTaskId: result.taskId,
-      })
-    }
-
-    if (isYunwuVideoModel(model)) {
-      const imageUrls = getPreparedReferencePublicUrls(preparedReferenceImages)
-      const generationInput = {
-        imageUrls,
-        model,
-        prompt,
-        quality,
-        aspectRatio,
-      }
-      logGenerateVideo("yunwu generation input", generationInput)
-
-      const result = await createYunwuVideo(generationInput)
-      upstreamTaskId = result.taskId
-      cleanupPreparedReferenceImages = false
-      const nextJob = await updateActiveGenerationJob(job.id, {
-        next_check_at: new Date(Date.now() + 5000).toISOString(),
-        status: result.status === "submitted" ? "submitted" : "processing",
-        storage_urls: imageUrls,
-        upstream_task_id: result.taskId,
-      })
-
-      if (!nextJob) {
-        throw new Error("生成任务已结束，不能提交上游任务。")
-      }
-
-      logGenerateVideo("output", result)
-
-      return NextResponse.json({
-        ...result,
-        clientRequestId,
-        taskId: job.id,
-        upstreamTaskId: result.taskId,
-      })
-    }
-
+    const imageUrls = getPreparedReferencePublicUrls(preparedReferenceImages)
     const generationInput = {
-      referenceImages: await uploadApimartReferenceImages(preparedReferenceImages),
+      imageUrls,
       model,
       prompt,
-      duration: normalizeVideoDuration(duration),
       quality,
       aspectRatio,
     }
-    logGenerateVideo("generation input", generationInput)
+    logGenerateVideo("yunwu generation input", generationInput)
 
-    const result = await createVideoGeneration(generationInput)
+    const result = await createYunwuVideo(generationInput)
     upstreamTaskId = result.taskId
+    cleanupPreparedReferenceImages = false
     const nextJob = await updateActiveGenerationJob(job.id, {
       next_check_at: new Date(Date.now() + 5000).toISOString(),
       status: result.status === "submitted" ? "submitted" : "processing",
+      storage_urls: imageUrls,
       upstream_task_id: result.taskId,
     })
 
@@ -264,12 +218,7 @@ export async function POST(request: Request) {
         if (recoveredJob) {
           return NextResponse.json({
             ok: true,
-            mode:
-              recoveredJob.provider === "mengfactory"
-                ? "mengfactory"
-                : recoveredJob.provider === "yunwu"
-                  ? "yunwu"
-                  : "apimart",
+            mode: "yunwu",
             status: recoveredJob.status,
             taskId: recoveredJob.id,
             upstreamTaskId,
@@ -317,6 +266,11 @@ async function recoverSubmittedVideoJob({
   })
 }
 
+function normalizeVideoDuration(duration: string) {
+  const parsed = Number.parseInt(duration, 10)
+  return Number.isFinite(parsed) ? parsed : 6
+}
+
 async function loadVideoPricing({
   durationSeconds,
   model,
@@ -360,7 +314,13 @@ function parseStoredReferenceImages(value: unknown): StoredReferenceImage[] {
   })
 }
 
-function validateReferenceFiles(referenceImages: File[]) {
+function getMaxVideoReferenceImages(model: string) {
+  return model === yunwuVeo31FastVideoModelName
+    ? maxYunwuVeoComponentsReferenceImages
+    : maxDefaultVideoReferenceImages
+}
+
+function validateReferenceFiles(referenceImages: File[], maxReferenceImages: number) {
   if (referenceImages.length > maxReferenceImages) {
     throw new Error(`参考图最多上传 ${maxReferenceImages} 张。`)
   }
@@ -370,7 +330,7 @@ function validateReferenceFiles(referenceImages: File[]) {
   }
 }
 
-function validateStoredReferenceImages(referenceImages: StoredReferenceImage[], userId: string) {
+function validateStoredReferenceImages(referenceImages: StoredReferenceImage[], userId: string, maxReferenceImages: number) {
   if (referenceImages.length > maxReferenceImages) {
     throw new Error(`参考图最多上传 ${maxReferenceImages} 张。`)
   }
@@ -460,27 +420,6 @@ function getPreparedReferencePublicUrls(referenceImages: PreparedVideoReferenceI
   return urls
 }
 
-async function uploadApimartReferenceImages(referenceImages: PreparedVideoReferenceImage[]) {
-  if (referenceImages.length === 0) return []
-
-  const urls = await Promise.all(
-    referenceImages.map(async (image) =>
-      uploadApimartImage({
-        buffer: image.buffer,
-        filename: image.name,
-        mimeType: image.mimeType,
-      })
-    )
-  )
-
-  const validUrls = urls.filter(Boolean)
-  if (validUrls.length !== referenceImages.length) {
-    throw new Error(`参考图上传到 APIMART 失败：${validUrls.length}/${referenceImages.length} 张返回了有效 URL。`)
-  }
-
-  return validUrls.map((url) => ({ url }))
-}
-
 async function cleanupStoredReferenceImages(referenceImages: PreparedVideoReferenceImage[]) {
   const storedImages = referenceImages.filter((image) => image.bucket && image.path)
   if (storedImages.length === 0) return
@@ -517,6 +456,11 @@ function toFileLog(file: File) {
 }
 
 function logGenerateVideo(label: string, value: unknown) {
+  if (label === "error") {
+    console.error(`[Generate Video] ${label}`, value)
+    return
+  }
+
   if (process.env.LOG_GENERATION_DEBUG !== "1") return
   console.log(`[Generate Video] ${label}`, value)
 }

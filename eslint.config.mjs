@@ -9,6 +9,8 @@ export default tseslint.config(
     ignores: [
       ".next/**",
       ".obsidian/**",
+      "**/*.sync-conflict-*",
+      "**/.syncthing.*.tmp",
       "docs/storm-ai-conversations/**",
       "docs/storm-ai-conversation-index.md",
       "docs/storm-ai-conversations.md",
@@ -19,6 +21,15 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    files: ["*.cjs", "scripts/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2024,
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
   {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
@@ -43,14 +54,6 @@ export default tseslint.config(
       "react-hooks/set-state-in-effect": "off",
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": ["error", { "varsIgnorePattern": "^actionTypes$" }],
-    },
-  },
-  {
-    files: ["**/*.cjs"],
-    languageOptions: {
-      globals: {
-        ...globals.node,
-      },
     },
   },
 )

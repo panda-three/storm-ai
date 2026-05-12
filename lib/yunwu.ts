@@ -1,11 +1,15 @@
 import {
-  apimartVeo31FastVideoModelName,
   grokVideo3ModelName,
-  mengfactoryGeminiImageApiModelName,
+  yunwuGeminiImageModelName,
+  yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
-import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/apimart"
+import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-types"
 
 const YUNWU_BASE_URL = process.env.YUNWU_BASE_URL ?? "https://yunwu.ai"
+const yunwuDefaultTimeoutMs = 60_000
+const yunwuGeminiImageTimeoutMs = 180_000
+const yunwuGptImageTimeoutMs = 180_000
+const yunwuVeo31FastApiModel = "veo3.1-fast-components"
 
 export interface YunwuReferenceImage {
   buffer: Buffer
@@ -73,7 +77,7 @@ export async function createYunwuGeminiImage(request: YunwuGeminiImageRequest): 
       },
     },
   }
-  const url = new URL(`/v1beta/models/${mengfactoryGeminiImageApiModelName}:generateContent`, YUNWU_BASE_URL)
+  const url = new URL(`/v1beta/models/${yunwuGeminiImageModelName}:generateContent`, YUNWU_BASE_URL)
   url.searchParams.set("key", apiKey)
 
   logYunwu("gemini image input", {
@@ -84,10 +88,17 @@ export async function createYunwuGeminiImage(request: YunwuGeminiImageRequest): 
     referenceImageCount: request.referenceImages.length,
   })
 
-  const data = await yunwuJsonRequest(url, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
+  const data = await yunwuJsonRequest(
+    url,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    {
+      timeoutMs: yunwuGeminiImageTimeoutMs,
+      timeoutMessage: "云雾 Gemini 图片生成超时，请稍后重试或减少参考图数量。",
+    }
+  )
   const image = extractFirstGeneratedImage(data)
 
   logYunwu("gemini image output", {
@@ -100,38 +111,99 @@ export async function createYunwuGeminiImage(request: YunwuGeminiImageRequest): 
 
 export async function createYunwuGptImages(request: YunwuGptImageRequest) {
   const imageCount = normalizeImageCount(request.imageCount)
-  const payload = {
-    model: request.model,
-    prompt: request.prompt,
-    size: normalizeGptImageSize(request.ratio),
-    n: imageCount,
-    ...(request.imageUrls?.length ? { image: request.imageUrls } : {}),
+  const results = await Promise.allSettled(Array.from({ length: imageCount }, () => createSingleYunwuGptImage(request)))
+  const imageUrls = results
+    .filter((result): result is PromiseFulfilledResult<string> => result.status === "fulfilled")
+    .map((result) => result.value)
+
+  if (imageUrls.length === 0) {
+    const errors = Array.from(
+      new Set(
+        results
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason))
+          .filter(Boolean)
+      )
+    )
+    throw new Error(errors.length > 0 ? errors.join("；") : "云雾 GPT 图片接口已返回，但没有找到生成图片地址。")
   }
 
-  logYunwu("gpt image input", {
-    ...payload,
-    image: request.imageUrls?.length ?? 0,
-  })
+  return imageUrls
+}
 
-  const data = await yunwuJsonRequest("/v1/images/generations", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  })
-  const imageUrls = extractMediaUrls(data, ["url", "image", "image_url", "image_urls", "data"], [
+async function createSingleYunwuGptImage(request: YunwuGptImageRequest) {
+  const imageUrls = request.imageUrls ?? []
+  const data = imageUrls.length > 0
+    ? await createYunwuGptImageWithReferences(request, imageUrls)
+    : await createYunwuGptImageFromText(request)
+  const urls = extractMediaUrls(data, ["url", "image", "image_url", "image_urls", "data", "content", "b64_json"], [
     "png",
     "jpg",
     "jpeg",
     "webp",
     "gif",
     "avif",
-  ]).slice(0, imageCount)
+  ])
 
-  if (imageUrls.length === 0) {
+  if (urls.length === 0) {
     throw new Error("云雾 GPT 图片接口已返回，但没有找到生成图片地址。")
   }
 
-  logYunwu("gpt image output", { imageUrls: imageUrls.length })
-  return imageUrls
+  logYunwu("gpt image output", { imageUrls: urls.length })
+  return urls[0]
+}
+
+async function createYunwuGptImageFromText(request: YunwuGptImageRequest) {
+  const payload = {
+    model: request.model,
+    prompt: request.prompt,
+    size: normalizeGptImageSize(request.ratio),
+    n: 1,
+  }
+
+  logYunwu("gpt image input", {
+    ...payload,
+    image: 0,
+  })
+
+  return yunwuJsonRequest(
+    "/v1/images/generations",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    {
+      timeoutMs: yunwuGptImageTimeoutMs,
+      timeoutMessage: "云雾 GPT 图片生成超时，请稍后重试或减少参考图数量。",
+    }
+  )
+}
+
+async function createYunwuGptImageWithReferences(request: YunwuGptImageRequest, imageUrls: string[]) {
+  const payload = {
+    model: request.model,
+    prompt: request.prompt,
+    size: normalizeGptImageSize(request.ratio),
+    n: 1,
+    image: imageUrls,
+  }
+
+  logYunwu("gpt image input", {
+    ...payload,
+    image: imageUrls.length,
+  })
+
+  return yunwuJsonRequest(
+    "/v1/images/generations",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    {
+      timeoutMs: yunwuGptImageTimeoutMs,
+      timeoutMessage: "云雾 GPT 图片参考图生成超时，请稍后重试或减少参考图数量。",
+    }
+  )
 }
 
 export async function createYunwuVideo(request: YunwuVideoRequest): Promise<GenerationResponse> {
@@ -140,7 +212,7 @@ export async function createYunwuVideo(request: YunwuVideoRequest): Promise<Gene
     model: apiModel,
     prompt: request.prompt,
     aspect_ratio: request.aspectRatio,
-    ...(apiModel === "veo3.1-fast"
+    ...(isYunwuVeoComponentsModel(apiModel)
       ? {
           enhance_prompt: true,
           enable_upsample: request.quality.trim().toUpperCase() !== "720P",
@@ -182,13 +254,12 @@ export async function getYunwuVideoTaskStatus(taskId: string): Promise<Normalize
   const data = await yunwuJsonRequest(`/v1/video/query?id=${encodeURIComponent(taskId)}`, {
     method: "GET",
   })
-  const statusText = findStringValue(data, ["status", "state", "task_status"])
-  const status = normalizeYunwuStatus(statusText)
+  const status = normalizeYunwuTaskStatus(data)
+  const taskError = findYunwuTaskError(data, status)
   const videoUrl =
     findStringValue(data, ["upsample_video_url", "video_url", "videoUrl"]) ||
     extractMediaUrls(data, ["video", "url", "output", "result"], ["mp4", "mov", "webm"])[0] ||
     ""
-  const taskError = findStringValue(data, ["error", "message", "error_message", "reason", "fail_reason"])
 
   return {
     ok: true,
@@ -209,9 +280,13 @@ export function isYunwuRateLimitError(message: string) {
 }
 
 function getYunwuVideoApiModel(model: string) {
-  if (model === apimartVeo31FastVideoModelName) return "veo3.1-fast"
+  if (model === yunwuVeo31FastVideoModelName) return yunwuVeo31FastApiModel
   if (model === grokVideo3ModelName) return "grok-video-3"
   return model
+}
+
+function isYunwuVeoComponentsModel(model: string) {
+  return model === yunwuVeo31FastApiModel
 }
 
 function normalizeImageCount(value: number | undefined): number {
@@ -249,19 +324,40 @@ function normalizeGrokVideoSize(quality: string) {
   return quality.trim().toUpperCase() === "480P" ? "480P" : "720P"
 }
 
-async function yunwuJsonRequest(pathOrUrl: string | URL, init: RequestInit) {
+async function yunwuJsonRequest(
+  pathOrUrl: string | URL,
+  init: RequestInit,
+  {
+    timeoutMessage = "云雾请求超时，请稍后重试。",
+    timeoutMs = yunwuDefaultTimeoutMs,
+  }: {
+    timeoutMessage?: string
+    timeoutMs?: number
+  } = {}
+) {
   const apiKey = getYunwuApiKey()
   const url = typeof pathOrUrl === "string" ? new URL(pathOrUrl, YUNWU_BASE_URL) : pathOrUrl
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      ...init.headers,
-    },
-    signal: AbortSignal.timeout(60000),
-  })
+  let response: Response
+
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        ...init.headers,
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(timeoutMessage, { cause: error })
+    }
+
+    throw error
+  }
+
   const data = await response.json().catch(() => ({}))
 
   if (!response.ok) {
@@ -269,6 +365,10 @@ async function yunwuJsonRequest(pathOrUrl: string | URL, init: RequestInit) {
   }
 
   return data
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
 }
 
 function getYunwuApiKey() {
@@ -328,14 +428,40 @@ function findInlineData(value: unknown): GeminiInlineData | null {
   return null
 }
 
+function normalizeYunwuTaskStatus(data: unknown): NormalizedTaskStatus["status"] {
+  const statusValues = collectStringValuesForKeys(data, [
+    "status",
+    "state",
+    "task_status",
+    "taskStatus",
+    "mediaGenerationStatus",
+    "media_generation_status",
+  ])
+
+  if (statusValues.some(isFailedYunwuStatus) || hasYunwuFailureReason(data)) {
+    return "failed"
+  }
+
+  for (const status of statusValues) {
+    const normalized = normalizeYunwuStatus(status)
+    if (normalized !== "processing") return normalized
+  }
+
+  return "processing"
+}
+
 function normalizeYunwuStatus(status: string): NormalizedTaskStatus["status"] {
   const value = status.toLowerCase()
 
-  if (["success", "succeeded", "completed", "complete", "done", "finish", "finished"].includes(value)) {
+  if (
+    ["success", "succeeded", "completed", "complete", "done", "finish", "finished"].includes(value) ||
+    value.endsWith("_succeeded") ||
+    value.endsWith("_completed")
+  ) {
     return "completed"
   }
 
-  if (["failed", "fail", "error", "cancelled", "canceled"].includes(value)) {
+  if (isFailedYunwuStatus(status)) {
     return "failed"
   }
 
@@ -346,9 +472,81 @@ function normalizeYunwuStatus(status: string): NormalizedTaskStatus["status"] {
   return "processing"
 }
 
+function isFailedYunwuStatus(status: string) {
+  const value = status.toLowerCase()
+  return (
+    ["failed", "fail", "error", "cancelled", "canceled"].includes(value) ||
+    value.endsWith("_failed") ||
+    value.includes("generation_status_failed")
+  )
+}
+
+function hasYunwuFailureReason(data: unknown) {
+  return collectStringValuesForKeys(data, ["failureReasons", "failure_reasons"]).length > 0
+}
+
+function findYunwuTaskError(data: unknown, status: NormalizedTaskStatus["status"]) {
+  const failureReasons = collectStringValuesForKeys(data, ["failureReasons", "failure_reasons"])
+  const errorMessages = collectStringValuesForKeys(data, ["error_message", "reason", "fail_reason", "error"])
+  const messages = status === "failed" ? collectStringValuesForKeys(data, ["message"]) : []
+  const allMessages = [...errorMessages, ...messages]
+  const tokens = [...failureReasons, ...allMessages.flatMap(extractYunwuErrorTokens)]
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  if (tokens.length > 0) {
+    return Array.from(new Set(tokens)).slice(0, 3).join(" / ")
+  }
+
+  const concise = allMessages.map((value) => value.trim()).filter(Boolean)
+
+  return Array.from(new Set(concise)).slice(0, 3).join(" / ")
+}
+
 function describeYunwuError(status: number, data: unknown) {
   const message = findStringValue(data, ["message", "error", "details", "detail"])
   return message ? `云雾请求失败（${status}）：${message}` : `云雾请求失败（${status}）。`
+}
+
+function collectStringValuesForKeys(value: unknown, keys: string[]): string[] {
+  const values: string[] = []
+  collectStringValuesForKeysInto(value, new Set(keys.map((key) => key.toLowerCase())), values)
+  return values
+}
+
+function collectStringValuesForKeysInto(value: unknown, keys: Set<string>, values: string[]) {
+  if (!value || typeof value !== "object") return
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => {
+      if (typeof item === "string") values.push(item)
+      collectStringValuesForKeysInto(item, keys, values)
+    })
+    return
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (keys.has(key.toLowerCase())) {
+      if (typeof nested === "string") {
+        values.push(nested)
+      } else if (Array.isArray(nested)) {
+        nested.forEach((item) => {
+          if (typeof item === "string") values.push(item)
+          collectStringValuesForKeysInto(item, keys, values)
+        })
+      } else {
+        collectStringValuesForKeysInto(nested, keys, values)
+      }
+      continue
+    }
+
+    collectStringValuesForKeysInto(nested, keys, values)
+  }
+}
+
+function extractYunwuErrorTokens(message: string) {
+  const tokens = message.match(/\b(?:PUBLIC_ERROR_[A-Z0-9_]+|GENERATED_VIDEO_[A-Z0-9_]+)\b/g)
+  return tokens ?? []
 }
 
 function findStringValue(value: unknown, keys: string[]): string {
@@ -407,8 +605,8 @@ function collectUrls(value: unknown, urls: Set<string>) {
   if (!value) return
 
   if (typeof value === "string") {
-    if (value.startsWith("http://") || value.startsWith("https://")) {
-      urls.add(value)
+    for (const url of extractUrlsFromString(value)) {
+      urls.add(url)
     }
     return
   }
@@ -424,8 +622,29 @@ function collectUrls(value: unknown, urls: Set<string>) {
 }
 
 function hasExtension(url: string, extensions: string[]) {
+  if (url.startsWith("data:image/")) return true
   const normalized = url.split("?")[0].toLowerCase()
   return extensions.some((extension) => normalized.endsWith(`.${extension}`))
+}
+
+function extractUrlsFromString(value: string) {
+  const urls: string[] = []
+  const dataUrlPattern = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=_-]+/gi
+  const httpUrlPattern = /https?:\/\/[^\s"'<>()[\]]+/gi
+
+  for (const match of value.matchAll(dataUrlPattern)) {
+    urls.push(trimExtractedUrl(match[0]))
+  }
+
+  for (const match of value.matchAll(httpUrlPattern)) {
+    urls.push(trimExtractedUrl(match[0]))
+  }
+
+  return urls.filter(Boolean)
+}
+
+function trimExtractedUrl(value: string) {
+  return value.replace(/[),.;]+$/g, "")
 }
 
 function logYunwu(label: string, value: unknown) {

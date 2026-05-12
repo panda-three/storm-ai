@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Coins, QrCode, Settings2, Ticket, Users, ReceiptText } from "lucide-react"
 import { AdminMetricCard } from "@/components/admin/admin-form-controls"
 import { useAdmin } from "@/components/admin/admin-provider"
+import { isSelectableModelPricing } from "@/lib/model-options"
 
 const dashboardLinks = [
   { href: "/admin/customer-service", label: "客服配置", description: "微信号、二维码和充值说明", icon: QrCode },
@@ -16,9 +17,10 @@ const dashboardLinks = [
 
 export function AdminDashboard() {
   const { adminAccounts, modelPricing, redeemCodes } = useAdmin()
+  const visibleModelPricing = modelPricing.filter(isSelectableModelPricing)
   const totalUserCredits = adminAccounts.reduce((sum, item) => sum + item.credit_balance, 0)
   const usedRedeemCount = redeemCodes.filter((item) => item.status === "used").length
-  const enabledPricingCount = modelPricing.filter((item) => item.enabled).length
+  const enabledPricingCount = visibleModelPricing.filter((item) => item.enabled).length
 
   return (
     <>
@@ -26,7 +28,7 @@ export function AdminDashboard() {
         <AdminMetricCard label="用户账户" value={`${adminAccounts.length}`} />
         <AdminMetricCard label="用户点数余额合计" value={totalUserCredits.toLocaleString()} />
         <AdminMetricCard label="已使用兑换码" value={`${usedRedeemCount}/${redeemCodes.length}`} />
-        <AdminMetricCard label="启用模型价格" value={`${enabledPricingCount}/${modelPricing.length}`} />
+        <AdminMetricCard label="启用模型价格" value={`${enabledPricingCount}/${visibleModelPricing.length}`} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

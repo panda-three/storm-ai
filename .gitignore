@@ -17,7 +17,19 @@ node_modules
 .next/
 .DS_Store
 .pnpm-store/
+backups/
 *.tsbuildinfo
+
+# Local sync/editor artifacts
+.obsidian/
+.stfolder/
+.stignore
+*.sync-conflict-*
+.syncthing.*.tmp
+**/.syncthing.*.tmp
+
+# Local screenshots/debug images kept at repo root
+/*.png
 
 # Local Codex conversation exports may contain secrets or browser session data
 docs/storm-ai-conversation-index.md

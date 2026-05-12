@@ -36,6 +36,8 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
+    "**/*.sync-conflict-*",
+    "**/.syncthing.*.tmp",
     "node_modules"
   ]
 }

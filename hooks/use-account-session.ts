@@ -16,6 +16,7 @@ import {
   type ProjectItem,
 } from "@/lib/project-history"
 import {
+  claimCurrentAuthSession,
   getSupabaseClient,
   loadSupabaseAccount,
   saveSupabaseAccount,
@@ -54,10 +55,7 @@ function isSessionInvalidError(error: unknown) {
   return (
     isInvalidRefreshTokenError(error) ||
     message.includes("登录状态已失效") ||
-    message.includes("请先登录") ||
-    message.includes("其他设备登录") ||
-    message.includes("解除登录占用") ||
-    message.includes("重新登录")
+    message.includes("请先登录")
   )
 }
 
@@ -176,7 +174,25 @@ export function useAccountSession() {
         return
       }
 
-      setUser(data.session?.user ?? null)
+      const session = data.session
+      if (!session) {
+        setUser(null)
+        setAuthReady(true)
+        return
+      }
+
+      const { data: userData, error: userError } = await supabase.auth.getUser()
+      if (!active) return
+
+      if (userError || !userData.user) {
+        await clearSession("登录状态已失效，请重新登录。")
+        return
+      }
+
+      await claimCurrentAuthSession(supabase)
+      if (!active) return
+
+      setUser(userData.user)
       setAuthReady(true)
     }).catch(async (error) => {
       if (!active) return

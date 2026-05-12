@@ -3,15 +3,9 @@ import {
   createGenerationJobWithBilling,
   failGenerationJobWithRefund,
   getGenerationJobExpiresAt,
-  updateGenerationJob,
   updateActiveGenerationJob,
   type GenerationJobStatus,
 } from "@/lib/generation-jobs"
-import { createImageGeneration, normalizeImageResolution, uploadApimartImage } from "@/lib/apimart"
-import {
-  createMengfactoryImage,
-  type MengfactoryGeneratedImage,
-} from "@/lib/mengfactory"
 import {
   createYunwuGeminiImage,
   createYunwuGptImages,
@@ -33,11 +27,13 @@ import {
 } from "@/lib/server-supabase"
 import {
   gptImage2Supported4KRatios,
-  isMengfactoryGeminiImageModel,
+  imageModelSettings,
+  isSelectableImageModel,
   isYunwuGeminiImageModel,
   isYunwuGptImageModel,
   isYunwuImageModel,
   isValidImageRatioForQuality,
+  yunwuGeminiImageModelName,
 } from "@/lib/model-options"
 import {
   getReferenceImageBucket,
@@ -58,10 +54,9 @@ interface PreparedReferenceImage {
 
 export async function POST(request: Request) {
   let billingReason = ""
-  let clientRequestId = ""
+  let clientRequestId: string
   let jobId = ""
   let stage = "authenticate"
-  let upstreamTaskId = ""
   let userId = ""
   let preparedReferenceImages: PreparedReferenceImage[] = []
 
@@ -78,13 +73,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "请先输入生图提示词。" }, { status: 400 })
     }
 
-    const model = String(getValue("model") ?? "Gemini Nano Banana Pro")
+    const model = String(getValue("model") ?? yunwuGeminiImageModelName)
     const quality = String(getValue("quality") ?? "2K")
     const ratio = String(getValue("ratio") ?? "1:1")
     const imageCount = parseImageCount(getValue("imageCount"))
     clientRequestId = String(getValue("clientRequestId") ?? "").trim()
     const referenceFiles = body instanceof FormData ? body.getAll("referenceImages").filter(isImageFile) : []
     const storedReferenceImages = body instanceof FormData ? [] : parseStoredReferenceImages(getValue("referenceImages"))
+    const modelSettings = imageModelSettings[model]
+
+    if (!isSelectableImageModel(model) || !modelSettings) {
+      return NextResponse.json({ ok: false, error: "请选择有效图片模型。" }, { status: 400 })
+    }
+
+    if (!modelSettings.qualities.includes(quality)) {
+      return NextResponse.json({ ok: false, error: "请选择当前模型支持的图片清晰度。" }, { status: 400 })
+    }
 
     if (!isValidImageRatioForQuality(model, quality, ratio)) {
       return NextResponse.json(
@@ -94,6 +98,10 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       )
+    }
+
+    if (!modelSettings.ratios.includes(ratio)) {
+      return NextResponse.json({ ok: false, error: "请选择当前模型支持的图片比例。" }, { status: 400 })
     }
 
     stage = "validate_reference_images"
@@ -147,31 +155,27 @@ export async function POST(request: Request) {
       billingReason = `${billingReason} · 会员免费`
     }
 
-    const isMengfactoryImage = isMengfactoryGeminiImageModel(model)
     const isYunwuImage = isYunwuImageModel(model)
-    const provider = isMengfactoryImage ? "mengfactory" : isYunwuImage ? "yunwu" : "apimart"
     logGenerateImage("provider route", {
-      isMengfactoryImage,
       isYunwuImage,
       model,
-      provider,
+      provider: "yunwu",
     })
+    if (!isYunwuImage) {
+      return NextResponse.json({ ok: false, error: "当前图片模型暂只支持 Yunwu 上游。" }, { status: 400 })
+    }
+
     stage = "prepare_reference_images"
     preparedReferenceImages = await prepareReferenceImages({
       referenceFiles,
       storedReferenceImages,
       userId,
     })
-    const referenceBuffers = isMengfactoryImage || isYunwuGeminiImageModel(model)
-      ? await prepareMengfactoryReferenceImages(preparedReferenceImages, () => {
-          stage = isYunwuGeminiImageModel(model) ? "prepare_yunwu_gemini_references" : "prepare_mengfactory_references"
+    const referenceBuffers = isYunwuGeminiImageModel(model)
+      ? await prepareYunwuGeminiReferenceImages(preparedReferenceImages, () => {
+          stage = "prepare_yunwu_gemini_references"
         })
       : []
-    const apimartReferenceImageUrls = isMengfactoryImage || isYunwuGeminiImageModel(model) || isYunwuGptImageModel(model)
-      ? []
-      : await uploadApimartReferenceImages(preparedReferenceImages, () => {
-          stage = "upload_apimart_references"
-        })
     const yunwuReferenceImageUrls = isYunwuGptImageModel(model)
       ? await prepareYunwuReferenceImageUrls(preparedReferenceImages, userId, () => {
           stage = "prepare_yunwu_gpt_references"
@@ -186,7 +190,7 @@ export async function POST(request: Request) {
       isFree,
       model,
       prompt,
-      provider,
+      provider: "yunwu",
       quality,
       aspectRatio: ratio,
       reason: billingReason,
@@ -196,182 +200,13 @@ export async function POST(request: Request) {
     })
     jobId = job.id
 
-    if (isMengfactoryImage) {
-      stage = "submit_mengfactory_generation"
-      const generatedImages: PromiseSettledResult<MengfactoryGeneratedImage>[] = await Promise.allSettled(
-        Array.from({ length: imageCount }, () =>
-          createMengfactoryImage({
-            model,
-            prompt,
-            quality,
-            ratio,
-            referenceImages: referenceBuffers,
-          })
-        )
-      )
-      const successfulImages = generatedImages
-        .filter((result): result is PromiseFulfilledResult<MengfactoryGeneratedImage> => result.status === "fulfilled")
-        .map((result) => result.value)
-      const imageUrls: string[] = []
-
-      try {
-        stage = "persist_mengfactory_results"
-        for (const generated of successfulImages) {
-          const uploaded = await uploadGeneratedImage({
-            buffer: generated.buffer,
-            contentType: generated.mimeType,
-            userId,
-          })
-          imageUrls.push(uploaded.publicUrl)
-        }
-
-        if (imageUrls.length === 0) {
-          throw new Error(buildAllSettledFailureMessage(generatedImages, "图片生成失败，未返回可用结果。"))
-        }
-
-        const status: GenerationJobStatus = imageUrls.length < imageCount ? "partial_completed" : "completed"
-        const taskError =
-          status === "partial_completed"
-            ? buildPartialImageMessage({
-                amount: billingAmount,
-                expectedResultCount: imageCount,
-                successCount: imageUrls.length,
-                upstreamErrors: summarizeSettledErrors(generatedImages),
-              })
-            : null
-
-        stage = "complete_mengfactory_job"
-        const completedAt = new Date().toISOString()
-        const nextJob = await updateActiveGenerationJob(job.id, {
-          completed_at: completedAt,
-          expires_at: getGenerationJobExpiresAt(completedAt),
-          result_urls: imageUrls,
-          status,
-          storage_urls: imageUrls,
-          task_error: taskError,
-        })
-
-        if (!nextJob) {
-          await Promise.all(imageUrls.map((url) => deleteGeneratedImageByPublicUrl(url)))
-          throw new Error("生成任务已结束，迟到结果已丢弃。")
-        }
-
-        if (status === "partial_completed") {
-          const partialRefundAmount = calculatePartialRefundAmount(billingAmount, imageUrls.length, imageCount)
-          await refundImageGenerationCredits({
-            amount: partialRefundAmount,
-            reason: `AI 生图部分失败退款 · ${model} · ${imageCount - imageUrls.length}/${imageCount} 张`,
-            reference: buildPartialRefundReference(billingReference, imageUrls.length, imageCount),
-            userId,
-          })
-        }
-
+    if (job.already_exists) {
+      if (job.status === "failed") {
         return NextResponse.json({
-          ok: true,
-          mode: "mengfactory",
+          ok: false,
+          error: job.task_error ?? "该生图任务已失败。",
           taskId: job.id,
-          status,
-          type: "image",
-          imageUrls,
-          clientRequestId,
-          progress: 100,
-          taskError: taskError ?? "",
-        })
-      } catch (error) {
-        await Promise.all(imageUrls.map((url) => deleteGeneratedImageByPublicUrl(url)))
-        throw error
-      }
-    }
-
-    if (isYunwuImage) {
-      stage = "submit_yunwu_generation"
-      const generatedResults: PromiseSettledResult<string>[] = isYunwuGeminiImageModel(model)
-        ? await Promise.allSettled(
-            Array.from({ length: imageCount }, async () => {
-              const generated: YunwuGeneratedImage = await createYunwuGeminiImage({
-                model,
-                prompt,
-                quality,
-                ratio,
-                referenceImages: referenceBuffers,
-              })
-              const uploaded = await uploadGeneratedImage({
-                buffer: generated.buffer,
-                contentType: generated.mimeType,
-                userId,
-              })
-              return uploaded.publicUrl
-            })
-          )
-        : await Promise.allSettled(
-            (
-              await createYunwuGptImages({
-                imageUrls: yunwuReferenceImageUrls,
-                imageCount,
-                model,
-                prompt,
-                ratio,
-              })
-            ).map((url) =>
-              persistRemoteGeneratedImage({
-                sourceUrl: url,
-                userId,
-              }).catch((error) => {
-                console.warn("[Generate Image] yunwu remote image mirror failed", {
-                  error: describeServerError(error, "生成图片转存失败。"),
-                  url,
-                })
-                return url
-              })
-            )
-          )
-      const imageUrls = generatedResults
-        .filter((result): result is PromiseFulfilledResult<string> => result.status === "fulfilled")
-        .map((result) => result.value)
-        .filter(Boolean)
-
-      if (imageUrls.length === 0) {
-        throw new Error(buildAllSettledFailureMessage(generatedResults, "图片生成失败，未返回可用结果。"))
-      }
-
-      const status: GenerationJobStatus = imageUrls.length < imageCount ? "partial_completed" : "completed"
-      const upstreamErrors = summarizeSettledErrors(generatedResults)
-      const taskError =
-        status === "partial_completed"
-          ? buildPartialImageMessage({
-              amount: billingAmount,
-              expectedResultCount: imageCount,
-              successCount: imageUrls.length,
-              upstreamErrors,
-            })
-          : upstreamErrors.length > 0
-            ? upstreamErrors.join("；")
-            : null
-      const completedAt = new Date().toISOString()
-
-      stage = "complete_yunwu_job"
-      const nextJob = await updateActiveGenerationJob(job.id, {
-        completed_at: completedAt,
-        expires_at: getGenerationJobExpiresAt(completedAt),
-        last_checked_at: completedAt,
-        result_urls: imageUrls,
-        status,
-        storage_urls: imageUrls,
-        task_error: taskError,
-      })
-
-      if (!nextJob) {
-        await Promise.all(imageUrls.map((url) => deleteGeneratedImageByPublicUrl(url)))
-        throw new Error("生成任务已结束，迟到结果已丢弃。")
-      }
-
-      if (status === "partial_completed") {
-        const partialRefundAmount = calculatePartialRefundAmount(billingAmount, imageUrls.length, imageCount)
-        await refundImageGenerationCredits({
-          amount: partialRefundAmount,
-          reason: `AI 生图部分失败退款 · ${model} · ${imageCount - imageUrls.length}/${imageCount} 张`,
-          reference: buildPartialRefundReference(billingReference, imageUrls.length, imageCount),
-          userId,
+          clientRequestId: job.client_request_id ?? clientRequestId,
         })
       }
 
@@ -379,82 +214,129 @@ export async function POST(request: Request) {
         ok: true,
         mode: "yunwu",
         taskId: job.id,
-        status,
+        status: job.status,
         type: "image",
-        imageUrls,
-        clientRequestId,
-        progress: 100,
-        taskError: taskError ?? "",
+        imageUrls: job.result_urls,
+        clientRequestId: job.client_request_id ?? clientRequestId,
+        progress: job.status === "completed" || job.status === "partial_completed" ? 100 : 0,
+        taskError: job.task_error ?? "",
       })
     }
 
-    const generationInput = {
-      imageUrls: apimartReferenceImageUrls,
-      model,
-      prompt,
-      imageCount,
-      size: ratio,
-      resolution: normalizeImageResolution(quality, model),
-    }
-    logGenerateImage("generation input", generationInput)
+    stage = "submit_yunwu_generation"
+    const generatedResults: PromiseSettledResult<string>[] = isYunwuGeminiImageModel(model)
+      ? await Promise.allSettled(
+          Array.from({ length: imageCount }, async () => {
+            const generated: YunwuGeneratedImage = await createYunwuGeminiImage({
+              model,
+              prompt,
+              quality,
+              ratio,
+              referenceImages: referenceBuffers,
+            })
+            const uploaded = await uploadGeneratedImage({
+              buffer: generated.buffer,
+              contentType: generated.mimeType,
+              userId,
+            })
+            return uploaded.publicUrl
+          })
+        )
+      : await Promise.allSettled(
+          (
+            await createYunwuGptImages({
+              imageUrls: yunwuReferenceImageUrls,
+              imageCount,
+              model,
+              prompt,
+              ratio,
+            })
+          ).map((url) =>
+            persistRemoteGeneratedImage({
+              sourceUrl: url,
+              userId,
+            }).catch((error) => {
+              console.warn("[Generate Image] yunwu remote image mirror failed", {
+                error: describeServerError(error, "生成图片转存失败。"),
+                url,
+              })
+              return url
+            })
+          )
+        )
+    const imageUrls = generatedResults
+      .filter((result): result is PromiseFulfilledResult<string> => result.status === "fulfilled")
+      .map((result) => result.value)
+      .filter(Boolean)
 
-    stage = "submit_apimart_generation"
-    const result = await createImageGeneration(generationInput)
-    upstreamTaskId = result.taskId
-    stage = "link_apimart_task"
+    if (imageUrls.length === 0) {
+      throw new Error(buildAllSettledFailureMessage(generatedResults, "图片生成失败，未返回可用结果。"))
+    }
+
+    const status: GenerationJobStatus = imageUrls.length < imageCount ? "partial_completed" : "completed"
+    const upstreamErrors = summarizeSettledErrors(generatedResults)
+    const taskError =
+      status === "partial_completed"
+        ? buildPartialImageMessage({
+            amount: billingAmount,
+            expectedResultCount: imageCount,
+            successCount: imageUrls.length,
+            upstreamErrors,
+          })
+        : upstreamErrors.length > 0
+          ? upstreamErrors.join("；")
+          : null
+    const completedAt = new Date().toISOString()
+
+    stage = "complete_yunwu_job"
     const nextJob = await updateActiveGenerationJob(job.id, {
-      next_check_at: new Date(Date.now() + 5000).toISOString(),
-      status: result.status === "submitted" ? "submitted" : "processing",
-      upstream_task_id: result.taskId,
+      completed_at: completedAt,
+      expires_at: getGenerationJobExpiresAt(completedAt),
+      last_checked_at: completedAt,
+      result_urls: imageUrls,
+      status,
+      storage_urls: imageUrls,
+      task_error: taskError,
     })
 
     if (!nextJob) {
-      throw new Error("生成任务已结束，不能提交上游任务。")
+      await Promise.all(imageUrls.map((url) => deleteGeneratedImageByPublicUrl(url)))
+      throw new Error("生成任务已结束，迟到结果已丢弃。")
     }
 
-    logGenerateImage("output", result)
+    if (status === "partial_completed") {
+      const partialRefundAmount = calculatePartialRefundAmount(billingAmount, imageUrls.length, imageCount)
+      await refundImageGenerationCredits({
+        amount: partialRefundAmount,
+        reason: `AI 生图部分失败退款 · ${model} · ${imageCount - imageUrls.length}/${imageCount} 张`,
+        reference: buildPartialRefundReference(billingReference, imageUrls.length, imageCount),
+        userId,
+      })
+    }
 
     return NextResponse.json({
-      ...result,
-      clientRequestId,
+      ok: true,
+      mode: "yunwu",
       taskId: job.id,
-      upstreamTaskId: result.taskId,
+      status,
+      type: "image",
+      imageUrls,
+      clientRequestId,
+      progress: 100,
+      taskError: taskError ?? "",
     })
   } catch (error) {
     const message = describeServerError(error, "生图任务提交失败。")
-    const failureMessage = buildFailureMessage({ message, stage, upstreamTaskId })
+    const failureMessage = buildFailureMessage({ message, stage })
     logGenerateImage("error", {
       cause: error instanceof Error && error.cause ? describeServerError(error.cause, "") : "",
       jobId,
       message: failureMessage,
       stage,
-      upstreamTaskId,
       userId: maskId(userId),
     })
 
     if (jobId) {
-      if (upstreamTaskId) {
-        const recoveredJob = await recoverSubmittedApimartJob({
-          clientRequestId,
-          failureMessage,
-          jobId,
-          upstreamTaskId,
-        }).catch(() => null)
-
-        if (recoveredJob) {
-          return NextResponse.json({
-            ok: true,
-            mode: "apimart",
-            status: recoveredJob.status,
-            taskId: recoveredJob.id,
-            upstreamTaskId,
-            type: "image",
-            clientRequestId,
-            taskError: failureMessage,
-          })
-        }
-      }
-
       await failGenerationJobWithRefund({
         jobId,
         reason: `${billingReason || "AI 生图"}提交失败退款：${failureMessage}`,
@@ -513,7 +395,7 @@ function buildPartialImageMessage({
     .join(" ")
 }
 
-async function prepareMengfactoryReferenceImages(referenceImages: PreparedReferenceImage[], setStage: () => void) {
+async function prepareYunwuGeminiReferenceImages(referenceImages: PreparedReferenceImage[], setStage: () => void) {
   if (referenceImages.length === 0) return []
 
   setStage()
@@ -521,28 +403,6 @@ async function prepareMengfactoryReferenceImages(referenceImages: PreparedRefere
     buffer: image.buffer,
     mimeType: image.mimeType,
   }))
-}
-
-async function uploadApimartReferenceImages(referenceImages: PreparedReferenceImage[], setStage: () => void) {
-  if (referenceImages.length === 0) return []
-
-  setStage()
-  const urls = await Promise.all(
-    referenceImages.map(async (image) =>
-      uploadApimartImage({
-        buffer: image.buffer,
-        filename: image.name,
-        mimeType: image.mimeType,
-      })
-    )
-  )
-
-  const validUrls = urls.filter(Boolean)
-  if (validUrls.length !== referenceImages.length) {
-    throw new Error(`参考图上传到 APIMART 失败：${validUrls.length}/${referenceImages.length} 张返回了有效 URL。`)
-  }
-
-  return validUrls
 }
 
 function buildAllSettledFailureMessage<T>(results: PromiseSettledResult<T>[], fallback: string) {
@@ -565,40 +425,11 @@ function summarizeSettledErrors<T>(results: PromiseSettledResult<T>[]) {
 function buildFailureMessage({
   message,
   stage,
-  upstreamTaskId,
 }: {
   message: string
   stage: string
-  upstreamTaskId: string
 }) {
-  const taskText = upstreamTaskId ? `上游任务：${upstreamTaskId}` : "上游任务：无"
-  return `阶段：${stage}；${taskText}；原因：${message}`
-}
-
-async function recoverSubmittedApimartJob({
-  clientRequestId,
-  failureMessage,
-  jobId,
-  upstreamTaskId,
-}: {
-  clientRequestId: string
-  failureMessage: string
-  jobId: string
-  upstreamTaskId: string
-}) {
-  logGenerateImage("recover submitted apimart job", {
-    clientRequestId,
-    failureMessage,
-    jobId,
-    upstreamTaskId,
-  })
-
-  return updateGenerationJob(jobId, {
-    last_sync_error: failureMessage,
-    next_check_at: new Date(Date.now() + 5000).toISOString(),
-    status: "processing",
-    upstream_task_id: upstreamTaskId,
-  })
+  return `阶段：${stage}；上游：yunwu；原因：${message}`
 }
 
 async function refundImageGenerationCredits({
@@ -819,6 +650,11 @@ function toFileLog(file: File) {
 }
 
 function logGenerateImage(label: string, value: unknown) {
+  if (label === "error") {
+    console.error(`[Generate Image] ${label}`, value)
+    return
+  }
+
   if (process.env.LOG_GENERATION_DEBUG !== "1") return
   console.log(`[Generate Image] ${label}`, value)
 }

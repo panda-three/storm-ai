@@ -11,7 +11,13 @@ import {
 } from "@/components/admin/admin-utils"
 import { useAdmin } from "@/components/admin/admin-provider"
 import { Button } from "@/components/ui/button"
-import { adminVideoModelOptions, imageModelOptions, imageModelSettings, videoModelSettings } from "@/lib/model-options"
+import {
+  adminVideoModelOptions,
+  imageModelOptions,
+  imageModelSettings,
+  isSelectableModelPricing,
+  videoModelSettings,
+} from "@/lib/model-options"
 import type { ModelPricing } from "@/lib/supabase"
 import { calculatePricingCredits, saveModelPricing } from "@/lib/supabase"
 
@@ -23,6 +29,7 @@ export function PricingPanel() {
   const pricingVideoSettings = pricingForm.type === "video" ? videoModelSettings[pricingForm.model] : null
   const pricingQualityOptions = pricingImageSettings?.qualities ?? pricingVideoSettings?.qualities ?? []
   const pricingDurationOptions = pricingVideoSettings?.durations ?? []
+  const visibleModelPricing = modelPricing.filter(isSelectableModelPricing)
 
   const handleSavePricing = async () => {
     if (!pricingModelOptions.includes(pricingForm.model)) {
@@ -171,10 +178,10 @@ export function PricingPanel() {
       <div className="rounded-lg border border-slate-200 bg-white p-5">
         <h2 className="text-base font-semibold">模型价格列表</h2>
         <div className="mt-4 grid gap-3">
-          {modelPricing.length === 0 ? (
+          {visibleModelPricing.length === 0 ? (
             <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">暂无模型价格。</div>
           ) : (
-            modelPricing.map((item) => (
+            visibleModelPricing.map((item) => (
               <div className="rounded-lg border border-slate-200 p-4" key={item.id}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>

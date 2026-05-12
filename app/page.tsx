@@ -25,6 +25,7 @@ import {
   loadCustomerServiceSettings,
   loadModelPricing,
 } from "@/lib/supabase"
+import { isSelectableModelPricing } from "@/lib/model-options"
 
 function visibleProjects(projects: ProjectItem[]) {
   return projects.filter((project) => !isDeletedProjectItem(project))
@@ -100,7 +101,7 @@ function HomeContent() {
       ])
       setCustomerService(settings)
       setCreditPackages(packages)
-      setModelPricing(pricing)
+      setModelPricing(pricing.filter(isSelectableModelPricing))
       setBillingReady(true)
     } catch (error) {
       setSyncError(getErrorMessage(error, "加载充值配置失败。"))

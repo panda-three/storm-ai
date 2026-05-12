@@ -159,6 +159,56 @@ export async function clearSupabaseLocalSession(supabase = getSupabaseClient()) 
   }
 }
 
+export function getDeviceLabel() {
+  if (typeof navigator === "undefined") return "未知设备"
+
+  const platform = navigator.platform || "未知系统"
+  const browser = navigator.userAgent.includes("Edg/")
+    ? "Edge"
+    : navigator.userAgent.includes("Chrome/")
+      ? "Chrome"
+      : navigator.userAgent.includes("Safari/")
+        ? "Safari"
+        : navigator.userAgent.includes("Firefox/")
+          ? "Firefox"
+          : "浏览器"
+
+  return `${browser} · ${platform}`.slice(0, 160)
+}
+
+export async function claimCurrentAuthSession(supabase = getSupabaseClient()) {
+  if (!supabase) throw new Error("Supabase 未配置。")
+
+  const { error } = await supabase.rpc("claim_current_auth_session", {
+    p_device_label: getDeviceLabel(),
+  })
+
+  if (error) throw error
+}
+
+export async function signInAndClaimSession({
+  email,
+  password,
+  supabase = getSupabaseClient(),
+}: {
+  email: string
+  password: string
+  supabase?: SupabaseClient | null
+}) {
+  if (!supabase) throw new Error("Supabase 未配置。")
+
+  await clearSupabaseLocalSession(supabase)
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
+
+  if (error) throw error
+
+  await claimCurrentAuthSession(supabase)
+}
+
 export function getSupabaseErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message
 
@@ -180,62 +230,6 @@ export function getSupabaseErrorMessage(error: unknown, fallback: string) {
 
 export function isSupabaseConfigured() {
   return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-}
-
-export function getDeviceLabel() {
-  if (typeof navigator === "undefined") return "未知设备"
-
-  const platform = navigator.platform || "未知系统"
-  const browser = navigator.userAgent.includes("Edg/")
-    ? "Edge"
-    : navigator.userAgent.includes("Chrome/")
-      ? "Chrome"
-      : navigator.userAgent.includes("Safari/")
-        ? "Safari"
-        : navigator.userAgent.includes("Firefox/")
-          ? "Firefox"
-          : "浏览器"
-
-  return `${browser} · ${platform}`.slice(0, 160)
-}
-
-export async function claimCurrentAuthSession() {
-  const supabase = getSupabaseClient()
-  if (!supabase) throw new Error("Supabase 未配置。")
-
-  const { error } = await supabase.rpc("claim_current_auth_session", {
-    p_device_label: getDeviceLabel(),
-  })
-
-  if (error) throw error
-}
-
-export async function releaseCurrentAuthSession() {
-  const supabase = getSupabaseClient()
-  if (!supabase) return
-
-  const { error } = await supabase.rpc("release_current_auth_session")
-  if (error) throw error
-}
-
-export async function assertCurrentAuthSession() {
-  const supabase = getSupabaseClient()
-  if (!supabase) throw new Error("Supabase 未配置。")
-
-  const { error } = await supabase.rpc("assert_current_active_session")
-  if (error) throw error
-}
-
-export async function revokeUserActiveSession(userId: string) {
-  const supabase = getSupabaseClient()
-  if (!supabase) throw new Error("Supabase 未配置。")
-
-  const { error } = await supabase.rpc("admin_revoke_active_session", {
-    p_reason: "admin_revoked",
-    p_user_id: userId,
-  })
-
-  if (error) throw error
 }
 
 export async function loadSupabaseAccount(userId: string): Promise<SupabaseAccountRow | null> {

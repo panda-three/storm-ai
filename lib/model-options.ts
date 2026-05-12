@@ -4,17 +4,17 @@ export const gptImage2AllModelName = "gpt-image-2-all"
 export const gptImage2OfficialApiModelName = "gpt-image-2-official"
 export const gptImage2Supported4KRatios = ["16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
 export const mengfactoryGeminiImageModelName = "Gemini 3.1 Flash Image Preview"
-export const mengfactoryGeminiImageApiModelName = "gemini-3.1-flash-image-preview"
+export const yunwuGeminiImageModelName = "gemini-3.1-flash-image-preview"
+export const mengfactoryGeminiImageApiModelName = yunwuGeminiImageModelName
 export const mengfactoryVeoVideoModelName = "VEO 3.1 FAST"
-export const apimartVeo31FastVideoModelName = "veo_3_1-fast"
+export const yunwuVeo31FastVideoModelName = "veo_3_1-fast"
+export const apimartVeo31FastVideoModelName = yunwuVeo31FastVideoModelName
 export const legacyApimartVeoVideoModelName = "Gemini Veo 3.1 Fast"
 export const grokImagineVideoModelName = "Grok Imagine Video"
 export const grokVideo3ModelName = "grok-video-3"
 
 export const imageModelOptions = [
-  mengfactoryGeminiImageModelName,
-  mengfactoryGeminiImageApiModelName,
-  gptImage2ModelName,
+  yunwuGeminiImageModelName,
   gptImage2AllModelName,
 ]
 
@@ -33,7 +33,7 @@ export const imageModelSettings: Record<
     qualities: ["1K", "2K", "4K"],
     ratios: ["默认", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "1:8", "4:1", "8:1"],
   },
-  [mengfactoryGeminiImageApiModelName]: {
+  [yunwuGeminiImageModelName]: {
     qualities: ["1K", "2K", "4K"],
     ratios: ["默认", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "1:8", "4:1", "8:1"],
   },
@@ -56,7 +56,7 @@ export function isMengfactoryGeminiImageModel(model: string) {
 }
 
 export function isYunwuGeminiImageModel(model: string) {
-  return model === mengfactoryGeminiImageApiModelName
+  return model === yunwuGeminiImageModelName
 }
 
 export function isYunwuGptImageModel(model: string) {
@@ -80,18 +80,10 @@ export function isValidImageRatioForQuality(model: string, quality: string, rati
 }
 
 export const videoModelOptions = [
-  mengfactoryVeoVideoModelName,
-  apimartVeo31FastVideoModelName,
-  grokImagineVideoModelName,
+  yunwuVeo31FastVideoModelName,
   grokVideo3ModelName,
 ]
-export const adminVideoModelOptions = [
-  mengfactoryVeoVideoModelName,
-  apimartVeo31FastVideoModelName,
-  legacyApimartVeoVideoModelName,
-  grokImagineVideoModelName,
-  grokVideo3ModelName,
-]
+export const adminVideoModelOptions = videoModelOptions
 
 export const videoModelSettings: Record<
   string,
@@ -111,7 +103,7 @@ export const videoModelSettings: Record<
     durations: ["8 秒"],
     qualities: ["720P", "1080P", "4K"],
   },
-  [apimartVeo31FastVideoModelName]: {
+  [yunwuVeo31FastVideoModelName]: {
     aspectRatios: ["16:9", "9:16"],
     durations: ["8 秒"],
     qualities: ["720P", "1080P", "4K"],
@@ -133,7 +125,21 @@ export function isMengfactoryVeoVideoModel(model: string) {
 }
 
 export function isYunwuVideoModel(model: string) {
-  return model === apimartVeo31FastVideoModelName || model === grokVideo3ModelName
+  return model === yunwuVeo31FastVideoModelName || model === grokVideo3ModelName
+}
+
+export function isSelectableImageModel(model: string) {
+  return imageModelOptions.includes(model)
+}
+
+export function isSelectableVideoModel(model: string) {
+  return videoModelOptions.includes(model)
+}
+
+export function isSelectableModelPricing(item: { model: string; type: string }) {
+  if (item.type === "image") return isSelectableImageModel(item.model)
+  if (item.type === "video") return isSelectableVideoModel(item.model)
+  return false
 }
 
 export function getMengfactoryVeoVideoApiModel(quality: string) {

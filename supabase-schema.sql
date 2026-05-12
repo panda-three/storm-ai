@@ -245,7 +245,7 @@ as $$
     from public.user_accounts
     where user_id = auth.uid()
       and role = 'admin'
-  ) and public.is_current_active_session();
+  );
 $$;
 
 create or replace function public.is_username_available(p_username text)
@@ -594,7 +594,7 @@ create policy "Users can read own account"
 on public.user_accounts
 for select
 to authenticated
-using ((auth.uid() = user_id and public.is_current_active_session()) or public.is_admin());
+using (auth.uid() = user_id or public.is_admin());
 
 drop policy if exists "Users can insert own account" on public.user_accounts;
 drop policy if exists "Admins can insert accounts" on public.user_accounts;
@@ -618,7 +618,7 @@ create policy "Authenticated users can read enabled packages"
 on public.credit_packages
 for select
 to authenticated
-using ((enabled = true and public.is_current_active_session()) or public.is_admin());
+using (enabled = true or public.is_admin());
 
 drop policy if exists "Admins can manage packages" on public.credit_packages;
 create policy "Admins can manage packages"
@@ -633,7 +633,7 @@ create policy "Users can read own used redeem codes"
 on public.redeem_codes
 for select
 to authenticated
-using ((used_by = auth.uid() and public.is_current_active_session()) or public.is_admin());
+using (used_by = auth.uid() or public.is_admin());
 
 drop policy if exists "Admins can manage redeem codes" on public.redeem_codes;
 create policy "Admins can manage redeem codes"
@@ -648,7 +648,7 @@ create policy "Users can read own security events"
 on public.account_security_events
 for select
 to authenticated
-using ((auth.uid() = user_id and public.is_current_active_session()) or public.is_admin());
+using (auth.uid() = user_id or public.is_admin());
 
 drop policy if exists "Admins can insert security events" on public.account_security_events;
 create policy "Admins can insert security events"
@@ -662,7 +662,7 @@ create policy "Authenticated users can read enabled model pricing"
 on public.model_pricing
 for select
 to authenticated
-using ((enabled = true and public.is_current_active_session()) or public.is_admin());
+using (enabled = true or public.is_admin());
 
 drop policy if exists "Admins can manage model pricing" on public.model_pricing;
 create policy "Admins can manage model pricing"
@@ -677,7 +677,7 @@ create policy "Users can read own generation jobs"
 on public.generation_jobs
 for select
 to authenticated
-using ((auth.uid() = user_id and public.is_current_active_session()) or public.is_admin());
+using (auth.uid() = user_id or public.is_admin());
 
 drop policy if exists "Admins can manage generation jobs" on public.generation_jobs;
 create policy "Admins can manage generation jobs"
@@ -692,7 +692,7 @@ create policy "Authenticated users can read site settings"
 on public.site_settings
 for select
 to authenticated
-using (public.is_current_active_session());
+using (auth.uid() is not null);
 
 drop policy if exists "Admins can manage site settings" on public.site_settings;
 create policy "Admins can manage site settings"
@@ -721,8 +721,6 @@ begin
   if v_user_id is null then
     raise exception '请先登录后再兑换。';
   end if;
-
-  perform public.assert_current_active_session();
 
   if v_code = '' then
     raise exception '请输入兑换码。';
@@ -864,8 +862,6 @@ begin
     raise exception '请先登录后再保存历史项目。';
   end if;
 
-  perform public.assert_current_active_session();
-
   if jsonb_typeof(coalesce(p_projects, '[]'::jsonb)) <> 'array' then
     raise exception '历史项目格式不正确。';
   end if;
@@ -931,8 +927,6 @@ begin
   if v_user_id is null then
     raise exception '请先登录后再生成。';
   end if;
-
-  perform public.assert_current_active_session();
 
   if p_amount <= 0 then
     raise exception '扣费点数必须大于 0。';
@@ -1000,8 +994,6 @@ begin
   if v_user_id is null then
     raise exception '请先登录后再退款。';
   end if;
-
-  perform public.assert_current_active_session();
 
   if p_amount <= 0 then
     raise exception '退款点数必须大于 0。';
@@ -1298,88 +1290,119 @@ begin
     raise exception '生成结果数量无效。';
   end if;
 
-  insert into public.user_accounts (user_id)
-  values (p_user_id)
-  on conflict (user_id) do nothing;
-
-  if p_is_free then
-    v_ledger := jsonb_build_object(
-      'id', v_reference,
-      'type', 'generate',
-      'code', v_reason,
-      'amount', 0,
-      'createdAt', to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-    );
-
-    update public.user_accounts
-    set
-      ledger = v_ledger || ledger,
-      updated_at = now()
-    where user_id = p_user_id;
-  else
-    if p_amount <= 0 then
-      raise exception '扣费点数必须大于 0。';
-    end if;
-
-    perform 1
-    from public.user_accounts
+  if v_client_request_id is not null then
+    select *
+    into v_job
+    from public.generation_jobs
     where user_id = p_user_id
-      and credit_balance >= p_amount
-    for update;
+      and client_request_id = v_client_request_id
+    limit 1;
 
-    if not found then
-      raise exception '点数余额不足，请先充值。';
+    if found then
+      return to_jsonb(v_job) || jsonb_build_object('already_exists', true);
     end if;
-
-    v_ledger := jsonb_build_object(
-      'id', v_reference,
-      'type', 'generate',
-      'code', v_reason,
-      'amount', -p_amount,
-      'createdAt', to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-    );
-
-    update public.user_accounts
-    set
-      credit_balance = credit_balance - p_amount,
-      ledger = v_ledger || ledger,
-      updated_at = now()
-    where user_id = p_user_id;
   end if;
 
-  insert into public.generation_jobs (
-    amount,
-    client_request_id,
-    expected_result_count,
-    quality,
-    aspect_ratio,
-    duration_seconds,
-    model,
-    prompt,
-    provider,
-    reference,
-    status,
-    type,
-    user_id
-  )
-  values (
-    case when p_is_free then 0 else p_amount end,
-    v_client_request_id,
-    p_expected_result_count,
-    nullif(trim(coalesce(p_quality, '')), ''),
-    nullif(trim(coalesce(p_aspect_ratio, '')), ''),
-    p_duration_seconds,
-    p_model,
-    p_prompt,
-    p_provider,
-    v_reference,
-    'submitted',
-    p_type,
-    p_user_id
-  )
-  returning * into v_job;
+  begin
+    insert into public.user_accounts (user_id)
+    values (p_user_id)
+    on conflict (user_id) do nothing;
 
-  return to_jsonb(v_job);
+    if p_is_free then
+      v_ledger := jsonb_build_object(
+        'id', v_reference,
+        'type', 'generate',
+        'code', v_reason,
+        'amount', 0,
+        'createdAt', to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+      );
+
+      update public.user_accounts
+      set
+        ledger = v_ledger || ledger,
+        updated_at = now()
+      where user_id = p_user_id;
+    else
+      if p_amount <= 0 then
+        raise exception '扣费点数必须大于 0。';
+      end if;
+
+      perform 1
+      from public.user_accounts
+      where user_id = p_user_id
+        and credit_balance >= p_amount
+      for update;
+
+      if not found then
+        raise exception '点数余额不足，请先充值。';
+      end if;
+
+      v_ledger := jsonb_build_object(
+        'id', v_reference,
+        'type', 'generate',
+        'code', v_reason,
+        'amount', -p_amount,
+        'createdAt', to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+      );
+
+      update public.user_accounts
+      set
+        credit_balance = credit_balance - p_amount,
+        ledger = v_ledger || ledger,
+        updated_at = now()
+      where user_id = p_user_id;
+    end if;
+
+    insert into public.generation_jobs (
+      amount,
+      client_request_id,
+      expected_result_count,
+      quality,
+      aspect_ratio,
+      duration_seconds,
+      model,
+      prompt,
+      provider,
+      reference,
+      status,
+      type,
+      user_id
+    )
+    values (
+      case when p_is_free then 0 else p_amount end,
+      v_client_request_id,
+      p_expected_result_count,
+      nullif(trim(coalesce(p_quality, '')), ''),
+      nullif(trim(coalesce(p_aspect_ratio, '')), ''),
+      p_duration_seconds,
+      p_model,
+      p_prompt,
+      p_provider,
+      v_reference,
+      'submitted',
+      p_type,
+      p_user_id
+    )
+    returning * into v_job;
+  exception
+    when unique_violation then
+      if v_client_request_id is not null then
+        select *
+        into v_job
+        from public.generation_jobs
+        where user_id = p_user_id
+          and client_request_id = v_client_request_id
+        limit 1;
+
+        if found then
+          return to_jsonb(v_job) || jsonb_build_object('already_exists', true);
+        end if;
+      end if;
+
+      raise;
+  end;
+
+  return to_jsonb(v_job) || jsonb_build_object('already_exists', false);
 end;
 $$;
 

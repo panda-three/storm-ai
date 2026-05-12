@@ -5,7 +5,7 @@ import type { WorkspaceSection } from "@/lib/workspace-section"
 import type { MembershipTier } from "@/lib/local-store"
 import { generationRetentionNotice, type ProjectItem, type ProjectStatus, type ProjectType } from "@/lib/project-history"
 import type { CreditPackage, CustomerServiceSettings, ModelPricing } from "@/lib/supabase"
-import { calculatePricingCredits, getSupabaseClient, redeemCreditCode } from "@/lib/supabase"
+import { calculatePricingCredits, clearSupabaseLocalSession, getSupabaseClient, redeemCreditCode } from "@/lib/supabase"
 import { formatLedgerDateTime } from "@/lib/date-time"
 import {
   getImageRatiosForSelection,
@@ -13,6 +13,7 @@ import {
   imageModelSettings,
   videoModelOptions,
   videoModelSettings,
+  yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 import {
   maxReferenceImageBytes,
@@ -254,6 +255,12 @@ async function getCurrentAccessToken() {
   const token = data.session?.access_token
   if (!token) {
     throw new Error("请先登录后再生成。")
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.getUser()
+  if (userError || !userData.user) {
+    await clearSupabaseLocalSession(supabase)
+    throw new Error("登录状态已失效，请重新登录。")
   }
 
   return token
@@ -567,6 +574,7 @@ function UploadColumn({
   isActive,
   isGenerating,
   label,
+  maxReferenceImages,
   onClick,
   onRemove,
   referenceImages,
@@ -575,6 +583,7 @@ function UploadColumn({
   isActive?: boolean
   isGenerating: boolean
   label: string
+  maxReferenceImages: number
   onClick: () => void
   onRemove: (id: string) => void
   referenceImages: ReferenceImage[]
@@ -608,6 +617,10 @@ function UploadColumn({
       </div>
     </div>
   )
+}
+
+function getMaxVideoReferenceImages(model: string) {
+  return model === yunwuVeo31FastVideoModelName ? 3 : maxReferenceImages
 }
 
 function PricingNotice({
@@ -1418,6 +1431,7 @@ function ImageWorkspace({
                 disabled={isGenerating || referenceImages.length >= maxReferenceImages}
                 isActive={isReferenceDragActive}
                 label="添加参考图"
+                maxReferenceImages={maxReferenceImages}
                 onClick={() => referenceInputRef.current?.click()}
                 referenceImages={referenceImages}
                 onRemove={handleReferenceImageRemove}
@@ -1554,6 +1568,7 @@ function VideoWorkspace({
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const videoObjectUrlsRef = useRef<Set<string>>(new Set())
+  const maxVideoReferenceImages = getMaxVideoReferenceImages(model)
   const currentPricing = findModelPricing(modelPricing, {
     aspectRatio,
     duration,
@@ -1597,6 +1612,18 @@ function VideoWorkspace({
     }
   }, [aspectRatio, duration, modelSettings, quality])
 
+  useEffect(() => {
+    if (referenceImages.length <= maxVideoReferenceImages) return
+
+    const kept = referenceImages.slice(0, maxVideoReferenceImages)
+    for (const removed of referenceImages.slice(maxVideoReferenceImages)) {
+      URL.revokeObjectURL(removed.previewUrl)
+      videoObjectUrlsRef.current.delete(removed.previewUrl)
+    }
+    setReferenceImages(kept)
+    setError(`当前视频模型最多支持 ${maxVideoReferenceImages} 张参考图，已保留前 ${maxVideoReferenceImages} 张。`)
+  }, [maxVideoReferenceImages, referenceImages])
+
   const handlePromptChange = (value: string) => {
     setPrompt(value)
     if (error === "请先输入视频提示词。" && value.trim()) {
@@ -1616,11 +1643,11 @@ function VideoWorkspace({
   const handleReferenceImageChange = (files: FileList | null) => {
     if (!files?.length) return
 
-    const availableSlots = maxReferenceImages - referenceImages.length
+    const availableSlots = maxVideoReferenceImages - referenceImages.length
     const selectedFiles = Array.from(files).slice(0, Math.max(availableSlots, 0))
 
     if (availableSlots <= 0) {
-      setError(`参考图最多上传 ${maxReferenceImages} 张。`)
+      setError(`参考图最多上传 ${maxVideoReferenceImages} 张。`)
       if (referenceInputRef.current) referenceInputRef.current.value = ""
       return
     }
@@ -1653,7 +1680,7 @@ function VideoWorkspace({
     }
 
     if (files.length > availableSlots) {
-      nextError = `参考图最多上传 ${maxReferenceImages} 张，已保留前 ${availableSlots} 张。`
+      nextError = `参考图最多上传 ${maxVideoReferenceImages} 张，已保留前 ${availableSlots} 张。`
     }
 
     if (validImages.length > 0) {
@@ -1676,7 +1703,7 @@ function VideoWorkspace({
     if (!hasDraggedFiles(event)) return
     event.preventDefault()
     event.dataTransfer.dropEffect =
-      isGenerating || referenceImages.length >= maxReferenceImages ? "none" : "copy"
+      isGenerating || referenceImages.length >= maxVideoReferenceImages ? "none" : "copy"
     if (!isGenerating) {
       setIsReferenceDragActive(true)
     }
@@ -1866,9 +1893,10 @@ function VideoWorkspace({
                 type="file"
               />
               <UploadColumn
-                disabled={isGenerating || referenceImages.length >= maxReferenceImages}
+                disabled={isGenerating || referenceImages.length >= maxVideoReferenceImages}
                 isActive={isReferenceDragActive}
                 label="添加参考图"
+                maxReferenceImages={maxVideoReferenceImages}
                 onClick={() => referenceInputRef.current?.click()}
                 referenceImages={referenceImages}
                 onRemove={handleReferenceImageRemove}

@@ -11,32 +11,12 @@ import {
   isGptImage2Model,
   legacyApimartVeoVideoModelName,
 } from "@/lib/model-options"
+import type { GenerationKind, GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-types"
 
 const APIMART_BASE_URL = process.env.APIMART_BASE_URL ?? "https://api.apimart.ai/v1"
 const APIMART_PROXY_URL = getApimartProxyUrl()
 
-export type GenerationKind = "image" | "video"
-
-export interface GenerationResponse {
-  ok: true
-  mode: "apimart" | "mengfactory" | "mock" | "yunwu"
-  taskId: string
-  status: string
-  type: GenerationKind
-}
-
-export interface NormalizedTaskStatus {
-  ok: true
-  mode: "apimart" | "mengfactory" | "mock" | "yunwu"
-  taskId: string
-  status: "submitted" | "processing" | "completed" | "failed" | "partial_completed"
-  progress: number
-  imageUrls: string[]
-  videoUrl: string
-  taskError: string
-  retryAfterMs?: number
-  raw: unknown
-}
+export type { GenerationKind, GenerationResponse, NormalizedTaskStatus }
 
 const mockImageUrl =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1024' viewBox='0 0 1024 1024'%3E%3Crect width='1024' height='1024' fill='%23e0e7ff'/%3E%3Ctext x='512' y='512' dominant-baseline='middle' text-anchor='middle' fill='%234f46e5' font-family='Arial' font-size='48'%3EStorm AI Mock Image%3C/text%3E%3C/svg%3E"

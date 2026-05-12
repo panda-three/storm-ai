@@ -1,15 +1,15 @@
-import { mirrorApimartImageResults, syncApimartGenerationJob } from "@/lib/apimart-task-sync"
+import { mirrorYunwuImageResults, syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
 import {
   cleanupExpiredGenerationJobs,
-  loadApimartImageJobsForMirroring,
-  loadDueApimartGenerationJobs,
+  loadDueYunwuGenerationJobs,
+  loadYunwuImageJobsForMirroring,
   recoverStaleGenerationJobs,
 } from "@/lib/generation-jobs"
 
 export async function syncGenerationJobs({ limit = 20 } = {}) {
-  const jobs = await loadDueApimartGenerationJobs({ limit })
-  const results = await Promise.allSettled(jobs.map((job) => syncApimartGenerationJob(job)))
-  const apimart = results.reduce(
+  const jobs = await loadDueYunwuGenerationJobs({ limit })
+  const results = await Promise.allSettled(jobs.map((job) => syncYunwuGenerationJob(job)))
+  const yunwu = results.reduce(
     (current, result) => {
       if (result.status === "rejected") {
         current.errors += 1
@@ -27,8 +27,8 @@ export async function syncGenerationJobs({ limit = 20 } = {}) {
       synced: 0,
     }
   )
-  const mirrorJobs = await loadApimartImageJobsForMirroring({ limit })
-  const mirrorResults = await Promise.allSettled(mirrorJobs.map((job) => mirrorApimartImageResults(job)))
+  const mirrorJobs = await loadYunwuImageJobsForMirroring({ limit })
+  const mirrorResults = await Promise.allSettled(mirrorJobs.map((job) => mirrorYunwuImageResults(job)))
   const mirrors = mirrorResults.reduce(
     (current, result) => {
       if (result.status === "rejected") {
@@ -51,11 +51,11 @@ export async function syncGenerationJobs({ limit = 20 } = {}) {
   const cleanup = await cleanupExpiredGenerationJobs({ limit })
 
   return {
-    apimart,
     cleanup,
     ok: true,
     mirrors,
     stale,
+    yunwu,
   }
 }
 

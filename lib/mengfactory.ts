@@ -4,7 +4,7 @@ import {
   isMengfactoryVeoVideoModel,
   mengfactoryGeminiImageApiModelName,
 } from "@/lib/model-options"
-import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/apimart"
+import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-types"
 
 const MENGFACTORY_BASE_URL = process.env.MENGFACTORY_BASE_URL ?? "https://api.mengfactory.cn"
 
