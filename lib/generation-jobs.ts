@@ -6,8 +6,8 @@ import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 export type GenerationJobStatus = "submitted" | "processing" | "completed" | "failed" | "partial_completed"
 
 export const generationTimeoutMessage = "生成任务超时未完成，系统已自动结束任务并退还点数。"
+// Synchronous image jobs create billing before calling the upstream API; this recovers interrupted requests.
 export const synchronousImageOrphanTimeoutMs = 10 * 60 * 1000
-export const asyncImageTimeoutMs = 20 * 60 * 1000
 export const asyncVideoTimeoutMs = 60 * 60 * 1000
 export const generationHistoryRetentionHours = 24
 export const generationHistoryRetentionMs = generationHistoryRetentionHours * 60 * 60 * 1000
@@ -464,7 +464,6 @@ export async function loadStaleGenerationJobs({
     .or(
       [
         `and(provider.eq.yunwu,type.eq.image,upstream_task_id.is.null,created_at.lte.${new Date(Date.now() - synchronousImageOrphanTimeoutMs).toISOString()})`,
-        `and(type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
         `and(type.eq.video,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncVideoTimeoutMs).toISOString()})`,
       ].join(",")
     )

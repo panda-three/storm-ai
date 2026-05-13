@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button"
 import { getErrorMessage, useAccountSession } from "@/hooks/use-account-session"
 import { formatLedgerDateTime } from "@/lib/date-time"
 import type { GenerationJob } from "@/lib/generation-jobs"
+import { formatModelNameForDisplay } from "@/lib/model-display"
 import type { ProjectStatus, ProjectType } from "@/lib/project-history"
 import { cn } from "@/lib/utils"
 
@@ -236,7 +237,7 @@ export default function TaskResultPage() {
   }, [status, task?.progress])
 
   const prompt = task?.raw?.prompt ?? ""
-  const model = task?.raw?.model ?? "未记录模型"
+  const model = task?.raw?.model ? formatModelNameForDisplay(task.raw.model) : "未记录模型"
   const quality = task?.raw?.quality ?? undefined
   const aspectRatio = task?.raw?.aspect_ratio ?? undefined
   const duration = task?.raw?.duration_seconds ? `${task.raw.duration_seconds} 秒` : undefined

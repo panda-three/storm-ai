@@ -5,12 +5,21 @@ import { Button } from "@/components/ui/button"
 import { getLedgerTypeLabel } from "@/components/admin/admin-utils"
 import { useAdmin } from "@/components/admin/admin-provider"
 import { formatLedgerDateTime, getLedgerTimeValue } from "@/lib/date-time"
+import { formatLedgerCodeForDisplay } from "@/lib/ledger-display"
 
 const ledgerPageSize = 8
+type LedgerFilter = "all" | "failed" | "normal"
+
+const ledgerFilters: Array<{ label: string; value: LedgerFilter }> = [
+  { label: "全部", value: "all" },
+  { label: "失败", value: "failed" },
+  { label: "正常", value: "normal" },
+]
 
 export function LedgerPanel() {
   const { adminAccounts } = useAdmin()
   const [ledgerPage, setLedgerPage] = useState(1)
+  const [ledgerFilter, setLedgerFilter] = useState<LedgerFilter>("all")
   const allLedger = useMemo(
     () =>
       adminAccounts
@@ -24,11 +33,23 @@ export function LedgerPanel() {
         .sort((a, b) => getLedgerTimeValue(b.createdAt) - getLedgerTimeValue(a.createdAt)),
     [adminAccounts]
   )
-  const ledgerPageCount = Math.max(1, Math.ceil(allLedger.length / ledgerPageSize))
+  const failedLedgerCount = allLedger.filter((item) => item.type === "refund").length
+  const normalLedgerCount = allLedger.length - failedLedgerCount
+  const filteredLedger = useMemo(() => {
+    if (ledgerFilter === "failed") return allLedger.filter((item) => item.type === "refund")
+    if (ledgerFilter === "normal") return allLedger.filter((item) => item.type !== "refund")
+    return allLedger
+  }, [allLedger, ledgerFilter])
+  const ledgerCountByFilter: Record<LedgerFilter, number> = {
+    all: allLedger.length,
+    failed: failedLedgerCount,
+    normal: normalLedgerCount,
+  }
+  const ledgerPageCount = Math.max(1, Math.ceil(filteredLedger.length / ledgerPageSize))
   const currentLedgerPage = Math.min(ledgerPage, ledgerPageCount)
-  const visibleLedger = allLedger.slice((currentLedgerPage - 1) * ledgerPageSize, currentLedgerPage * ledgerPageSize)
-  const ledgerStart = allLedger.length === 0 ? 0 : (currentLedgerPage - 1) * ledgerPageSize + 1
-  const ledgerEnd = Math.min(currentLedgerPage * ledgerPageSize, allLedger.length)
+  const visibleLedger = filteredLedger.slice((currentLedgerPage - 1) * ledgerPageSize, currentLedgerPage * ledgerPageSize)
+  const ledgerStart = filteredLedger.length === 0 ? 0 : (currentLedgerPage - 1) * ledgerPageSize + 1
+  const ledgerEnd = Math.min(currentLedgerPage * ledgerPageSize, filteredLedger.length)
   const ledgerPages = Array.from({ length: ledgerPageCount }, (_, index) => index + 1).filter(
     (page) => ledgerPageCount <= 5 || page === 1 || page === ledgerPageCount || Math.abs(page - currentLedgerPage) <= 1
   )
@@ -49,27 +70,43 @@ export function LedgerPanel() {
 
   useEffect(() => {
     setLedgerPage(1)
-  }, [adminAccounts])
+  }, [adminAccounts, ledgerFilter])
+
+  const emptyText =
+    ledgerFilter === "failed" ? "暂无失败流水。" : ledgerFilter === "normal" ? "暂无正常流水。" : "暂无流水。"
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-base font-semibold">最近点数流水</h2>
-        {allLedger.length > 0 && (
+        {filteredLedger.length > 0 && (
           <div className="text-xs text-slate-500">
-            第 {ledgerStart}-{ledgerEnd} 条，共 {allLedger.length} 条
+            第 {ledgerStart}-{ledgerEnd} 条，共 {filteredLedger.length} 条
           </div>
         )}
       </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {ledgerFilters.map((filter) => (
+          <Button
+            className="h-8 rounded-lg px-3"
+            key={filter.value}
+            onClick={() => setLedgerFilter(filter.value)}
+            size="sm"
+            variant={ledgerFilter === filter.value ? "default" : "outline"}
+          >
+            {filter.label} {ledgerCountByFilter[filter.value]}
+          </Button>
+        ))}
+      </div>
       <div className="mt-4 grid gap-3">
         {visibleLedger.length === 0 ? (
-          <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">暂无流水。</div>
+          <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">{emptyText}</div>
         ) : (
           visibleLedger.map((item) => (
             <div className="rounded-lg border border-slate-200 p-4" key={`${item.userId}-${item.id}`}>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-slate-800">{item.code}</div>
+                  <div className="truncate text-sm font-medium text-slate-800">{formatLedgerCodeForDisplay(item.code)}</div>
                   <div className="mt-1 truncate text-xs text-slate-500">
                     {item.username ?? "未设置用户名"} · {item.userId}
                   </div>

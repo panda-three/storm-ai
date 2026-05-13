@@ -7,8 +7,8 @@ import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-
 
 const YUNWU_BASE_URL = process.env.YUNWU_BASE_URL ?? "https://yunwu.ai"
 const yunwuDefaultTimeoutMs = 60_000
-const yunwuGeminiImageTimeoutMs = 180_000
-const yunwuGptImageTimeoutMs = 180_000
+const yunwuGeminiImageTimeoutMs = 360_000
+const yunwuGptImageTimeoutMs = 360_000
 const yunwuVeo31FastApiModel = "veo3.1-fast"
 
 export interface YunwuReferenceImage {
@@ -96,7 +96,7 @@ export async function createYunwuGeminiImage(request: YunwuGeminiImageRequest): 
     },
     {
       timeoutMs: yunwuGeminiImageTimeoutMs,
-      timeoutMessage: "云雾 Gemini 图片生成超时，请稍后重试或减少参考图数量。",
+      timeoutMessage: "yw 图片生成等待超时，请稍后重试，或减少参考图后再试。",
     }
   )
   const image = extractFirstGeneratedImage(data)
@@ -125,7 +125,7 @@ export async function createYunwuGptImages(request: YunwuGptImageRequest) {
           .filter(Boolean)
       )
     )
-    throw new Error(errors.length > 0 ? errors.join("；") : "云雾 GPT 图片接口已返回，但没有找到生成图片地址。")
+    throw new Error(errors.length > 0 ? errors.join("；") : "yw 图片接口已返回，但未找到可用图片地址。")
   }
 
   return imageUrls
@@ -146,7 +146,7 @@ async function createSingleYunwuGptImage(request: YunwuGptImageRequest) {
   ])
 
   if (urls.length === 0) {
-    throw new Error("云雾 GPT 图片接口已返回，但没有找到生成图片地址。")
+    throw new Error("yw 图片接口已返回，但未找到可用图片地址。")
   }
 
   logYunwu("gpt image output", { imageUrls: urls.length })
@@ -174,7 +174,7 @@ async function createYunwuGptImageFromText(request: YunwuGptImageRequest) {
     },
     {
       timeoutMs: yunwuGptImageTimeoutMs,
-      timeoutMessage: "云雾 GPT 图片生成超时，请稍后重试或减少参考图数量。",
+      timeoutMessage: "yw 图片生成等待超时，请稍后重试，或减少参考图后再试。",
     }
   )
 }
@@ -201,7 +201,7 @@ async function createYunwuGptImageWithReferences(request: YunwuGptImageRequest, 
     },
     {
       timeoutMs: yunwuGptImageTimeoutMs,
-      timeoutMessage: "云雾 GPT 图片参考图生成超时，请稍后重试或减少参考图数量。",
+      timeoutMessage: "yw 图片生成等待超时，请稍后重试，或减少参考图后再试。",
     }
   )
 }
@@ -235,7 +235,7 @@ export async function createYunwuVideo(request: YunwuVideoRequest): Promise<Gene
   const taskId = findStringValue(data, ["id", "task_id", "taskId"])
 
   if (!taskId) {
-    throw new Error("云雾视频接口未返回任务 ID。")
+    throw new Error("yw 视频接口未返回任务 ID。")
   }
 
   const result: GenerationResponse = {
@@ -328,7 +328,7 @@ async function yunwuJsonRequest(
   pathOrUrl: string | URL,
   init: RequestInit,
   {
-    timeoutMessage = "云雾请求超时，请稍后重试。",
+    timeoutMessage = "yw 请求等待超时，请稍后重试。",
     timeoutMs = yunwuDefaultTimeoutMs,
   }: {
     timeoutMessage?: string
@@ -374,7 +374,7 @@ function isAbortError(error: unknown) {
 function getYunwuApiKey() {
   const apiKey = process.env.YUNWU_API_KEY
   if (!apiKey) {
-    throw new Error("缺少云雾 API Key，请配置 YUNWU_API_KEY。")
+    throw new Error("缺少 yw API Key，请配置 YUNWU_API_KEY。")
   }
   return apiKey
 }
@@ -390,7 +390,7 @@ function extractFirstGeneratedImage(value: unknown): YunwuGeneratedImage {
         : "image/png"
 
   if (!data) {
-    throw new Error("云雾 Gemini 已返回结果，但没有找到生成图片数据。")
+    throw new Error("yw Gemini 已返回响应，但未包含可用图片数据。")
   }
 
   return {
@@ -505,7 +505,7 @@ function findYunwuTaskError(data: unknown, status: NormalizedTaskStatus["status"
 
 function describeYunwuError(status: number, data: unknown) {
   const message = findStringValue(data, ["message", "error", "details", "detail"])
-  return message ? `云雾请求失败（${status}）：${message}` : `云雾请求失败（${status}）。`
+  return message ? `yw 请求失败（${status}）：${message}` : `yw 请求失败（${status}）。`
 }
 
 function collectStringValuesForKeys(value: unknown, keys: string[]): string[] {

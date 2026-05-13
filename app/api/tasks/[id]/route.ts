@@ -9,7 +9,6 @@ import {
   recoverStaleGenerationJob,
   isTerminalGenerationJobStatus,
   synchronousImageOrphanTimeoutMs,
-  asyncImageTimeoutMs,
   asyncVideoTimeoutMs,
   type GenerationJob,
 } from "@/lib/generation-jobs"
@@ -155,10 +154,9 @@ async function recoverStaleGenerationJobIfDue(job: GenerationJob) {
   const ageMs = Date.now() - Date.parse(job.created_at)
   const isSynchronousImageOrphan =
     job.provider === "yunwu" && job.type === "image" && !job.upstream_task_id && ageMs >= synchronousImageOrphanTimeoutMs
-  const isAsyncImageTimeout = job.type === "image" && Boolean(job.upstream_task_id) && ageMs >= asyncImageTimeoutMs
   const isAsyncVideoTimeout = job.type === "video" && Boolean(job.upstream_task_id) && ageMs >= asyncVideoTimeoutMs
 
-  if (!isSynchronousImageOrphan && !isAsyncImageTimeout && !isAsyncVideoTimeout) {
+  if (!isSynchronousImageOrphan && !isAsyncVideoTimeout) {
     return job
   }
 

@@ -270,7 +270,7 @@ export async function POST(request: Request) {
       .filter(Boolean)
 
     if (imageUrls.length === 0) {
-      throw new Error(buildAllSettledFailureMessage(generatedResults, "图片生成失败，未返回可用结果。"))
+      throw new Error(buildAllSettledFailureMessage(generatedResults, "未收到可用图片结果。"))
     }
 
     const status: GenerationJobStatus = imageUrls.length < imageCount ? "partial_completed" : "completed"
@@ -429,7 +429,19 @@ function buildFailureMessage({
   message: string
   stage: string
 }) {
-  return `阶段：${stage}；上游：yunwu；原因：${message}`
+  return `${getFailureStageLabel(stage)}：${message}`
+}
+
+function getFailureStageLabel(stage: string) {
+  if (stage === "submit_yunwu_generation") return "yw 图片生成失败"
+  if (stage === "prepare_yunwu_gemini_references" || stage === "prepare_yunwu_gpt_references") return "yw 参考图处理失败"
+  if (stage === "complete_yunwu_job") return "yw 图片任务结算失败"
+  if (stage === "prepare_reference_images" || stage === "validate_reference_images") return "参考图处理失败"
+  if (stage === "parse_input") return "图片参数处理失败"
+  if (stage === "load_pricing") return "价格读取失败"
+  if (stage === "load_membership") return "会员权益读取失败"
+  if (stage === "create_generation_job_with_billing") return "图片任务创建失败"
+  return "图片生成失败"
 }
 
 async function refundImageGenerationCredits({

@@ -7,6 +7,8 @@ import { generationRetentionNotice, type ProjectItem, type ProjectStatus, type P
 import type { CreditPackage, CustomerServiceSettings, ModelPricing } from "@/lib/supabase"
 import { calculatePricingCredits, clearSupabaseLocalSession, getSupabaseClient, redeemCreditCode } from "@/lib/supabase"
 import { formatLedgerDateTime } from "@/lib/date-time"
+import { formatLedgerCodeForDisplay } from "@/lib/ledger-display"
+import { formatModelNameForDisplay } from "@/lib/model-display"
 import {
   getImageRatiosForSelection,
   imageModelOptions,
@@ -395,7 +397,7 @@ function getNowLabel() {
 
 function getOptionLabel(option: string) {
   if (option === "Gemini 3.1 Flash Image Preview") return "Gemini3香蕉pro（M）"
-  if (option === "gemini-3.1-flash-image-preview") return "gemini-3.1-flash-image-preview（Y）"
+  if (option === "gemini-3.1-flash-image-preview") return formatModelNameForDisplay(option)
   if (option === "1") return "一张"
   if (option === "2") return "两张"
   if (option === "3") return "三张"
@@ -2090,7 +2092,7 @@ function HistoryWorkspace({
                         {item.type} · {item.time}
                         {item.previewLabel ? ` · ${item.previewLabel}` : ""}
                       </div>
-                      {item.model && <div className="mt-1 truncate text-xs text-slate-400">模型：{item.model}</div>}
+                      {item.model && <div className="mt-1 truncate text-xs text-slate-400">模型：{formatModelNameForDisplay(item.model)}</div>}
                     </div>
                   </div>
                   <StatusBadge status={item.status} />
@@ -2323,7 +2325,7 @@ function HistoryDetailPanel({
             {item.previewLabel ? ` · ${item.previewLabel}` : ""}
           </div>
         </div>
-        <DetailRow label="模型" value={item.model ?? "未记录"} />
+        <DetailRow label="模型" value={item.model ? formatModelNameForDisplay(item.model) : "未记录"} />
         {item.status === "生成中" && <DetailRow label="当前阶段" value={getPendingStageLabel(item)} />}
         <DetailRow label="任务 ID" value={item.taskId ?? "示例项目无任务 ID"} />
         {item.taskError && <DetailRow label="失败原因" value={item.taskError} />}
@@ -2588,7 +2590,7 @@ function CreditsWorkspace({
               ledger.slice(0, 5).map((item) => (
                 <div className="flex items-center justify-between gap-3 text-sm" key={item.id}>
                   <div className="min-w-0">
-                    <div className="truncate font-medium text-slate-700">{item.code}</div>
+                    <div className="truncate font-medium text-slate-700">{formatLedgerCodeForDisplay(item.code)}</div>
                     <div className="text-xs text-slate-500">{formatLedgerDateTime(item.createdAt)}</div>
                   </div>
                   <div className={item.amount >= 0 ? "font-medium text-cyan-700" : "font-medium text-rose-600"}>
