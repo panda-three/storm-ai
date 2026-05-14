@@ -1,42 +1,115 @@
-# Self-hosted Supabase Runbook
+# 自托管 Supabase 运维和迁移说明
 
-This project can move from Supabase Cloud to a self-hosted Supabase stack, but it must be treated as an infrastructure migration. The app depends on Supabase Auth, PostgREST/RPC, RLS, Storage, and `auth.users` triggers, so do not replace it with a plain PostgreSQL connection unless the auth and storage layers are redesigned.
+这份文档说明如何理解、验证和迁移自托管 Supabase。它是基础设施迁移，不是普通代码发布。操作前一定要备份，且最好安排维护窗口。
 
-## Target Shape
+## 先明确一件事
 
-- Next.js continues to run through PM2 on port `3000`.
-- Self-hosted Supabase is exposed through a dedicated HTTPS hostname such as `https://supabase.zlaction.online`.
-- PostgreSQL, internal Supabase services, and Supabase Studio are not exposed directly to the public internet.
-- `.env.production` points to the self-hosted API URL and keys after validation is complete.
+本项目不是只连一个普通 PostgreSQL 数据库。它依赖 Supabase 的这些能力：
 
-## Required Hardening
+- Auth 登录和用户表 `auth.users`
+- PostgREST/RPC
+- RLS 权限策略
+- Storage 图片存储
+- `auth.users` 触发器
 
-1. Generate new production secrets for the self-hosted stack:
-   - Postgres password
+所以不能简单把连接串换成普通 PostgreSQL，除非重新设计登录、权限和存储。
+
+## 目标形态
+
+- Next.js 仍由 PM2 运行在 `3000` 端口。
+- Supabase API 使用独立域名，例如 `https://supabase.zlaction.online`。
+- PostgreSQL、Supabase 内部服务、Studio 不直接暴露到公网。
+- `.env.production` 在验证完成后再切换到自托管 Supabase 的 URL 和 key。
+
+## 当前服务器上的自托管实例
+
+服务器上已经安装了一套自托管 Supabase，目录：
+
+```bash
+/opt/supabase-storm
+```
+
+已知信息：
+
+- Supabase API 计划域名：`https://supabase.zlaction.online`
+- DNS 应指向：`107.173.25.225`
+- 内部 Kong：`127.0.0.1:8000`
+- 内部 Postgres：`127.0.0.1:5432`
+- Nginx 配置：`/etc/nginx/sites-available/supabase-storm`
+- 已应用应用 schema：`supabase-schema.sql`
+- Storage bucket：`generated-images`
+
+查看容器：
+
+```bash
+docker ps
+```
+
+检查本机 API：
+
+```bash
+curl -I http://127.0.0.1:8000
+```
+
+返回 `401 Unauthorized` 是正常信号，表示 API 在响应，只是没有带 key。
+
+## 上线前必须完成的加固
+
+1. 生成新的生产密钥：
+   - Postgres 密码
    - JWT secret
    - anon key
    - service role key
-   - dashboard credentials
-2. Run the full `supabase-schema.sql` against the self-hosted project.
-3. Confirm the schema grants are present at the end of `supabase-schema.sql`:
-   - User RPCs are granted only to `authenticated` or `anon` where intended.
-   - Service-only RPCs with `p_user_id` are revoked from `public`, `anon`, and `authenticated`, then granted to `service_role`.
-4. Create the `generated-images` bucket, or the bucket configured by `SUPABASE_GENERATED_IMAGES_BUCKET`.
-5. Allow public reads only for generated image objects that the app must show in the browser.
-6. Configure SMTP before accepting real users. Auth email flows are part of production availability.
-7. Keep `SUPABASE_SERVICE_ROLE_KEY` only in server-side environment files.
-8. Keep `CRON_SECRET` at least 32 characters and call cron routes from localhost where possible.
+   - Studio/dashboard 登录信息
+2. 执行完整 `supabase-schema.sql`。
+3. 确认 schema 末尾的授权正确：
+   - 用户 RPC 只授权给 `authenticated` 或需要的 `anon`。
+   - 服务端专用 RPC 撤销 `public`、`anon`、`authenticated` 权限，只授权给 `service_role`。
+4. 创建 `generated-images` bucket，或与 `SUPABASE_GENERATED_IMAGES_BUCKET` 保持一致。
+5. 生成图片对象必须能通过公开 URL 被浏览器读取。
+6. 配置 SMTP，再允许真实用户使用邮件流程。
+7. `SUPABASE_SERVICE_ROLE_KEY` 只能放服务端环境文件。
+8. `CRON_SECRET` 至少 32 位，并优先从服务器本机调用 cron。
+9. 配置数据库和 Storage 备份。
 
-## Migration Procedure
+## DNS 和 HTTPS
 
-1. Put the app in a short maintenance window to avoid writes during the final export.
-2. Export from Supabase Cloud:
+先添加 DNS：
+
+```text
+supabase.zlaction.online  A  107.173.25.225
+```
+
+如果用 Cloudflare，申请证书前建议先用 DNS-only，或者确保 HTTP-01 验证能到达这台服务器。
+
+DNS 生效后执行：
+
+```bash
+certbot --nginx -d supabase.zlaction.online --redirect
+nginx -t
+systemctl reload nginx
+```
+
+然后检查：
+
+```bash
+pnpm check:supabase:selfhosted
+```
+
+如果 DNS 没配好，这个检查会失败。检查通过前，不要切生产 `.env.production`。
+
+## 迁移流程
+
+建议流程：
+
+1. 安排短维护窗口，避免最后导出时还有新写入。
+2. 从旧 Supabase 导出：
    - `auth.users`
-   - all `public` schema data
-   - Storage objects from the generated images bucket
-3. Import into self-hosted Supabase.
-4. Run `supabase-schema.sql` after import so functions, triggers, policies, indexes, and grants match the app.
-5. Compare row counts for:
+   - `public` schema 数据
+   - `generated-images` bucket 中的 Storage 对象
+3. 导入到自托管 Supabase。
+4. 导入后再次执行 `supabase-schema.sql`，确保函数、触发器、策略、索引和授权一致。
+5. 对比关键表行数：
    - `auth.users`
    - `public.user_accounts`
    - `public.credit_packages`
@@ -44,53 +117,32 @@ This project can move from Supabase Cloud to a self-hosted Supabase stack, but i
    - `public.model_pricing`
    - `public.generation_jobs`
    - `public.site_settings`
-6. Update `.env.production`:
+6. 更新 `.env.production`：
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `SUPABASE_GENERATED_IMAGES_BUCKET`
-7. Run:
+7. 执行：
 
    ```bash
-   pnpm check:env
-   pnpm build
+   XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm check:env
+   XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
    pm2 restart storm-ai --update-env
+   pm2 save
    ```
 
-8. Verify login, admin reads and writes, generation billing, task sync, Storage uploads, and public image loading.
+8. 验证：
+   - 登录
+   - 后台读取和保存
+   - 点数扣费和退款
+   - 生图/视频提交
+   - 任务同步 cron
+   - Storage 上传
+   - 历史图片公开访问
 
-## Current Server Instance
+## API 迁移脚本
 
-The self-hosted Supabase stack has been installed at `/opt/supabase-storm` on this production server. It is currently a side-by-side instance: the live Next.js app should stay on the old Supabase project until DNS, HTTPS, backup, restore, and data migration are verified.
-
-- Supabase API hostname: `https://supabase.zlaction.online`
-- Expected DNS target: `107.173.25.225`
-- Internal Kong listener: `127.0.0.1:8000`
-- Internal Postgres listener: `127.0.0.1:5432`
-- Nginx site: `/etc/nginx/sites-available/supabase-storm`
-- App schema applied from `supabase-schema.sql`
-- Storage bucket created: `generated-images`
-
-Before issuing HTTPS certificates, create a DNS `A` record:
-
-```text
-supabase.zlaction.online -> 107.173.25.225
-```
-
-If Cloudflare is used, keep the record in DNS-only mode until Certbot has completed, or make sure HTTP-01 validation can reach this server.
-
-After DNS resolves, run:
-
-```bash
-certbot --nginx -d supabase.zlaction.online --redirect
-nginx -t
-systemctl reload nginx
-pnpm check:supabase:selfhosted
-```
-
-The check script intentionally fails while DNS is missing. Passing this script is a prerequisite for switching `.env.production`.
-
-If the old Supabase project's direct database password is unavailable, the repository migration script can migrate API-visible Auth users and public schema rows, while preserving `auth.users.id` values and forcing migrated users to change temporary passwords:
+如果旧 Supabase 的数据库直连密码拿不到，可以用仓库脚本迁移 API 可见数据：
 
 ```bash
 pnpm migrate:supabase:public
@@ -99,31 +151,73 @@ pnpm migrate:supabase:storage
 pnpm migrate:supabase:storage -- --apply
 ```
 
-The first command is a dry run. The second command writes to the self-hosted Supabase instance. It exports migration artifacts to `backups/supabase-migration/`, including `temporary-passwords.json` when users are created. Treat that file as a secret and remove it after users have received their reset instructions.
+说明：
 
-This API-based path cannot preserve existing user passwords because Supabase Admin API does not expose password hashes from the source project. To preserve passwords exactly, use a database-level dump from the source Supabase project instead.
+- 不带 `--apply` 是 dry run，只预演。
+- 带 `--apply` 才会写入自托管 Supabase。
+- 迁移产物会输出到 `backups/supabase-migration/`。
+- 如果创建了临时密码，会生成 `temporary-passwords.json`。
+- `temporary-passwords.json` 是敏感文件，发给用户重置后要安全删除。
 
-## Backup and Restore
+限制：
 
-- Run an encrypted daily PostgreSQL backup and copy it off the production server.
-- Back up generated Storage objects off the production server.
-- Keep enough retention to recover from accidental deletes and bad migrations.
-- Test restoring to a temporary database at least monthly.
-- Do not consider the migration complete until a restore has been verified with the app.
+- Supabase Admin API 不暴露旧用户密码哈希。
+- API 迁移无法保留用户原密码。
+- 如果必须保留原密码，需要源 Supabase 的数据库级 dump。
 
-Create a local backup with:
+## 备份和恢复
+
+上线自托管后，备份是必须项：
+
+- 每天加密备份 PostgreSQL。
+- 备份生成图片 Storage 对象。
+- 备份要复制到服务器外部。
+- 保留足够时间，防止误删和坏迁移。
+- 至少每月做一次恢复演练。
+
+创建本地备份：
 
 ```bash
 pnpm backup:supabase:selfhosted
 ```
 
-By default this writes to `backups/supabase/`, which is git-ignored. Set `SUPABASE_BACKUP_DIR=/path/to/backup/root` to write elsewhere. Local backups are not enough for production; copy each backup to off-server storage and periodically perform a restore test.
+默认输出到：
 
-## Rollback
+```bash
+backups/supabase/
+```
 
-Keep the old Supabase Cloud project untouched during the migration window. If validation fails:
+这个目录已被 Git 忽略。本地备份不等于生产备份，仍然要复制到服务器外部。
 
-1. Restore the previous Supabase Cloud values in `.env.production`.
-2. Run `pnpm check:env`.
-3. Restart the app with `pm2 restart storm-ai --update-env`.
-4. Keep the self-hosted stack offline for investigation until data divergence is understood.
+可以指定备份目录：
+
+```bash
+SUPABASE_BACKUP_DIR=/path/to/backup/root pnpm backup:supabase:selfhosted
+```
+
+## 回滚
+
+迁移窗口内保留旧 Supabase Cloud 项目，不要马上删除。
+
+如果验证失败：
+
+1. 把 `.env.production` 恢复为旧 Supabase Cloud 的值。
+2. 执行：
+
+   ```bash
+   XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm check:env
+   XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
+   pm2 restart storm-ai --update-env
+   pm2 save
+   ```
+
+3. 确认网站恢复。
+4. 暂停自托管切换，排查数据差异。
+
+## 不要做的事
+
+- 不要在没备份时切换生产 Supabase。
+- 不要把自托管 Studio、Postgres 端口直接暴露公网。
+- 不要把 service role key 放进前端变量。
+- 不要把迁移出来的临时密码文件提交或发送到不安全渠道。
+- 不要把旧 Supabase 项目立即删除，至少保留到新环境稳定运行并完成备份恢复演练。

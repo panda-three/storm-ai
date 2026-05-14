@@ -1,23 +1,29 @@
-# Manual Release Guide
+# 手动发布指南
 
-Use this guide when code changes have already been pushed to GitHub and you want to deploy them to the current production server.
+这份文档用于“代码已经提交到 GitHub，需要把生产环境更新到最新版”的场景。当前生产项目目录是 `/usr/storm-ai`。
 
-## Before Releasing
+## 发布前检查
 
-Confirm the target server and app state:
+登录服务器后先执行：
 
 ```bash
 cd /usr/storm-ai
 git status --short
+git branch --show-current
 pm2 status
 curl -I https://www.zlaction.online
 ```
 
-Do not continue if there are unexpected local source changes on the server. Commit or intentionally discard them first.
+继续发布前要确认：
 
-## Standard Release
+- 当前分支是 `main`。
+- `git status --short` 没有你看不懂的本地改动。
+- PM2 里 `storm-ai` 当前是 `online`，除非你正在修故障。
+- 网站 HTTPS 至少能正常响应。
 
-Run these commands on the server:
+如果服务器上有意外本地改动，不要直接 `git pull`。先找开发人员确认这些改动是否要提交、保留或丢弃。
+
+## 标准发布流程
 
 ```bash
 cd /usr/storm-ai
@@ -28,25 +34,29 @@ pm2 restart storm-ai --update-env
 pm2 save
 ```
 
-Then verify:
+如果 `pnpm build` 失败，停止发布，不要执行 PM2 重启。
+
+## 发布后检查
 
 ```bash
 pm2 status
 curl -I http://127.0.0.1:3000
 curl -I -H "Host: www.zlaction.online" http://127.0.0.1
 curl -I https://www.zlaction.online
+nginx -t
 ```
 
-Healthy results:
+健康结果：
 
-- `storm-ai` is `online` in PM2.
-- Local port `3000` returns `200 OK`.
-- Nginx localhost proxy returns `200 OK` or redirects as expected.
-- Public HTTPS returns `200 OK`.
+- PM2 里 `storm-ai` 是 `online`。
+- `http://127.0.0.1:3000` 返回 `200 OK`。
+- 本机 Nginx 代理返回 `200 OK` 或符合预期的跳转。
+- `https://www.zlaction.online` 返回 `200 OK`。
+- `nginx -t` 显示配置正确。
 
-## When Environment Variables Change
+## 环境变量变更时
 
-If `.env.local` was updated and should become production config:
+如果 `.env.local` 的内容要同步成生产配置：
 
 ```bash
 cd /usr/storm-ai
@@ -57,22 +67,29 @@ pm2 restart storm-ai --update-env
 pm2 save
 ```
 
-Rebuilding is required when `NEXT_PUBLIC_*` variables change because those values are embedded into the browser bundle.
+注意：
 
-## When Database Schema Changes
+- `.env.production` 不能提交到 Git。
+- `NEXT_PUBLIC_*` 变量会进入浏览器包，改了以后必须重新 build。
+- 生产环境通常不要设置本地代理地址，例如 `127.0.0.1:7890`。
 
-If the release changes Supabase tables, indexes, policies, or RPC functions:
+## 数据库结构变更时
 
-1. Apply the SQL in Supabase first.
-2. Confirm the SQL completed successfully.
-3. Deploy the server code with the standard release commands.
-4. Manually test login, admin pages, credit balance, generation, and history.
+如果本次发布改了 `supabase-schema.sql`，尤其是表、索引、RLS、RPC 函数：
 
-Do not deploy code that calls new RPC signatures before the SQL is applied.
+1. 先备份或确认可回滚。
+2. 在生产 Supabase 执行对应 SQL。
+3. 确认 SQL 没有报错。
+4. 再执行标准发布流程。
+5. 发布后测试登录、后台、点数、生成任务、历史项目。
 
-## Cron Route Check
+不要先部署会调用新 RPC 的代码，再补数据库函数。这样线上请求会直接报错。
 
-After releases that touch generation jobs, task sync, APIMart, MengFactory, or Supabase server code, manually test the cron route:
+如果只是新增或重建索引，一般不会影响数据，但仍建议在访问低峰执行。
+
+## 生成任务同步检查
+
+改动过生图、视频、APIMart、ToAPIs、云雾、Supabase 服务端逻辑后，手动检查 cron 路由：
 
 ```bash
 secret=$(grep -E '^CRON_SECRET=' /usr/storm-ai/.env.production | sed 's/^CRON_SECRET=//')
@@ -82,22 +99,24 @@ curl -fsS -X POST \
   http://127.0.0.1/api/cron/sync-generation-jobs
 ```
 
-A healthy response includes:
+健康响应应包含：
 
 ```json
 {"ok":true}
 ```
 
-## Rollback
+返回 `401` 表示 `CRON_SECRET` 不匹配。返回 `500` 就看 PM2 日志。
 
-If a release fails after `git pull`, inspect recent commits:
+## 回滚流程
+
+先查看最近提交：
 
 ```bash
 cd /usr/storm-ai
 git log --oneline -5
 ```
 
-Rollback to a known good commit:
+临时回滚到某个已知可用版本：
 
 ```bash
 git checkout <GOOD_COMMIT_SHA>
@@ -107,7 +126,7 @@ pm2 restart storm-ai --update-env
 pm2 save
 ```
 
-After rollback, verify:
+回滚后检查：
 
 ```bash
 pm2 status
@@ -115,32 +134,22 @@ curl -I https://www.zlaction.online
 pm2 logs storm-ai --lines 100
 ```
 
-When the issue is fixed, return to the normal branch:
+问题修好后回到主分支：
 
 ```bash
 git checkout main
 git pull origin main
 ```
 
-## Useful Diagnostics
+注意：如果本次发布包含数据库结构变更，代码回滚不一定等于数据库回滚。数据库回滚要单独评估。
 
-Application logs:
+## 常用排查命令
 
 ```bash
 pm2 logs storm-ai --lines 100
-```
-
-Nginx errors:
-
-```bash
 tail -n 100 /var/log/nginx/error.log
-```
-
-Nginx config:
-
-```bash
 nginx -t
 systemctl status nginx --no-pager
 ```
 
-See `docs/logging.md` for the full logging guide.
+完整日志说明见 [logging.md](logging.md)。

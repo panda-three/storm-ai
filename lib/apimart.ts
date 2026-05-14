@@ -409,7 +409,7 @@ function apimartRawRequest(
     })
 
     request.on("error", reject)
-    request.setTimeout(30000, () => {
+    request.setTimeout(60000, () => {
       request.destroy(new Error("APIMart request timed out"))
     })
 

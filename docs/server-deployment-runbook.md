@@ -1,108 +1,210 @@
-# Storm AI Server Deployment Runbook
+# Storm AI 生产服务器记录
 
-This document records the production deployment performed on May 11, 2026 for `www.zlaction.online`.
+这份文档记录当前生产服务器的实际状态，方便以后接手、续费、排查和迁移。它不是每天发布都要执行的步骤；日常发布看 [manual-release.md](manual-release.md)，日志排查看 [logging.md](logging.md)。
 
-## Current Production Shape
+## 当前生产环境
 
-- Project path: `/usr/storm-ai`
-- PM2 cwd alias: `/var/www/storm-ai -> /usr/storm-ai`
-- Domain: `https://www.zlaction.online`
-- Server IP used in DNS: `107.173.25.225`
-- Runtime: Node.js, pnpm through Corepack, PM2, Nginx, Certbot
-- App port: `3000`
-- Nginx ports: `80` and `443`
-- PM2 app name: `storm-ai`
+- 网站域名：`https://www.zlaction.online`
+- 服务器 IP：`107.173.25.225`
+- 项目目录：`/usr/storm-ai`
+- PM2 工作目录别名：`/var/www/storm-ai -> /usr/storm-ai`
+- 应用端口：`3000`
+- Nginx 端口：`80`、`443`
+- PM2 应用名：`storm-ai`
+- GitHub 仓库：`git@github.com:panda-three/storm-ai.git`
+- 分支：`main`
 
-The app is deployed as a Node.js Next.js service, not as a static site.
+当前部署方式是 Next.js Node 服务，不是静态站点。
 
-## What Was Done
+## 主要组件
 
-1. Installed dependencies with pnpm through Corepack:
+- Node.js 22
+- Corepack 管理的 pnpm
+- PM2 管理 Next.js 进程
+- Nginx 反向代理到 `127.0.0.1:3000`
+- Certbot 管理 HTTPS 证书
+- Supabase Cloud 或本机自托管 Supabase
+- 上游 AI 渠道：云雾、ToAPIs、APIMart
 
-   ```bash
-   XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm install --frozen-lockfile --store-dir /usr/storm-ai/.pnpm-store
-   ```
+## PM2 配置
 
-2. Built the Next.js production bundle:
+`ecosystem.config.cjs` 当前使用：
 
-   ```bash
-   XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
-   ```
+```js
+module.exports = {
+  apps: [
+    {
+      name: "storm-ai",
+      script: "corepack",
+      args: "pnpm start:production",
+      cwd: "/var/www/storm-ai",
+      env: {
+        NODE_ENV: "production",
+        PORT: "3000",
+      },
+    },
+  ],
+}
+```
 
-3. Installed runtime services:
+`start:production` 会先执行环境变量检查，再启动 Next.js：
 
-   ```bash
-   apt update
-   apt install -y nginx ufw snapd ca-certificates curl gnupg git
-   npm install -g pm2
-   ```
+```bash
+node scripts/check-production-env.mjs && next start
+```
 
-4. Created the production path expected by `ecosystem.config.cjs`:
+## 常用发布命令
 
-   ```bash
-   ln -s /usr/storm-ai /var/www/storm-ai
-   ```
+```bash
+cd /usr/storm-ai
+git pull origin main
+XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm install --frozen-lockfile --store-dir /usr/storm-ai/.pnpm-store
+XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
+pm2 restart storm-ai --update-env
+pm2 save
+```
 
-5. Installed and enabled the Nginx site:
+发布后检查：
 
-   ```bash
-   cp /usr/storm-ai/deploy/nginx/storm-ai.conf /etc/nginx/sites-available/storm-ai
-   ln -s /etc/nginx/sites-available/storm-ai /etc/nginx/sites-enabled/storm-ai
-   rm /etc/nginx/sites-enabled/default
-   nginx -t
-   systemctl reload nginx
-   ```
+```bash
+pm2 status
+curl -I http://127.0.0.1:3000
+curl -I https://www.zlaction.online
+```
 
-6. Synced production environment variables:
+## Nginx 配置
 
-   ```bash
-   cp .env.local .env.production
-   ```
+项目 Nginx 模板在：
 
-   `APIMART_PROXY_URL` was emptied in `.env.production` so production does not use a local development proxy.
+```bash
+/usr/storm-ai/deploy/nginx/storm-ai.conf
+```
 
-7. Updated PM2 config to run pnpm through Corepack because the server did not expose a direct `pnpm` binary:
+服务器上的启用位置：
 
-   ```js
-   script: "corepack"
-   args: "pnpm start"
-   ```
+```bash
+/etc/nginx/sites-available/storm-ai
+/etc/nginx/sites-enabled/storm-ai
+```
 
-8. Started and persisted the app:
+修改后检查并重载：
 
-   ```bash
-   pm2 start ecosystem.config.cjs
-   pm2 restart storm-ai --update-env
-   pm2 save
-   pm2 startup systemd -u root --hp /root
-   systemctl daemon-reload
-   ```
+```bash
+nginx -t
+systemctl reload nginx
+```
 
-9. Installed Certbot and issued HTTPS certificate:
+## HTTPS 证书
 
-   ```bash
-   apt install -y certbot python3-certbot-nginx
-   certbot --nginx -d www.zlaction.online --redirect --non-interactive --agree-tos -m admin@zlaction.online
-   ```
+当前用 Certbot 管理：
 
-10. Added the cron sync job:
+```bash
+certbot certificates
+systemctl status certbot.timer --no-pager
+systemctl is-enabled certbot.timer
+```
 
-    ```cron
-    * * * * * curl -fsS -X POST -H "Host: www.zlaction.online" -H "Authorization: Bearer <CRON_SECRET>" http://127.0.0.1/api/cron/sync-generation-jobs >/dev/null 2>&1
-    ```
+如果 HTTPS 出问题：
 
-    The cron calls localhost intentionally, so task syncing still hits this server even if external DNS or Cloudflare behavior changes.
+```bash
+tail -n 100 /var/log/letsencrypt/letsencrypt.log
+nginx -t
+curl -I https://www.zlaction.online
+```
 
-## External Setup Confirmed
+## 环境变量
 
-- `supabase-schema.sql` has already been executed in Supabase.
-- Required environment variables are present in `.env.production`.
-- DNS for `www.zlaction.online` was changed away from Vercel and toward this server through Cloudflare.
-- HTTPS was failing with Cloudflare `521` until Nginx was configured for port `443`; this was fixed by Certbot.
+生产环境文件：
 
-## Verification Commands
+```bash
+/usr/storm-ai/.env.production
+```
 
-Use these checks after deployment or updates:
+注意：
+
+- 不要提交 `.env.production`。
+- 不要截图或复制里面的密钥。
+- 生产环境通常应清空 `APIMART_PROXY_URL`。
+
+只检查变量是否存在：
+
+```bash
+awk -F= '/^(APIMART|TOAPIS|YUNWU|NEXT_PUBLIC_SUPABASE|SUPABASE|CRON_SECRET)/ {print $1"=<set>"}' /usr/storm-ai/.env.production
+```
+
+如果 `.env.production` 变了，需要：
+
+```bash
+XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
+pm2 restart storm-ai --update-env
+pm2 save
+```
+
+## 生成任务同步 cron
+
+当前推荐 cron 从本机访问，避免外部 DNS 或 Cloudflare 影响同步：
+
+```cron
+* * * * * curl -fsS -X POST -H "Host: www.zlaction.online" -H "Authorization: Bearer <CRON_SECRET>" http://127.0.0.1/api/cron/sync-generation-jobs >/dev/null 2>&1
+```
+
+查看 cron，隐藏密钥：
+
+```bash
+crontab -l | sed 's/Bearer [^\"]*/Bearer ***REDACTED***/'
+```
+
+手动测试：
+
+```bash
+secret=$(grep -E '^CRON_SECRET=' /usr/storm-ai/.env.production | sed 's/^CRON_SECRET=//')
+curl -fsS -X POST \
+  -H "Host: www.zlaction.online" \
+  -H "Authorization: Bearer ${secret}" \
+  http://127.0.0.1/api/cron/sync-generation-jobs
+```
+
+健康响应包含：
+
+```json
+{"ok":true}
+```
+
+## Supabase 现状
+
+本项目依赖：
+
+- Supabase Auth
+- PostgREST/RPC
+- RLS
+- Storage
+- `auth.users` 相关触发器
+
+服务器上已经存在一套自托管 Supabase 容器，主要用于迁移或备用验证。是否已经切换为正式数据源，要以 `.env.production` 里的 `NEXT_PUBLIC_SUPABASE_URL` 为准。
+
+查看容器：
+
+```bash
+docker ps
+```
+
+本机 Supabase API 检查：
+
+```bash
+curl -I http://127.0.0.1:8000
+```
+
+返回 `401 Unauthorized` 通常表示服务在运行，只是没有带 API key。
+
+## 重要历史记录
+
+- 2026-05-11：生产服务器完成首次部署。
+- 项目从 Vercel 形态迁移为 VPS 上的 Node.js Next.js 服务。
+- Nginx/Certbot 修复了 Cloudflare `521` 问题。
+- cron 同步任务改为 `/api/cron/sync-generation-jobs`。
+- 2026-05-14：新增 APIMart `image2-M通道` 后重新部署，PM2、HTTPS、本机 3000 验证通过。
+
+## 健康检查命令
 
 ```bash
 pm2 status
@@ -116,41 +218,18 @@ systemctl is-enabled pm2-root
 systemctl is-enabled certbot.timer
 ```
 
-Expected healthy results:
+期望：
 
-- PM2 `storm-ai` status is `online`.
-- Local Next.js returns `200 OK` on port `3000`.
-- HTTP public domain redirects to HTTPS.
-- HTTPS public domain returns `200 OK`.
-- Nginx config test succeeds.
-- `pm2-root` and `certbot.timer` are enabled.
+- PM2 `storm-ai` 是 `online`。
+- 本机 3000 返回 `200 OK`。
+- 公网 HTTPS 返回 `200 OK`。
+- Nginx 配置正确。
+- `pm2-root`、`certbot.timer` 已启用。
 
-## Update Procedure
+## 不要轻易做的事
 
-For future releases:
-
-```bash
-cd /usr/storm-ai
-git pull origin main
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm install --frozen-lockfile --store-dir /usr/storm-ai/.pnpm-store
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
-pm2 restart storm-ai --update-env
-pm2 save
-```
-
-If `.env.local` changes and should become production config:
-
-```bash
-cp .env.local .env.production
-perl -0pi -e 's/^APIMART_PROXY_URL=.*$/APIMART_PROXY_URL=/m' .env.production
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
-pm2 restart storm-ai --update-env
-pm2 save
-```
-
-## Known Notes
-
-- Do not commit `.env.local` or `.env.production`.
-- The server is currently using Corepack-managed pnpm, so PM2 starts with `corepack pnpm start`.
-- `certbot renew --dry-run` was attempted once and hung; the active certificate was issued successfully and `certbot.timer` is enabled.
-- The system reported a pending kernel upgrade during apt installs. A reboot can be planned separately if desired, but it was not required for this deployment.
+- 不要把 `.env.production` 发到聊天窗口或提交到 Git。
+- 不要在没备份时改生产数据库结构。
+- 不要直接删除 `/usr/storm-ai`、`/opt/supabase-storm`、`/root/.pm2`。
+- 不要随便执行 `git reset --hard`，除非明确知道会丢掉哪些文件。
+- 不要在不确认数据源的情况下切换 Supabase URL。
