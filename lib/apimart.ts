@@ -3,6 +3,7 @@ import net from "node:net"
 import tls from "node:tls"
 import type { Duplex } from "node:stream"
 import {
+  apimartGptImage2ApiModelName,
   gptImage2ApiModelName,
   gptImage2AllModelName,
   gptImage2ModelName,
@@ -45,6 +46,13 @@ interface ApimartVideoRequest {
   duration: number
   quality: string
   aspectRatio: string
+}
+
+interface ApimartGptImage2Request {
+  prompt: string
+  quality: string
+  ratio: string
+  referenceImages?: string[]
 }
 
 interface ApimartTaskResponse {
@@ -142,6 +150,50 @@ export async function createImageGeneration(request: ApimartImageRequest): Promi
   const result = normalizeGenerationResponse(response, "image")
   logApimart("images/generations normalized output", result)
   return result
+}
+
+export async function createApimartGptImage2Task(request: ApimartGptImage2Request): Promise<GenerationResponse> {
+  assertApimartConfigured()
+
+  const payload = {
+    model: apimartGptImage2ApiModelName,
+    prompt: request.prompt,
+    n: 1,
+    official_fallback: false,
+    resolution: normalizeApimartImageResolution(request.quality),
+    size: request.ratio,
+    ...(request.referenceImages?.length ? { image_urls: request.referenceImages } : {}),
+  }
+
+  logApimart("gpt-image-2 submit input", {
+    promptLength: request.prompt.length,
+    quality: request.quality,
+    ratio: request.ratio,
+    referenceImages: request.referenceImages?.length ?? 0,
+  })
+
+  const response = await apimartFetch("/images/generations", payload)
+  const result = normalizeGenerationResponse(response, "image")
+
+  logApimart("gpt-image-2 submit output", {
+    status: result.status,
+    taskId: result.taskId,
+  })
+
+  return result
+}
+
+export function assertApimartConfigured() {
+  if (!process.env.APIMART_API_KEY) {
+    throw new Error("APIMart API Key 未配置，请设置 APIMART_API_KEY。")
+  }
+}
+
+function normalizeApimartImageResolution(quality: string) {
+  const value = quality.trim().toLowerCase()
+  if (value === "4k" || value === "超清") return "4k"
+  if (value === "2k" || value === "高清") return "2k"
+  return "1k"
 }
 
 function normalizeImageCount(value: number | undefined): number {

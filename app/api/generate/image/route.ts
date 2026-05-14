@@ -3,6 +3,7 @@ import {
   createGenerationJobWithBilling,
   failGenerationJobWithRefund,
   getGenerationJobExpiresAt,
+  updateGenerationJob,
   updateActiveGenerationJob,
   type GenerationJobStatus,
 } from "@/lib/generation-jobs"
@@ -26,13 +27,17 @@ import {
   uploadGeneratedImage,
 } from "@/lib/server-supabase"
 import {
+  apimartImageProviderName,
   gptImage2Supported4KRatios,
   imageModelSettings,
+  isApimartImageModel,
   isSelectableImageModel,
+  isToapisImageModel,
   isYunwuGeminiImageModel,
   isYunwuGptImageModel,
   isYunwuImageModel,
   isValidImageRatioForQuality,
+  toapisImageProviderName,
   yunwuGeminiImageModelName,
 } from "@/lib/model-options"
 import {
@@ -42,6 +47,8 @@ import {
   type StoredReferenceImage,
   validateReferenceImageMetadata,
 } from "@/lib/reference-images"
+import { assertApimartConfigured, createApimartGptImage2Task } from "@/lib/apimart"
+import { assertToapisConfigured, createToapisGptImageTask } from "@/lib/toapis"
 
 interface PreparedReferenceImage {
   buffer: Buffer
@@ -54,11 +61,13 @@ interface PreparedReferenceImage {
 
 export async function POST(request: Request) {
   let billingReason = ""
-  let clientRequestId: string
+  let clientRequestId = ""
   let jobId = ""
   let stage = "authenticate"
+  let upstreamTaskId = ""
   let userId = ""
   let preparedReferenceImages: PreparedReferenceImage[] = []
+  let cleanupPreparedReferenceImages = true
 
   try {
     const auth = await requireAuthenticatedUser(request)
@@ -156,13 +165,32 @@ export async function POST(request: Request) {
     }
 
     const isYunwuImage = isYunwuImageModel(model)
+    const isApimartImage = isApimartImageModel(model)
+    const isToapisImage = isToapisImageModel(model)
+    const provider = isApimartImage ? apimartImageProviderName : isToapisImage ? toapisImageProviderName : "yunwu"
     logGenerateImage("provider route", {
+      isApimartImage,
+      isToapisImage,
       isYunwuImage,
       model,
-      provider: "yunwu",
+      provider,
     })
-    if (!isYunwuImage) {
-      return NextResponse.json({ ok: false, error: "当前图片模型暂只支持 Yunwu 上游。" }, { status: 400 })
+    if (!isYunwuImage && !isToapisImage && !isApimartImage) {
+      return NextResponse.json({ ok: false, error: "当前图片模型暂不支持该上游。" }, { status: 400 })
+    }
+
+    if (isApimartImage && imageCount !== 1) {
+      return NextResponse.json({ ok: false, error: "image2-M通道暂时仅支持单张生成。" }, { status: 400 })
+    }
+
+    if (isApimartImage) {
+      stage = "check_apimart_config"
+      assertApimartConfigured()
+    }
+
+    if (isToapisImage) {
+      stage = "check_toapis_config"
+      assertToapisConfigured()
     }
 
     stage = "prepare_reference_images"
@@ -181,6 +209,16 @@ export async function POST(request: Request) {
           stage = "prepare_yunwu_gpt_references"
         })
       : []
+    const toapisReferenceImageUrls = isToapisImage
+      ? await prepareToapisReferenceImageUrls(preparedReferenceImages, () => {
+          stage = "prepare_toapis_references"
+        })
+      : []
+    const apimartReferenceImageUrls = isApimartImage
+      ? await prepareApimartReferenceImageUrls(preparedReferenceImages, () => {
+          stage = "prepare_apimart_references"
+        })
+      : []
 
     stage = "create_generation_job_with_billing"
     const job = await createGenerationJobWithBilling({
@@ -190,7 +228,7 @@ export async function POST(request: Request) {
       isFree,
       model,
       prompt,
-      provider: "yunwu",
+      provider,
       quality,
       aspectRatio: ratio,
       reason: billingReason,
@@ -212,7 +250,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         ok: true,
-        mode: "yunwu",
+        mode: provider,
         taskId: job.id,
         status: job.status,
         type: "image",
@@ -220,6 +258,93 @@ export async function POST(request: Request) {
         clientRequestId: job.client_request_id ?? clientRequestId,
         progress: job.status === "completed" || job.status === "partial_completed" ? 100 : 0,
         taskError: job.task_error ?? "",
+      })
+    }
+
+    if (isToapisImage) {
+      stage = "submit_toapis_generation"
+      const result = await createToapisGptImageTask({
+        imageCount,
+        prompt,
+        quality,
+        ratio,
+        referenceImages: toapisReferenceImageUrls,
+      })
+      upstreamTaskId = result.taskId
+      cleanupPreparedReferenceImages = false
+
+      stage = "record_toapis_task"
+      const nextJob = await updateActiveGenerationJob(job.id, {
+        next_check_at: new Date(Date.now() + 5000).toISOString(),
+        status: result.status === "submitted" ? "submitted" : "processing",
+        storage_urls: toapisReferenceImageUrls,
+        upstream_task_id: result.taskId,
+      })
+
+      if (!nextJob) {
+        throw new Error("生成任务已结束，不能提交 ToAPIs 上游任务。")
+      }
+
+      logGenerateImage("toapis output", {
+        jobId: job.id,
+        status: nextJob.status,
+        upstreamTaskId: result.taskId,
+      })
+
+      return NextResponse.json({
+        ok: true,
+        mode: "toapis",
+        taskId: job.id,
+        upstreamTaskId: result.taskId,
+        status: nextJob.status,
+        type: "image",
+        imageUrls: [],
+        clientRequestId,
+        progress: 0,
+        taskError: "",
+      })
+    }
+
+    if (isApimartImage) {
+      stage = "submit_apimart_generation"
+      const result = await createApimartGptImage2Task({
+        prompt,
+        quality,
+        ratio,
+        referenceImages: apimartReferenceImageUrls,
+      })
+      upstreamTaskId = result.taskId
+      cleanupPreparedReferenceImages = false
+
+      stage = "record_apimart_task"
+      const nextJob = await updateActiveGenerationJob(job.id, {
+        next_check_at: new Date(Date.now() + 5000).toISOString(),
+        status: result.status === "submitted" ? "submitted" : "processing",
+        storage_urls: apimartReferenceImageUrls,
+        upstream_task_id: result.taskId,
+      })
+
+      if (!nextJob) {
+        throw new Error("生成任务已结束，不能提交 APIMart 上游任务。")
+      }
+
+      logGenerateImage("apimart output", {
+        jobId: job.id,
+        status: nextJob.status,
+        upstreamTaskId: result.taskId,
+      })
+
+      return NextResponse.json({
+        ok: true,
+        mode: "apimart",
+        taskId: job.id,
+        upstreamTaskId: result.taskId,
+        status: nextJob.status,
+        type: "image",
+        imageUrls: [],
+        clientRequestId,
+        progress: 0,
+        taskError: "",
       })
     }
 
@@ -337,6 +462,29 @@ export async function POST(request: Request) {
     })
 
     if (jobId) {
+      if (upstreamTaskId) {
+        const recoveredJob = await recoverSubmittedImageJob({
+          failureMessage,
+          jobId,
+          upstreamTaskId,
+        }).catch(() => null)
+
+        if (recoveredJob) {
+          return NextResponse.json({
+            ok: true,
+            mode: recoveredJob.provider === "apimart" ? "apimart" : recoveredJob.provider === "toapis" ? "toapis" : "yunwu",
+            taskId: recoveredJob.id,
+            upstreamTaskId,
+            status: recoveredJob.status,
+            type: "image",
+            imageUrls: recoveredJob.result_urls,
+            clientRequestId,
+            progress: 0,
+            taskError: failureMessage,
+          })
+        }
+      }
+
       await failGenerationJobWithRefund({
         jobId,
         reason: `${billingReason || "AI 生图"}提交失败退款：${failureMessage}`,
@@ -351,7 +499,9 @@ export async function POST(request: Request) {
       { status: getServerErrorStatus(error) }
     )
   } finally {
-    await cleanupStoredReferenceImages(preparedReferenceImages)
+    if (cleanupPreparedReferenceImages) {
+      await cleanupStoredReferenceImages(preparedReferenceImages)
+    }
   }
 }
 
@@ -436,6 +586,14 @@ function getFailureStageLabel(stage: string) {
   if (stage === "submit_yunwu_generation") return "yw 图片生成失败"
   if (stage === "prepare_yunwu_gemini_references" || stage === "prepare_yunwu_gpt_references") return "yw 参考图处理失败"
   if (stage === "complete_yunwu_job") return "yw 图片任务结算失败"
+  if (stage === "check_apimart_config") return "APIMart 配置检查失败"
+  if (stage === "submit_apimart_generation") return "APIMart 图片生成提交失败"
+  if (stage === "record_apimart_task") return "APIMart 图片任务记录失败"
+  if (stage === "prepare_apimart_references") return "APIMart 参考图处理失败"
+  if (stage === "check_toapis_config") return "ToAPIs 配置检查失败"
+  if (stage === "submit_toapis_generation") return "ToAPIs 图片生成提交失败"
+  if (stage === "record_toapis_task") return "ToAPIs 图片任务记录失败"
+  if (stage === "prepare_toapis_references") return "ToAPIs 参考图处理失败"
   if (stage === "prepare_reference_images" || stage === "validate_reference_images") return "参考图处理失败"
   if (stage === "parse_input") return "图片参数处理失败"
   if (stage === "load_pricing") return "价格读取失败"
@@ -462,6 +620,23 @@ async function refundImageGenerationCredits({
     reason,
     reference,
     userId,
+  })
+}
+
+async function recoverSubmittedImageJob({
+  failureMessage,
+  jobId,
+  upstreamTaskId,
+}: {
+  failureMessage: string
+  jobId: string
+  upstreamTaskId: string
+}) {
+  return updateGenerationJob(jobId, {
+    last_sync_error: failureMessage,
+    next_check_at: new Date(Date.now() + 5000).toISOString(),
+    status: "processing",
+    upstream_task_id: upstreamTaskId,
   })
 }
 
@@ -621,6 +796,32 @@ async function prepareYunwuReferenceImageUrls(referenceImages: PreparedReference
     image.path = uploaded.path
     image.publicUrl = uploaded.publicUrl
     urls.push(uploaded.publicUrl)
+  }
+
+  return urls
+}
+
+async function prepareToapisReferenceImageUrls(referenceImages: PreparedReferenceImage[], setStage: () => void) {
+  if (referenceImages.length === 0) return []
+
+  setStage()
+  const urls = referenceImages.map((image) => image.publicUrl).filter((url): url is string => Boolean(url))
+
+  if (urls.length !== referenceImages.length) {
+    throw new Error("ToAPIs 参考图必须先上传为可访问 URL。")
+  }
+
+  return urls
+}
+
+async function prepareApimartReferenceImageUrls(referenceImages: PreparedReferenceImage[], setStage: () => void) {
+  if (referenceImages.length === 0) return []
+
+  setStage()
+  const urls = referenceImages.map((image) => image.publicUrl).filter((url): url is string => Boolean(url))
+
+  if (urls.length !== referenceImages.length) {
+    throw new Error("APIMart 参考图必须先上传为可访问 URL。")
   }
 
   return urls

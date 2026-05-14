@@ -3,6 +3,16 @@ export const gptImage2ApiModelName = "gpt-image-2"
 export const gptImage2AllModelName = "gpt-image-2-all"
 export const gptImage2OfficialApiModelName = "gpt-image-2-official"
 export const gptImage2Supported4KRatios = ["16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
+export const apimartGptImage2ModelName = "image2-M通道"
+export const apimartGptImage2ApiModelName = "gpt-image-2"
+export const apimartImageProviderName = "apimart"
+export const apimartImageRatios = ["auto", "1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
+export const toaGptImage2ModelName = "image2-Toa通道"
+export const toapisGptImage2ApiModelName = "gpt-image-2"
+export const toapisImageProviderName = "toapis"
+export const toapisImage1KRatios = ["1:1", "3:2", "2:3"]
+export const toapisImage2KRatios = ["1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
+export const toapisImage4KRatios = ["16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
 export const mengfactoryGeminiImageModelName = "Gemini 3.1 Flash Image Preview"
 export const yunwuGeminiImageModelName = "gemini-3.1-flash-image-preview"
 export const mengfactoryGeminiImageApiModelName = yunwuGeminiImageModelName
@@ -16,6 +26,8 @@ export const grokVideo3ModelName = "grok-video-3"
 export const imageModelOptions = [
   yunwuGeminiImageModelName,
   gptImage2AllModelName,
+  apimartGptImage2ModelName,
+  toaGptImage2ModelName,
 ]
 
 export const imageModelSettings: Record<
@@ -45,6 +57,14 @@ export const imageModelSettings: Record<
     qualities: ["2K"],
     ratios: ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "2:1", "1:2", "21:9", "9:21"],
   },
+  [apimartGptImage2ModelName]: {
+    qualities: ["1K", "2K", "4K"],
+    ratios: apimartImageRatios,
+  },
+  [toaGptImage2ModelName]: {
+    qualities: ["1K", "2K", "4K"],
+    ratios: toapisImage2KRatios,
+  },
 }
 
 export function isGptImage2Model(model: string) {
@@ -67,16 +87,35 @@ export function isYunwuImageModel(model: string) {
   return isYunwuGeminiImageModel(model) || isYunwuGptImageModel(model)
 }
 
+export function isToapisImageModel(model: string) {
+  return model === toaGptImage2ModelName
+}
+
+export function isApimartImageModel(model: string) {
+  return model === apimartGptImage2ModelName
+}
+
 export function isGptImage2Restricted4K(quality: string, model: string) {
   return isGptImage2Model(model) && quality.trim().toUpperCase() === "4K"
 }
 
 export function getImageRatiosForSelection(model: string, quality: string) {
+  if (isApimartImageModel(model)) return apimartImageRatios
+  if (isToapisImageModel(model)) return getToapisImageRatiosForQuality(quality)
   return isGptImage2Restricted4K(quality, model) ? gptImage2Supported4KRatios : imageModelSettings[model].ratios
 }
 
 export function isValidImageRatioForQuality(model: string, quality: string, ratio: string) {
+  if (isApimartImageModel(model)) return apimartImageRatios.includes(ratio)
+  if (isToapisImageModel(model)) return getToapisImageRatiosForQuality(quality).includes(ratio)
   return !isGptImage2Restricted4K(quality, model) || gptImage2Supported4KRatios.includes(ratio)
+}
+
+export function getToapisImageRatiosForQuality(quality: string) {
+  const normalized = quality.trim().toUpperCase()
+  if (normalized === "1K") return toapisImage1KRatios
+  if (normalized === "4K") return toapisImage4KRatios
+  return toapisImage2KRatios
 }
 
 export const videoModelOptions = [

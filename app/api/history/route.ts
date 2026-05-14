@@ -1,14 +1,36 @@
 import { NextResponse } from "next/server"
+import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
 import { syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
-import { loadGenerationJobsForUser, loadInteractiveYunwuGenerationJobsForUser, recoverStaleGenerationJobsForUser } from "@/lib/generation-jobs"
+import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
+import {
+  loadGenerationJobsForUser,
+  loadInteractiveApimartGenerationJobsForUser,
+  loadInteractiveToapisGenerationJobsForUser,
+  loadInteractiveYunwuGenerationJobsForUser,
+  recoverStaleGenerationJobsForUser,
+} from "@/lib/generation-jobs"
 import { generationJobToProjectItem } from "@/lib/project-history"
 import { getServerErrorStatus, requireAuthenticatedUser } from "@/lib/server-supabase"
 
 export async function GET(request: Request) {
   try {
     const auth = await requireAuthenticatedUser(request)
-    const jobsToSync = await loadInteractiveYunwuGenerationJobsForUser({ userId: auth.userId })
-    await Promise.allSettled(jobsToSync.map((job) => syncYunwuGenerationJob(job, { mode: "interactive" })))
+    const [yunwuJobsToSync, toapisJobsToSync, apimartJobsToSync] = await Promise.all([
+      loadInteractiveYunwuGenerationJobsForUser({ userId: auth.userId }),
+      loadInteractiveToapisGenerationJobsForUser({ userId: auth.userId }),
+      loadInteractiveApimartGenerationJobsForUser({ userId: auth.userId }),
+    ])
+    const [yunwuResults, toapisResults, apimartResults] = await Promise.all([
+      Promise.allSettled(yunwuJobsToSync.map((job) => syncYunwuGenerationJob(job, { mode: "interactive" }))),
+      Promise.allSettled(toapisJobsToSync.map((job) => syncToapisGenerationJob(job, { mode: "interactive" }))),
+      Promise.allSettled(apimartJobsToSync.map((job) => syncApimartGenerationJob(job, { mode: "interactive" }))),
+    ])
+    logHistorySync("interactive", {
+      apimart: summarizeSettledSync(apimartJobsToSync.length, apimartResults),
+      toapis: summarizeSettledSync(toapisJobsToSync.length, toapisResults),
+      yunwu: summarizeSettledSync(yunwuJobsToSync.length, yunwuResults),
+      userId: maskId(auth.userId),
+    })
     await recoverStaleGenerationJobsForUser({ userId: auth.userId })
     const jobs = await loadGenerationJobsForUser({ userId: auth.userId })
 
@@ -27,4 +49,29 @@ export async function GET(request: Request) {
       { status: getServerErrorStatus(error) }
     )
   }
+}
+
+function summarizeSettledSync(checked: number, results: PromiseSettledResult<unknown>[]) {
+  return results.reduce(
+    (current, result) => {
+      if (result.status === "rejected") {
+        current.errors += 1
+      }
+      return current
+    },
+    {
+      checked,
+      errors: 0,
+    }
+  )
+}
+
+function logHistorySync(label: string, value: unknown) {
+  if (process.env.LOG_GENERATION_DEBUG !== "1") return
+  console.log(`[History Sync] ${label}`, value)
+}
+
+function maskId(value: string) {
+  if (!value) return ""
+  return `${value.slice(0, 6)}...${value.slice(-4)}`
 }

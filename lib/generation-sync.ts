@@ -1,6 +1,10 @@
+import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
 import { mirrorYunwuImageResults, syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
+import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
 import {
   cleanupExpiredGenerationJobs,
+  loadDueApimartGenerationJobs,
+  loadDueToapisGenerationJobs,
   loadDueYunwuGenerationJobs,
   loadYunwuImageJobsForMirroring,
   recoverStaleGenerationJobs,
@@ -47,14 +51,56 @@ export async function syncGenerationJobs({ limit = 20 } = {}) {
       synced: 0,
     }
   )
+  const toapisJobs = await loadDueToapisGenerationJobs({ limit })
+  const toapisResults = await Promise.allSettled(toapisJobs.map((job) => syncToapisGenerationJob(job)))
+  const toapis = toapisResults.reduce(
+    (current, result) => {
+      if (result.status === "rejected") {
+        current.errors += 1
+        return current
+      }
+
+      current[result.value.status] += 1
+      return current
+    },
+    {
+      checked: toapisJobs.length,
+      errors: 0,
+      retryable_error: 0,
+      skipped: 0,
+      synced: 0,
+    }
+  )
+  const apimartJobs = await loadDueApimartGenerationJobs({ limit })
+  const apimartResults = await Promise.allSettled(apimartJobs.map((job) => syncApimartGenerationJob(job)))
+  const apimart = apimartResults.reduce(
+    (current, result) => {
+      if (result.status === "rejected") {
+        current.errors += 1
+        return current
+      }
+
+      current[result.value.status] += 1
+      return current
+    },
+    {
+      checked: apimartJobs.length,
+      errors: 0,
+      retryable_error: 0,
+      skipped: 0,
+      synced: 0,
+    }
+  )
   const stale = await recoverStaleGenerationJobs({ limit })
   const cleanup = await cleanupExpiredGenerationJobs({ limit })
 
   return {
+    apimart,
     cleanup,
     ok: true,
     mirrors,
     stale,
+    toapis,
     yunwu,
   }
 }

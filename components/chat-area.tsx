@@ -10,9 +10,11 @@ import { formatLedgerDateTime } from "@/lib/date-time"
 import { formatLedgerCodeForDisplay } from "@/lib/ledger-display"
 import { formatModelNameForDisplay } from "@/lib/model-display"
 import {
+  apimartGptImage2ModelName,
   getImageRatiosForSelection,
   imageModelOptions,
   imageModelSettings,
+  isApimartImageModel,
   videoModelOptions,
   videoModelSettings,
   yunwuVeo31FastVideoModelName,
@@ -765,6 +767,8 @@ function getFailedTaskPollDelayMs(attempts: number, task?: TaskStatusResponse) {
 }
 
 function getMaxTaskPollAttempts(taskProjects: ProjectItem[]) {
+  if (taskProjects.some((item) => item.model === apimartGptImage2ModelName)) return 180
+  if (taskProjects.some((item) => item.model === "image2-Toa通道")) return 180
   return taskProjects.some((item) => item.type === "视频") ? 160 : 72
 }
 
@@ -1102,6 +1106,8 @@ function ImageWorkspace({
   const [ratio, setRatio] = useState(imageSettings.ratios[0])
   const [imageCount, setImageCount] = useState(imageCountOptions[2])
   const parsedImageCount = parseImageCount(imageCount)
+  const isApimartImage = isApimartImageModel(model)
+  const effectiveImageCount = isApimartImage ? 1 : parsedImageCount
   const ratioOptions = getImageRatiosForSelection(model, quality)
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState("")
@@ -1116,7 +1122,7 @@ function ImageWorkspace({
     type: "image",
   })
   const membershipCoversQuality = isMembershipActive(membershipTier, membershipExpiresAt) && membershipFreeImageQualities.includes(quality)
-  const estimatedCredits = currentPricing ? (membershipCoversQuality ? 0 : calculatePricingCredits(currentPricing) * parsedImageCount) : null
+  const estimatedCredits = currentPricing ? (membershipCoversQuality ? 0 : calculatePricingCredits(currentPricing) * effectiveImageCount) : null
 
   useEffect(() => {
     const draft = readRegenerationDraft()
@@ -1166,6 +1172,12 @@ function ImageWorkspace({
       setRatio(ratioOptions[0])
     }
   }, [ratio, ratioOptions])
+
+  useEffect(() => {
+    if (isApimartImage && imageCount !== "1") {
+      setImageCount("1")
+    }
+  }, [imageCount, isApimartImage])
 
   const handleReferenceImageChange = async (files: FileList | null) => {
     if (!files?.length) return
@@ -1302,7 +1314,7 @@ function ImageWorkspace({
       ratio: resolvedRatio,
       createdAt: getNowLabel(),
       createdAtIso,
-      imageCount: parsedImageCount,
+      imageCount: effectiveImageCount,
       imageUrl: "",
       imageUrls: [],
       palette: "from-cyan-100 via-sky-100 to-teal-100",
@@ -1327,7 +1339,7 @@ function ImageWorkspace({
           prompt: trimmedPrompt,
           model,
           quality,
-          imageCount: parsedImageCount,
+          imageCount: effectiveImageCount,
           clientRequestId,
           ratio: resolvedRatio,
           referenceImages: storedReferenceImages,
@@ -1358,7 +1370,7 @@ function ImageWorkspace({
         ratio: resolvedRatio,
         createdAt: "刚刚",
         createdAtIso,
-        imageCount: parsedImageCount,
+        imageCount: effectiveImageCount,
         imageUrl: imageUrls[0] ?? "",
         imageUrls,
         palette: "from-cyan-500 via-sky-400 to-indigo-300",
@@ -1380,7 +1392,7 @@ function ImageWorkspace({
         ratio: resolvedRatio,
         createdAt: getNowLabel(),
         createdAtIso,
-        imageCount: parsedImageCount,
+        imageCount: effectiveImageCount,
         imageUrl: "",
         imageUrls: [],
         palette: "from-rose-100 via-slate-100 to-amber-100",
@@ -1464,6 +1476,9 @@ function ImageWorkspace({
                         setModel(value)
                         setQuality(settings.qualities[1] ?? settings.qualities[0])
                         setRatio(settings.ratios[0])
+                        if (isApimartImageModel(value)) {
+                          setImageCount("1")
+                        }
                       }}
                       options={imageModelOptions.map((option) => ({
                         label: getOptionLabel(option),
@@ -1494,9 +1509,9 @@ function ImageWorkspace({
                     <WorkspaceDropdown
                       icon={ImageIcon}
                       label="生成张数"
-                      onChange={setImageCount}
-                      options={imageCountDropdownOptions}
-                      value={imageCount}
+                      onChange={isApimartImage ? () => undefined : setImageCount}
+                      options={isApimartImage ? [{ label: "1 张", value: "1" }] : imageCountDropdownOptions}
+                      value={isApimartImage ? "1" : imageCount}
                     />
                   </div>
 

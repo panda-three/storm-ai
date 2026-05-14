@@ -10,10 +10,13 @@ import {
   isTerminalGenerationJobStatus,
   synchronousImageOrphanTimeoutMs,
   asyncVideoTimeoutMs,
+  asyncImageTimeoutMs,
   type GenerationJob,
 } from "@/lib/generation-jobs"
+import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
 import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 import { syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
+import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
 import { getServerErrorStatus, requireAuthenticatedUser } from "@/lib/server-supabase"
 
 const videoMissingResultRetryMs = 90 * 1000
@@ -104,8 +107,37 @@ export async function GET(
       return NextResponse.json(normalizeJobTaskStatus(nextJob ?? recoveredJob))
     }
 
-    const result = await syncYunwuGenerationJob(recoveredJob, { mode: "interactive" })
-    return NextResponse.json(normalizeJobTaskStatus(result.job))
+    if (recoveredJob.provider === "toapis") {
+      logTaskSyncRoute("dispatch", {
+        jobId: recoveredJob.id,
+        provider: recoveredJob.provider,
+        upstreamTaskId: recoveredJob.upstream_task_id,
+      })
+      const result = await syncToapisGenerationJob(recoveredJob, { mode: "interactive" })
+      return NextResponse.json(normalizeJobTaskStatus(result.job))
+    }
+
+    if (recoveredJob.provider === "apimart") {
+      logTaskSyncRoute("dispatch", {
+        jobId: recoveredJob.id,
+        provider: recoveredJob.provider,
+        upstreamTaskId: recoveredJob.upstream_task_id,
+      })
+      const result = await syncApimartGenerationJob(recoveredJob, { mode: "interactive" })
+      return NextResponse.json(normalizeJobTaskStatus(result.job))
+    }
+
+    if (recoveredJob.provider === "yunwu") {
+      logTaskSyncRoute("dispatch", {
+        jobId: recoveredJob.id,
+        provider: recoveredJob.provider,
+        upstreamTaskId: recoveredJob.upstream_task_id,
+      })
+      const result = await syncYunwuGenerationJob(recoveredJob, { mode: "interactive" })
+      return NextResponse.json(normalizeJobTaskStatus(result.job))
+    }
+
+    return NextResponse.json(normalizeJobTaskStatus(recoveredJob))
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务状态查询失败。"
     return NextResponse.json(
@@ -155,12 +187,22 @@ async function recoverStaleGenerationJobIfDue(job: GenerationJob) {
   const isSynchronousImageOrphan =
     job.provider === "yunwu" && job.type === "image" && !job.upstream_task_id && ageMs >= synchronousImageOrphanTimeoutMs
   const isAsyncVideoTimeout = job.type === "video" && Boolean(job.upstream_task_id) && ageMs >= asyncVideoTimeoutMs
+  const isAsyncImageTimeout =
+    (job.provider === "toapis" || job.provider === "apimart") &&
+    job.type === "image" &&
+    Boolean(job.upstream_task_id) &&
+    ageMs >= asyncImageTimeoutMs
 
-  if (!isSynchronousImageOrphan && !isAsyncVideoTimeout) {
+  if (!isSynchronousImageOrphan && !isAsyncVideoTimeout && !isAsyncImageTimeout) {
     return job
   }
 
   return recoverStaleGenerationJob(job)
+}
+
+function logTaskSyncRoute(label: string, value: unknown) {
+  if (process.env.LOG_GENERATION_DEBUG !== "1") return
+  console.log(`[Tasks] ${label}`, value)
 }
 
 function createOrphanedTaskStatus(taskId: string) {

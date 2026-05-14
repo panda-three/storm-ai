@@ -504,9 +504,10 @@ on public.generation_jobs (user_id, client_request_id)
 where client_request_id is not null;
 create index if not exists generation_jobs_expires_at_idx on public.generation_jobs (expires_at)
 where status in ('completed', 'failed', 'partial_completed');
+drop index if exists generation_jobs_sync_due_idx;
 create index if not exists generation_jobs_sync_due_idx
 on public.generation_jobs (next_check_at, created_at)
-where provider in ('apimart', 'yunwu')
+where provider in ('apimart', 'yunwu', 'toapis')
   and status in ('submitted', 'processing')
   and upstream_task_id is not null;
 

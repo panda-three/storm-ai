@@ -291,6 +291,30 @@ export async function deleteGeneratedImageByPublicUrl(publicUrl: string) {
   }
 }
 
+export function getReferenceStorageObjectPath(publicUrl: string) {
+  const bucket = process.env.SUPABASE_REFERENCE_IMAGES_BUCKET ?? "reference-images"
+  const marker = `/storage/v1/object/public/${bucket}/`
+  const markerIndex = publicUrl.indexOf(marker)
+
+  if (markerIndex === -1) return ""
+
+  return decodeURIComponent(publicUrl.slice(markerIndex + marker.length).split("?")[0] ?? "")
+}
+
+export async function deleteReferenceImageByPublicUrl(publicUrl: string) {
+  const bucket = process.env.SUPABASE_REFERENCE_IMAGES_BUCKET ?? "reference-images"
+  const path = getReferenceStorageObjectPath(publicUrl)
+  if (!path) return
+
+  const { error } = await getSupabaseServerClient().storage.from(bucket).remove([path])
+  if (error) {
+    console.warn("[Supabase Storage] reference image cleanup failed", {
+      error: describeServerError(error, "清理参考图失败。"),
+      path,
+    })
+  }
+}
+
 const remoteImageMaxBytes = 25 * 1024 * 1024
 const allowedRemoteImageContentTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"])
 
