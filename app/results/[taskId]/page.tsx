@@ -10,7 +10,6 @@ import {
   Download,
   ExternalLink,
   Film,
-  ImageIcon,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -18,6 +17,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react"
 import { AuthPanel } from "@/components/auth-panel"
+import { GeneratedImage, ResultImageViewer } from "@/components/generated-image"
 import { regenerationDraftStorageKey, type RegenerationDraft } from "@/components/chat-area"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -131,31 +131,6 @@ async function copyText(text: string) {
   textarea.remove()
 }
 
-function ResultImage({
-  alt,
-  className,
-  src,
-}: {
-  alt: string
-  className: string
-  src: string
-}) {
-  const [failed, setFailed] = useState(false)
-
-  if (failed) {
-    return (
-      <div className={cn("flex items-center justify-center bg-slate-100 text-slate-400", className)}>
-        <div className="grid justify-items-center gap-2 text-sm">
-          <ImageIcon className="h-8 w-8" />
-          图片地址不可访问
-        </div>
-      </div>
-    )
-  }
-
-  return <img alt={alt} className={className} onError={() => setFailed(true)} src={src} />
-}
-
 export default function TaskResultPage() {
   const params = useParams<{ taskId: string }>()
   const router = useRouter()
@@ -166,6 +141,7 @@ export default function TaskResultPage() {
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
   const [displayProgress, setDisplayProgress] = useState(13)
+  const [viewerUrl, setViewerUrl] = useState("")
   const projectType = getProjectType(task)
   const status = getStatusLabel(task)
 
@@ -257,19 +233,19 @@ export default function TaskResultPage() {
   const progress = status === "生成中" ? displayProgress : task?.progress ?? (isTerminalStatus(task?.status) ? 100 : 0)
   const galleryImageCount = Math.max(expectedImageCount, imageUrls.length || 0)
 
-  const handleDownload = () => {
-    if (!primaryUrl) return
+  const handleDownload = (assetUrl = primaryUrl) => {
+    if (!assetUrl) return
 
     const fallback = projectType === "视频" ? "mp4" : "png"
-    const extension = getAssetExtension(primaryUrl, fallback)
+    const extension = getAssetExtension(assetUrl, fallback)
     const filename = `${projectType === "视频" ? "video" : "image"}-${taskId}.${extension}`
 
     if (projectType === "视频") {
-      downloadVideoDirect(primaryUrl, filename)
+      downloadVideoDirect(assetUrl, filename)
       return
     }
 
-    downloadAsset(primaryUrl, filename)
+    downloadAsset(assetUrl, filename)
   }
 
   const handleCopyPrompt = async () => {
@@ -361,6 +337,7 @@ export default function TaskResultPage() {
             imageUrls={imageUrls}
             progress={progress}
             prompt={prompt}
+            onPreview={(url) => setViewerUrl(url)}
             status={status}
             totalSlots={galleryImageCount}
             />
@@ -388,11 +365,23 @@ export default function TaskResultPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button className="rounded-2xl bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950" disabled={!canUseResult} onClick={() => primaryUrl && openAsset(primaryUrl)} variant="outline">
+              <Button
+                className="rounded-2xl bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950"
+                disabled={!canUseResult}
+                onClick={() => {
+                  if (!primaryUrl) return
+                  if (projectType === "视频") {
+                    openAsset(primaryUrl)
+                    return
+                  }
+                  setViewerUrl(primaryUrl)
+                }}
+                variant="outline"
+              >
                 <ExternalLink className="h-4 w-4" />
                 查看结果
               </Button>
-              <Button className="rounded-2xl bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950" disabled={!canUseResult} onClick={handleDownload} variant="outline">
+              <Button className="rounded-2xl bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950" disabled={!canUseResult} onClick={() => handleDownload()} variant="outline">
                 <Download className="h-4 w-4" />
                 下载
               </Button>
@@ -410,6 +399,16 @@ export default function TaskResultPage() {
               </Button>
             </div>
           </div>
+          <ResultImageViewer
+            alt={prompt || taskId}
+            onDownload={viewerUrl ? () => handleDownload(viewerUrl) : undefined}
+            onOpenChange={(open) => {
+              if (!open) setViewerUrl("")
+            }}
+            open={Boolean(viewerUrl)}
+            src={viewerUrl}
+            title={prompt || "查看结果"}
+          />
         </section>
       </div>
     </main>
@@ -429,6 +428,7 @@ function ImageGenerationBoard({
   imageUrls,
   progress,
   prompt,
+  onPreview,
   status,
   totalSlots,
 }: {
@@ -436,6 +436,7 @@ function ImageGenerationBoard({
   imageUrls: string[]
   progress: number
   prompt: string
+  onPreview: (url: string) => void
   status: ProjectStatus
   totalSlots: number
 }) {
@@ -470,14 +471,26 @@ function ImageGenerationBoard({
               index === 0 && "sm:ml-0"
             )}
             key={`${url || "placeholder"}-${index}`}
-            onClick={() => url && openAsset(url)}
+            onClick={() => url && onPreview(url)}
             type="button"
           >
             {url ? (
-              <div className={cn("flex items-center justify-center bg-slate-50", frameHeightClass)}>
-                <ResultImage
+              <div className={cn("relative flex items-center justify-center bg-slate-50", frameHeightClass)}>
+                <GeneratedImage
                   alt={`${prompt || "生成图片"} ${index + 1}`}
-                  className="h-full w-full object-contain"
+                  className="object-contain"
+                  fallbackClassName="h-full w-full bg-slate-100 text-slate-400"
+                  fill
+                  priority={index === 0}
+                  quality={78}
+                  showMessage
+                  sizes={
+                    columns >= 4
+                      ? "(max-width: 768px) 48vw, 320px"
+                      : columns === 3
+                        ? "(max-width: 768px) 48vw, 420px"
+                        : "(max-width: 768px) 96vw, 760px"
+                  }
                   src={url}
                 />
               </div>

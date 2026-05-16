@@ -7,6 +7,8 @@ import {
   Check,
   ChevronDown,
   Coins,
+  Eye,
+  EyeOff,
   Film,
   Gem,
   History,
@@ -16,6 +18,9 @@ import {
   Menu,
   Plus,
   RectangleHorizontal,
+  Save,
+  Settings2,
+  SlidersHorizontal,
   Sparkles,
   User,
   WandSparkles,
@@ -38,19 +43,23 @@ import {
 
 type AuthMode = "login" | "register"
 type StudioMode = "image" | "video"
+type WorkspaceView = "studio" | "model-config"
+type ProviderName = "云雾" | "APIMart" | "ToAPIs"
 
 const navItems = ["首页", "定价", "经验"]
 
 const studioNavItems = [
-  { icon: WandSparkles, label: "创作台", mode: null },
+  { icon: WandSparkles, label: "创作台", mode: null, view: "studio" },
   { icon: ImageIcon, label: "图片生成", mode: "image" },
   { icon: Film, label: "视频生成", mode: "video" },
+  { icon: Settings2, label: "模型配置", mode: null, view: "model-config" },
   { icon: History, label: "历史项目", mode: null },
   { icon: Coins, label: "点数充值", mode: null },
 ] satisfies Array<{
   icon: typeof WandSparkles
   label: string
   mode: StudioMode | null
+  view?: WorkspaceView
 }>
 
 const studioModeCopy = {
@@ -72,6 +81,137 @@ const imageCountOptions = [
   { label: "3 张", value: "3" },
   { label: "4 张", value: "4" },
 ]
+
+type DemoPriceRow = {
+  id: string
+  label: string
+  cost: number
+  markup: number
+  enabled: boolean
+}
+
+type DemoModelConfig = {
+  apiModel: string
+  displayName: string
+  id: string
+  type: StudioMode
+  provider: ProviderName
+  model: string
+  frontendEnabled: boolean
+  defaultModel: boolean
+  sortOrder: number
+  prices: DemoPriceRow[]
+}
+
+const initialModelConfigs: DemoModelConfig[] = [
+  {
+    apiModel: imageModelOptions[0],
+    displayName: imageModelOptions[0],
+    id: "image-yunwu-gemini",
+    type: "image",
+    provider: "云雾",
+    model: imageModelOptions[0],
+    frontendEnabled: true,
+    defaultModel: true,
+    sortOrder: 1,
+    prices: [
+      { id: "1k", label: "1K", cost: 0.3, markup: 2, enabled: true },
+      { id: "2k", label: "2K", cost: 0.6, markup: 2, enabled: true },
+      { id: "4k", label: "4K", cost: 1.2, markup: 2, enabled: true },
+    ],
+  },
+  {
+    apiModel: "gpt-image-2",
+    displayName: "GPT Image 2",
+    id: "image-yunwu-gpt",
+    type: "image",
+    provider: "云雾",
+    model: imageModelOptions[1],
+    frontendEnabled: true,
+    defaultModel: false,
+    sortOrder: 2,
+    prices: [
+      { id: "2k", label: "2K", cost: 0.9, markup: 2, enabled: true },
+    ],
+  },
+  {
+    apiModel: "gpt-image-2",
+    displayName: "GPT Image 2 · M通道",
+    id: "image-apimart-gpt",
+    type: "image",
+    provider: "APIMart",
+    model: imageModelOptions[2],
+    frontendEnabled: true,
+    defaultModel: false,
+    sortOrder: 3,
+    prices: [
+      { id: "1k", label: "1K", cost: 0.35, markup: 2, enabled: true },
+      { id: "2k", label: "2K", cost: 0.75, markup: 2, enabled: true },
+      { id: "4k", label: "4K", cost: 1.6, markup: 2, enabled: false },
+    ],
+  },
+  {
+    apiModel: "gpt-image-2",
+    displayName: "GPT Image 2 · ToA通道",
+    id: "image-toapis-gpt",
+    type: "image",
+    provider: "ToAPIs",
+    model: imageModelOptions[3],
+    frontendEnabled: false,
+    defaultModel: false,
+    sortOrder: 4,
+    prices: [
+      { id: "1k", label: "1K", cost: 0.32, markup: 2, enabled: true },
+      { id: "2k", label: "2K", cost: 0.7, markup: 2, enabled: true },
+      { id: "4k", label: "4K", cost: 1.45, markup: 2, enabled: true },
+    ],
+  },
+  {
+    apiModel: videoModelOptions[0],
+    displayName: "VEO 3.1 Fast",
+    id: "video-yunwu-veo",
+    type: "video",
+    provider: "云雾",
+    model: videoModelOptions[0],
+    frontendEnabled: true,
+    defaultModel: true,
+    sortOrder: 1,
+    prices: [
+      { id: "8s-720p", label: "8 秒 · 720P", cost: 2, markup: 2, enabled: true },
+      { id: "8s-1080p", label: "8 秒 · 1080P", cost: 4, markup: 2, enabled: true },
+      { id: "8s-4k", label: "8 秒 · 4K", cost: 8, markup: 2, enabled: false },
+    ],
+  },
+  {
+    apiModel: videoModelOptions[1],
+    displayName: "Grok Video 3",
+    id: "video-yunwu-grok",
+    type: "video",
+    provider: "云雾",
+    model: videoModelOptions[1],
+    frontendEnabled: true,
+    defaultModel: false,
+    sortOrder: 2,
+    prices: [
+      { id: "6s-720p", label: "6 秒 · 720P", cost: 1.8, markup: 2, enabled: true },
+    ],
+  },
+]
+
+function calculateCredits(cost: number, markup: number) {
+  return Math.ceil(cost * markup * 100)
+}
+
+function hasEnabledPrice(config: DemoModelConfig) {
+  return config.prices.some((price) => price.enabled)
+}
+
+function getStudioModelOptions(configs: DemoModelConfig[], type: StudioMode) {
+  return configs
+    .filter((config) => config.type === type && config.frontendEnabled && hasEnabledPrice(config))
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((config) => ({ label: config.displayName, value: config.model }))
+}
 
 function DropdownField({
   icon: Icon,
@@ -344,18 +484,317 @@ function ModeDropdown({ mode, onChange }: { mode: StudioMode; onChange: () => vo
   )
 }
 
+function SwitchButton({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean
+  label: string
+  onChange: () => void
+}) {
+  return (
+    <button
+      aria-pressed={checked}
+      className={cn(
+        "inline-flex h-8 cursor-pointer items-center gap-2 rounded-full border px-2.5 text-xs font-medium transition-colors",
+        checked
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-slate-200 bg-slate-50 text-slate-500"
+      )}
+      onClick={onChange}
+      type="button"
+    >
+      <span
+        className={cn(
+          "h-3.5 w-3.5 rounded-full transition-colors",
+          checked ? "bg-emerald-500" : "bg-slate-300"
+        )}
+      />
+      {label}
+    </button>
+  )
+}
+
+function ModelConfigDemo({
+  configs,
+  selectedId,
+  onSelect,
+  onToggleDefault,
+  onToggleFrontend,
+  onTogglePrice,
+  onUpdatePrice,
+}: {
+  configs: DemoModelConfig[]
+  selectedId: string
+  onSelect: (id: string) => void
+  onToggleDefault: (id: string) => void
+  onToggleFrontend: (id: string) => void
+  onTogglePrice: (modelId: string, priceId: string) => void
+  onUpdatePrice: (modelId: string, priceId: string, field: "cost" | "markup", value: number) => void
+}) {
+  const selected = configs.find((config) => config.id === selectedId) ?? configs[0]
+  const visibleCount = configs.filter((config) => config.frontendEnabled && hasEnabledPrice(config)).length
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-8">
+      <section className="mx-auto grid max-w-7xl gap-5 xl:grid-cols-[minmax(0,1fr)_440px]">
+        <div className="min-w-0">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-orange-500" />
+                管理员后台原型
+              </div>
+              <h1 className="mt-4 text-2xl font-semibold tracking-normal text-slate-950 sm:text-3xl">
+                模型展示与价格配置
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                后台能看到渠道；前台只显示模型名称。关闭展示或没有启用价格的模型不会出现在创作台。
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:w-72">
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">前台可见</div>
+                <div className="mt-1 text-2xl font-semibold text-slate-950">{visibleCount}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">总模型</div>
+                <div className="mt-1 text-2xl font-semibold text-slate-950">{configs.length}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+            <div className="grid grid-cols-[1.35fr_88px_110px_110px_92px] border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500 max-lg:hidden">
+              <div>模型名称</div>
+              <div>类型</div>
+              <div>渠道</div>
+              <div>前台展示</div>
+              <div>价格</div>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {configs
+                .slice()
+                .sort((a, b) => a.type.localeCompare(b.type) || a.sortOrder - b.sortOrder)
+                .map((config) => {
+                  const active = selected.id === config.id
+                  const enabledPrices = config.prices.filter((price) => price.enabled).length
+
+                  return (
+                    <button
+                      className={cn(
+                        "grid w-full cursor-pointer gap-3 px-4 py-4 text-left transition-colors lg:grid-cols-[1.35fr_88px_110px_110px_92px] lg:items-center",
+                        active ? "bg-orange-50/70" : "bg-white hover:bg-slate-50"
+                      )}
+                      key={config.id}
+                      onClick={() => onSelect(config.id)}
+                      type="button"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-slate-950">{config.model}</span>
+                          {config.defaultModel && (
+                            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-700">
+                              默认
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-400">
+                          排序 {config.sortOrder} · 内部模型同前台模型名称
+                        </div>
+                      </div>
+                      <div className="text-sm text-slate-600">{config.type === "image" ? "图片" : "视频"}</div>
+                      <div className="text-sm font-medium text-slate-700">{config.provider}</div>
+                      <div>
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+                            config.frontendEnabled
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-slate-100 text-slate-500"
+                          )}
+                        >
+                          {config.frontendEnabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                          {config.frontendEnabled ? "展示" : "隐藏"}
+                        </span>
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        {enabledPrices}/{config.prices.length} 启用
+                      </div>
+                    </button>
+                  )
+                })}
+            </div>
+          </div>
+        </div>
+
+        <aside className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-slate-500">当前编辑</div>
+              <h2 className="mt-1 truncate text-lg font-semibold text-slate-950">{selected.model}</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {selected.provider} · {selected.type === "image" ? "图片模型" : "视频模型"}
+              </p>
+            </div>
+            <button
+              className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-2xl bg-slate-950 px-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+              type="button"
+            >
+              <Save className="h-4 w-4" />
+              保存
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-slate-800">前台展示</div>
+                <div className="text-xs text-slate-500">关闭后创作台下拉不显示该模型</div>
+              </div>
+              <SwitchButton
+                checked={selected.frontendEnabled}
+                label={selected.frontendEnabled ? "开启" : "关闭"}
+                onChange={() => onToggleFrontend(selected.id)}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-slate-800">默认模型</div>
+                <div className="text-xs text-slate-500">同类型只保留一个默认项</div>
+              </div>
+              <SwitchButton
+                checked={selected.defaultModel}
+                label={selected.defaultModel ? "默认" : "非默认"}
+                onChange={() => onToggleDefault(selected.id)}
+              />
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-950">价格配置</h3>
+              <span className="text-xs text-slate-500">扣点 = 成本 x 倍率 x 100</span>
+            </div>
+            <div className="grid gap-3">
+              {selected.prices.map((price) => (
+                <div className="rounded-2xl border border-slate-200 p-3" key={price.id}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium text-slate-900">{price.label}</div>
+                    <SwitchButton
+                      checked={price.enabled}
+                      label={price.enabled ? "启用" : "停用"}
+                      onChange={() => onTogglePrice(selected.id, price.id)}
+                    />
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <label className="grid gap-1">
+                      <span className="text-xs text-slate-500">成本</span>
+                      <input
+                        className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none focus:border-orange-300 focus:bg-white focus:ring-2 focus:ring-orange-100"
+                        min="0"
+                        onChange={(event) => onUpdatePrice(selected.id, price.id, "cost", Number(event.target.value))}
+                        step="0.01"
+                        type="number"
+                        value={price.cost}
+                      />
+                    </label>
+                    <label className="grid gap-1">
+                      <span className="text-xs text-slate-500">倍率</span>
+                      <input
+                        className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none focus:border-orange-300 focus:bg-white focus:ring-2 focus:ring-orange-100"
+                        min="0.1"
+                        onChange={(event) => onUpdatePrice(selected.id, price.id, "markup", Number(event.target.value))}
+                        step="0.1"
+                        type="number"
+                        value={price.markup}
+                      />
+                    </label>
+                    <div className="grid gap-1">
+                      <span className="text-xs text-slate-500">扣点</span>
+                      <div className="flex h-10 items-center rounded-xl bg-orange-50 px-3 text-sm font-semibold text-orange-700">
+                        {calculateCredits(price.cost, price.markup)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
+            这只是 UI demo：开关会实时影响创作台下拉，但不会写入真实后台。
+          </div>
+        </aside>
+      </section>
+    </div>
+  )
+}
+
 function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
   const [mode, setMode] = useState<StudioMode>("image")
+  const [view, setView] = useState<WorkspaceView>("studio")
   const [imageCount, setImageCount] = useState("3")
-  const imageModel = imageModelOptions[0]
+  const [modelConfigs, setModelConfigs] = useState<DemoModelConfig[]>(initialModelConfigs)
+  const [selectedConfigId, setSelectedConfigId] = useState(initialModelConfigs[0].id)
+  const imageModelOptionsFromConfig = getStudioModelOptions(modelConfigs, "image")
+  const videoModelOptionsFromConfig = getStudioModelOptions(modelConfigs, "video")
+  const imageModel = imageModelOptionsFromConfig[0]?.value ?? imageModelOptions[0]
   const imageQuality =
     imageModelSettings[imageModel].qualities[1] ?? imageModelSettings[imageModel].qualities[0]
   const imageRatios = getImageRatiosForSelection(imageModel, imageQuality)
   const imageRatio = imageRatios.includes("9:16") ? "9:16" : imageRatios[0]
-  const videoModel = videoModelOptions[0]
+  const videoModel = videoModelOptionsFromConfig[0]?.value ?? videoModelOptions[0]
   const videoSettings = videoModelSettings[videoModel]
   const videoQuality = videoSettings.qualities[1] ?? videoSettings.qualities[0]
   const currentCopy = studioModeCopy[mode]
+  const handleToggleFrontend = (id: string) => {
+    setModelConfigs((configs) =>
+      configs.map((config) => config.id === id ? { ...config, frontendEnabled: !config.frontendEnabled } : config)
+    )
+  }
+  const handleToggleDefault = (id: string) => {
+    setModelConfigs((configs) => {
+      const target = configs.find((config) => config.id === id)
+      if (!target) return configs
+
+      return configs.map((config) =>
+        config.type === target.type
+          ? { ...config, defaultModel: config.id === id }
+          : config
+      )
+    })
+  }
+  const handleTogglePrice = (modelId: string, priceId: string) => {
+    setModelConfigs((configs) =>
+      configs.map((config) =>
+        config.id === modelId
+          ? {
+              ...config,
+              prices: config.prices.map((price) =>
+                price.id === priceId ? { ...price, enabled: !price.enabled } : price
+              ),
+            }
+          : config
+      )
+    )
+  }
+  const handleUpdatePrice = (modelId: string, priceId: string, field: "cost" | "markup", value: number) => {
+    setModelConfigs((configs) =>
+      configs.map((config) =>
+        config.id === modelId
+          ? {
+              ...config,
+              prices: config.prices.map((price) =>
+                price.id === priceId ? { ...price, [field]: Number.isFinite(value) ? value : 0 } : price
+              ),
+            }
+          : config
+      )
+    )
+  }
 
   return (
     <main className="min-h-screen bg-[#f5f6f8] text-slate-950">
@@ -371,7 +810,11 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
             </div>
           </button>
           <button
-            className="mt-5 flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-950 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+            className={cn(
+              "mt-5 flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl text-sm font-semibold transition-colors",
+              view === "studio" ? "bg-slate-950 text-white hover:bg-slate-800" : "bg-white text-slate-600 hover:bg-slate-50"
+            )}
+            onClick={() => setView("studio")}
             type="button"
           >
             <Sparkles className="h-5 w-5" />
@@ -380,7 +823,7 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
           <nav className="mt-6 grid gap-2">
             {studioNavItems.map((item) => {
               const Icon = item.icon
-              const active = item.mode ? item.mode === mode : item.label === "创作台"
+              const active = item.view ? item.view === view : view === "studio" && item.mode === mode && item.label !== "创作台"
 
               return (
                 <button
@@ -392,7 +835,11 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
                   )}
                   key={item.label}
                   onClick={() => {
-                    if (item.mode) setMode(item.mode)
+                    if (item.view) setView(item.view)
+                    if (item.mode) {
+                      setView("studio")
+                      setMode(item.mode)
+                    }
                   }}
                   title={item.label}
                   type="button"
@@ -415,8 +862,12 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
                 <Menu className="h-5 w-5" />
               </button>
               <div>
-                <div className="text-sm font-semibold text-slate-950">季风创绘工作台</div>
-                <div className="text-xs text-slate-500">图片和视频生成合并输入 Demo</div>
+                <div className="text-sm font-semibold text-slate-950">
+                  {view === "studio" ? "季风创绘工作台" : "管理员后台 · 模型配置"}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {view === "studio" ? "前台不展示渠道名，只展示已开启模型" : "渠道、展示开关和价格集中配置 Demo"}
+                </div>
               </div>
             </div>
             <button
@@ -428,6 +879,17 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
             </button>
           </header>
 
+          {view === "model-config" ? (
+            <ModelConfigDemo
+              configs={modelConfigs}
+              selectedId={selectedConfigId}
+              onSelect={setSelectedConfigId}
+              onToggleDefault={handleToggleDefault}
+              onToggleFrontend={handleToggleFrontend}
+              onTogglePrice={handleTogglePrice}
+              onUpdatePrice={handleUpdatePrice}
+            />
+          ) : (
           <div className="flex flex-1 flex-col px-4 pb-6 pt-4 sm:px-8">
             <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center">
               <div className="mb-8 text-center">
@@ -467,7 +929,7 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
                               icon={Box}
                               label="生图模型"
                               onChange={() => undefined}
-                              options={imageModelOptions.map((option) => ({ label: option, value: option }))}
+                              options={imageModelOptionsFromConfig}
                               value={imageModel}
                             />
                             <DropdownField
@@ -498,7 +960,7 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
                               icon={Box}
                               label="视频模型"
                               onChange={() => undefined}
-                              options={videoModelOptions.map((option) => ({ label: option, value: option }))}
+                              options={videoModelOptionsFromConfig}
                               value={videoModel}
                             />
                             <DropdownField
@@ -539,6 +1001,7 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
               </div>
             </section>
           </div>
+          )}
         </section>
       </div>
     </main>

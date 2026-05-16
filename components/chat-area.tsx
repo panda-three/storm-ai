@@ -34,6 +34,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { GeneratedImage, ResultImageViewer } from "@/components/generated-image"
 import {
   AlertCircle,
   ArrowRight,
@@ -225,10 +226,6 @@ function downloadVideoDirect(url: string, filename: string) {
 
 function hasDraggedFiles(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes("Files")
-}
-
-function openAsset(url: string) {
-  window.open(url, "_blank", "noopener,noreferrer")
 }
 
 async function copyText(text: string) {
@@ -2127,17 +2124,21 @@ function ProjectPreviewThumb({ item }: { item: ProjectItem }) {
   const isPending = item.status === "生成中" && !item.previewUrl
 
   return (
-    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100">
+    <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100">
       {isPending ? (
         <div className="grid h-full w-full place-items-center bg-gradient-to-br from-sky-100 via-cyan-50 to-teal-100">
           <Loader2 className="h-5 w-5 animate-spin text-cyan-600" />
         </div>
       ) : item.previewUrl && item.type === "生图" ? (
-        <ImageWithFallback
+        <GeneratedImage
           alt={item.title}
-          className="h-full w-full object-cover"
-        fallbackClassName={`h-full w-full bg-gradient-to-br ${item.palette ?? "from-slate-800 to-slate-600"}`}
+          className="object-cover"
+          fallbackClassName={`h-full w-full bg-gradient-to-br ${item.palette ?? "from-slate-800 to-slate-600"}`}
           fallbackIconClassName="h-5 w-5"
+          fill
+          loading="lazy"
+          quality={60}
+          sizes="56px"
           src={item.previewUrl}
         />
       ) : (
@@ -2193,37 +2194,6 @@ function PendingResultPreview({ item }: { item: ProjectItem }) {
   )
 }
 
-function ImageWithFallback({
-  alt,
-  className,
-  fallbackClassName,
-  fallbackIconClassName = "h-10 w-10",
-  showMessage = false,
-  src,
-}: {
-  alt: string
-  className: string
-  fallbackClassName: string
-  fallbackIconClassName?: string
-  showMessage?: boolean
-  src: string
-}) {
-  const [hasError, setHasError] = useState(false)
-
-  if (hasError) {
-    return (
-      <div className={cn("flex items-center justify-center", fallbackClassName)}>
-        <div className="grid justify-items-center gap-2 px-4 text-center text-white/85">
-          <ImageIcon className={cn("drop-shadow-sm", fallbackIconClassName)} />
-          {showMessage && <div className="text-xs font-medium">图片地址不可访问</div>}
-        </div>
-      </div>
-    )
-  }
-
-  return <img alt={alt} className={className} onError={() => setHasError(true)} src={src} />
-}
-
 function StatusBadge({ status }: { status: ProjectStatus }) {
   return (
     <Badge
@@ -2252,6 +2222,7 @@ function HistoryDetailPanel({
   onDelete: (id: string) => void
   onSectionChange: (section: WorkspaceSection) => void
 }) {
+  const [viewerUrl, setViewerUrl] = useState("")
   if (!item) {
     return (
       <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_14px_38px_rgba(15,23,42,0.06)]">
@@ -2266,19 +2237,19 @@ function HistoryDetailPanel({
   const canUseResult = Boolean(item.previewUrl)
   const imageUrls = item.type === "生图" ? item.imageUrls?.filter(Boolean) ?? (item.previewUrl ? [item.previewUrl] : []) : []
   const prompt = item.prompt ?? ""
-  const handleDownload = () => {
-    if (!item.previewUrl) return
+  const handleDownload = (assetUrl = item.previewUrl) => {
+    if (!assetUrl) return
 
     const fallback = item.type === "视频" ? "mp4" : "png"
-    const extension = getAssetExtension(item.previewUrl, fallback)
+    const extension = getAssetExtension(assetUrl, fallback)
     const filename = `${item.type === "视频" ? "video" : "image"}-${item.id}.${extension}`
 
     if (item.type === "视频") {
-      downloadVideoDirect(item.previewUrl, filename)
+      downloadVideoDirect(assetUrl, filename)
       return
     }
 
-    downloadAsset(item.previewUrl, filename)
+    downloadAsset(assetUrl, filename)
   }
 
   return (
@@ -2296,15 +2267,20 @@ function HistoryDetailPanel({
             {imageUrls.map((url, index) => (
               <button
                 aria-label={`查看结果图 ${index + 1}`}
-                className="overflow-hidden rounded-md bg-slate-100 text-left"
+                className="relative aspect-square overflow-hidden rounded-md bg-slate-100 text-left"
                 key={`${url}-${index}`}
-                onClick={() => openAsset(url)}
+                onClick={() => setViewerUrl(url)}
                 type="button"
               >
-                <ImageWithFallback
+                <GeneratedImage
                   alt={`${item.title} ${index + 1}`}
-                  className="aspect-square w-full object-cover"
+                  className="object-cover"
                   fallbackClassName={`aspect-square bg-gradient-to-br ${item.palette ?? "from-slate-800 to-slate-500"}`}
+                  fill
+                  loading={index === 0 ? "eager" : "lazy"}
+                  priority={index === 0}
+                  quality={78}
+                  sizes={imageUrls.length === 1 ? "(max-width: 768px) 96vw, 760px" : "(max-width: 768px) 48vw, 360px"}
                   src={url}
                   showMessage
                 />
@@ -2348,11 +2324,11 @@ function HistoryDetailPanel({
       </div>
 
       <div className="mt-5 grid gap-2 sm:grid-cols-2">
-        <Button className="bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950" disabled={!canUseResult} onClick={() => item.previewUrl && openAsset(item.previewUrl)} variant="outline">
+        <Button className="bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950" disabled={!canUseResult} onClick={() => item.previewUrl && setViewerUrl(item.previewUrl)} variant="outline">
           <Eye className="h-4 w-4" />
           查看结果
         </Button>
-        <Button className="bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950" disabled={!canUseResult} onClick={handleDownload} variant="outline">
+        <Button className="bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950" disabled={!canUseResult} onClick={() => handleDownload()} variant="outline">
           <Download className="h-4 w-4" />
           下载
         </Button>
@@ -2387,6 +2363,16 @@ function HistoryDetailPanel({
           </Button>
         )}
       </div>
+      <ResultImageViewer
+        alt={item.title}
+        onDownload={viewerUrl ? () => handleDownload(viewerUrl) : undefined}
+        onOpenChange={(open) => {
+          if (!open) setViewerUrl("")
+        }}
+        open={Boolean(viewerUrl)}
+        src={viewerUrl}
+        title={item.title}
+      />
     </div>
   )
 }
