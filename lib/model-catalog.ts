@@ -1,6 +1,7 @@
 import {
   apimartGptImage2ApiModelName,
   apimartGptImage2ModelName,
+  grokVideo310sModelName,
   grokVideo3ModelName,
   imageModelOptions,
   toaGptImage2ModelName,
@@ -69,6 +70,13 @@ export const modelCatalog: ModelCatalogEntry[] = [
     apiModel: grokVideo3ModelName,
     defaultDisplayName: "Grok Video 3",
     model: grokVideo3ModelName,
+    provider: "yunwu",
+    type: "video",
+  },
+  {
+    apiModel: grokVideo310sModelName,
+    defaultDisplayName: "Grok Video 3 10s",
+    model: grokVideo310sModelName,
     provider: "yunwu",
     type: "video",
   },

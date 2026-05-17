@@ -4,19 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "a7719ed18b9ce242",
+        "id": "950e91b73d65baa1",
         "type": "tabs",
         "children": [
           {
-            "id": "0ae29a87060f3372",
+            "id": "a81201d0541965af",
             "type": "leaf",
             "state": {
-              "type": "vscode-editor",
-              "state": {
-                "file": "supabase-schema.sql"
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "supabase-schema"
+              "title": "新标签页"
             }
           }
         ]
@@ -179,10 +177,10 @@
       "vscode-editor:新建代码文件": false
     }
   },
-  "active": "0ae29a87060f3372",
+  "active": "a81201d0541965af",
   "lastOpenFiles": [
-    "release-checklist.md",
     "supabase-schema.sql",
+    "release-checklist.md",
     "scripts/audit-production-model-config.mjs",
     "lib/model-catalog.ts",
     "tsconfig.tsbuildinfo",

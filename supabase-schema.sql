@@ -589,6 +589,10 @@ insert into public.model_configs (type, model, display_name, frontend_enabled, i
 values ('video', 'grok-video-3', 'Grok Video 3', true, false, 20)
 on conflict (type, model) do nothing;
 
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+values ('video', 'grok-video-3-10s', 'Grok Video 3 10s', false, false, 30)
+on conflict (type, model) do nothing;
+
 create table if not exists public.generation_jobs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,

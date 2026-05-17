@@ -20,6 +20,7 @@ const supported = new Set([
   "image:doubao-seedream-5-0-260128",
   "video:veo_3_1-fast",
   "video:grok-video-3",
+  "video:grok-video-3-10s",
 ])
 
 const { data, error } = await client

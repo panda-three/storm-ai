@@ -24,6 +24,7 @@ export const apimartVeo31FastVideoModelName = yunwuVeo31FastVideoModelName
 export const legacyApimartVeoVideoModelName = "Gemini Veo 3.1 Fast"
 export const grokImagineVideoModelName = "Grok Imagine Video"
 export const grokVideo3ModelName = "grok-video-3"
+export const grokVideo310sModelName = "grok-video-3-10s"
 
 export const imageModelOptions = [
   yunwuGeminiImageModelName,
@@ -132,6 +133,7 @@ export function getToapisImageRatiosForQuality(quality: string) {
 export const videoModelOptions = [
   yunwuVeo31FastVideoModelName,
   grokVideo3ModelName,
+  grokVideo310sModelName,
 ]
 export const adminVideoModelOptions = videoModelOptions
 
@@ -168,6 +170,11 @@ export const videoModelSettings: Record<
     durations: ["6 秒"],
     qualities: ["720P"],
   },
+  [grokVideo310sModelName]: {
+    aspectRatios: ["1:1", "2:3", "3:2"],
+    durations: ["10 秒"],
+    qualities: ["720P"],
+  },
 }
 
 export function isMengfactoryVeoVideoModel(model: string) {
@@ -175,7 +182,7 @@ export function isMengfactoryVeoVideoModel(model: string) {
 }
 
 export function isYunwuVideoModel(model: string) {
-  return model === yunwuVeo31FastVideoModelName || model === grokVideo3ModelName
+  return model === yunwuVeo31FastVideoModelName || model === grokVideo3ModelName || model === grokVideo310sModelName
 }
 
 export function isSelectableImageModel(model: string) {

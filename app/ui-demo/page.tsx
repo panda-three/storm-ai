@@ -196,6 +196,20 @@ const initialModelConfigs: DemoModelConfig[] = [
       { id: "6s-720p", label: "6 秒 · 720P", cost: 1.8, markup: 2, enabled: true },
     ],
   },
+  {
+    apiModel: videoModelOptions[2],
+    displayName: "Grok Video 3 10s",
+    id: "video-yunwu-grok-10s",
+    type: "video",
+    provider: "云雾",
+    model: videoModelOptions[2],
+    frontendEnabled: false,
+    defaultModel: false,
+    sortOrder: 3,
+    prices: [
+      { id: "10s-720p", label: "10 秒 · 720P", cost: 2.4, markup: 2, enabled: false },
+    ],
+  },
 ]
 
 function calculateCredits(cost: number, markup: number) {

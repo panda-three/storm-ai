@@ -1,4 +1,5 @@
 import {
+  grokVideo310sModelName,
   grokVideo3ModelName,
   yunwuGeminiImageModelName,
   yunwuSeedream5ImageModelName,
@@ -361,6 +362,7 @@ export function isYunwuRateLimitError(message: string) {
 function getYunwuVideoApiModel(model: string) {
   if (model === yunwuVeo31FastVideoModelName) return yunwuVeo31FastApiModel
   if (model === grokVideo3ModelName) return "grok-video-3"
+  if (model === grokVideo310sModelName) return "grok-video-3-10s"
   return model
 }
 
