@@ -66,6 +66,18 @@ export interface ModelPricing {
   type: "image" | "video"
 }
 
+export interface ModelPricingDraft {
+  aspect_ratio: string | null
+  cost_cny: number
+  duration_seconds: number | null
+  enabled: boolean
+  id?: string
+  markup: number
+  model: string
+  quality: string | null
+  type: "image" | "video"
+}
+
 export interface PublicModelPricing {
   credits: number
   duration_seconds: number | null
@@ -489,7 +501,7 @@ export async function saveModelConfigBundle({
   pricing,
 }: {
   config: Omit<ModelConfig, "id">
-  pricing: ModelPricing[]
+  pricing: ModelPricingDraft[]
 }) {
   const supabase = getSupabaseClient()
   if (!supabase) return
@@ -501,9 +513,11 @@ export async function saveModelConfigBundle({
     p_model: config.model,
     p_prices: pricing.map((item) => ({
       cost_cny: item.cost_cny,
+      duration_seconds: item.duration_seconds,
       enabled: item.enabled,
-      id: item.id,
+      id: item.id ?? null,
       markup: item.markup,
+      quality: item.quality,
     })),
     p_sort_order: config.sort_order,
     p_type: config.type,

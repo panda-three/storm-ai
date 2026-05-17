@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "82c521d98a3936d3",
+        "id": "a7719ed18b9ce242",
         "type": "tabs",
         "children": [
           {
-            "id": "ed9d89daec125893",
+            "id": "0ae29a87060f3372",
             "type": "leaf",
             "state": {
               "type": "vscode-editor",
@@ -179,8 +179,9 @@
       "vscode-editor:新建代码文件": false
     }
   },
-  "active": "ed9d89daec125893",
+  "active": "8ec0b6e57e61c42e",
   "lastOpenFiles": [
+    "supabase-schema.sql",
     "scripts/audit-production-model-config.mjs",
     "lib/model-catalog.ts",
     "tsconfig.tsbuildinfo",
@@ -191,7 +192,6 @@
     "node_modules/@types",
     "node_modules/@tailwindcss",
     "node_modules/@eslint",
-    "node_modules",
     "docs/manual-release.md",
     "docs/self-hosted-supabase.md",
     "docs/linux-deployment.md",

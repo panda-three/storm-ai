@@ -1674,18 +1674,45 @@ begin
 
   for v_price in select * from jsonb_array_elements(p_prices)
   loop
-    update public.model_pricing
-    set
-      cost_cny = greatest(0, coalesce((v_price ->> 'cost_cny')::numeric, cost_cny)),
-      markup = greatest(0.0001, coalesce((v_price ->> 'markup')::numeric, markup)),
-      enabled = coalesce((v_price ->> 'enabled')::boolean, enabled),
-      updated_at = now()
-    where id = (v_price ->> 'id')::uuid
-      and type = p_type
-      and model = p_model;
+    if nullif(v_price ->> 'id', '') is null then
+      insert into public.model_pricing (
+        model,
+        type,
+        quality,
+        duration_seconds,
+        aspect_ratio,
+        cost_cny,
+        markup,
+        enabled,
+        updated_at
+      )
+      values (
+        p_model,
+        p_type,
+        nullif(trim(coalesce(v_price ->> 'quality', '')), ''),
+        nullif(v_price ->> 'duration_seconds', '')::integer,
+        null,
+        greatest(0, coalesce((v_price ->> 'cost_cny')::numeric, 0)),
+        greatest(0.0001, coalesce((v_price ->> 'markup')::numeric, 2)),
+        coalesce((v_price ->> 'enabled')::boolean, true),
+        now()
+      );
+    else
+      update public.model_pricing
+      set
+        quality = nullif(trim(coalesce(v_price ->> 'quality', quality)), ''),
+        duration_seconds = nullif(v_price ->> 'duration_seconds', '')::integer,
+        cost_cny = greatest(0, coalesce((v_price ->> 'cost_cny')::numeric, cost_cny)),
+        markup = greatest(0.0001, coalesce((v_price ->> 'markup')::numeric, markup)),
+        enabled = coalesce((v_price ->> 'enabled')::boolean, enabled),
+        updated_at = now()
+      where id = (v_price ->> 'id')::uuid
+        and type = p_type
+        and model = p_model;
 
-    if not found then
-      raise exception '模型价格不存在或不匹配。';
+      if not found then
+        raise exception '模型价格不存在或不匹配。';
+      end if;
     end if;
   end loop;
 

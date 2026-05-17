@@ -1,19 +1,20 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Eye, EyeOff, Loader2, Save, Settings2 } from "lucide-react"
+import { Eye, EyeOff, Loader2, Plus, Save, Settings2 } from "lucide-react"
 import { useAdmin } from "@/components/admin/admin-provider"
 import { Button } from "@/components/ui/button"
-import { calculatePricingCredits, saveModelConfigBundle, type ModelConfig, type ModelPricing } from "@/lib/supabase"
+import { calculatePricingCredits, saveModelConfigBundle, type ModelConfig, type ModelPricingDraft } from "@/lib/supabase"
 import { formatModelNameForDisplay } from "@/lib/model-display"
 import { getCatalogEntry } from "@/lib/model-catalog"
+import { imageModelSettings, videoModelSettings } from "@/lib/model-options"
 import { cn } from "@/lib/utils"
 
-function enabledPriceCount(prices: ModelPricing[]) {
+function enabledPriceCount(prices: ModelPricingDraft[]) {
   return prices.filter((price) => price.enabled).length
 }
 
-function getPriceLabel(price: ModelPricing) {
+function getPriceLabel(price: ModelPricingDraft) {
   if (price.type === "video") {
     return `${price.duration_seconds ?? 0} 秒 · ${price.quality ?? "未配置"}`
   }
@@ -48,7 +49,7 @@ export function ModelConfigPanel() {
   const { modelConfigs, modelPricing, refreshAdminConfig, saving, setFeedback, setSaving } = useAdmin()
   const [selectedKey, setSelectedKey] = useState("")
   const [draftConfigs, setDraftConfigs] = useState<ModelConfig[]>(modelConfigs)
-  const [draftPricing, setDraftPricing] = useState<ModelPricing[]>(modelPricing)
+  const [draftPricing, setDraftPricing] = useState<ModelPricingDraft[]>(modelPricing)
 
   useEffect(() => setDraftConfigs(modelConfigs), [modelConfigs])
   useEffect(() => setDraftPricing(modelPricing), [modelPricing])
@@ -87,10 +88,10 @@ export function ModelConfigPanel() {
     )
   }
 
-  const updatePrice = (id: string, patch: Partial<Pick<ModelPricing, "cost_cny" | "enabled" | "markup">>) => {
+  const updatePrice = (target: ModelPricingDraft, patch: Partial<Pick<ModelPricingDraft, "cost_cny" | "enabled" | "markup">>) => {
     setDraftPricing((items) =>
       items.map((item) =>
-        item.id === id
+        item === target
           ? {
               ...item,
               ...patch,
@@ -102,8 +103,72 @@ export function ModelConfigPanel() {
     )
   }
 
+  const addPrice = () => {
+    if (!selected) return
+    if (selected.type === "image") {
+      const quality = imageModelSettings[selected.model].qualities[0]
+      setDraftPricing((items) => [
+        ...items,
+        {
+          aspect_ratio: null,
+          cost_cny: 1,
+          duration_seconds: null,
+          enabled: true,
+          markup: 2,
+          model: selected.model,
+          quality,
+          type: selected.type,
+        },
+      ])
+      return
+    }
+
+    const settings = videoModelSettings[selected.model]
+    setDraftPricing((items) => [
+      ...items,
+      {
+        aspect_ratio: null,
+        cost_cny: 1,
+        duration_seconds: Number.parseInt(settings.durations[0], 10),
+        enabled: true,
+        markup: 2,
+        model: selected.model,
+        quality: settings.qualities[0],
+        type: selected.type,
+      },
+    ])
+  }
+
+  const updatePriceVariant = (index: number, patch: Partial<Pick<ModelPricingDraft, "duration_seconds" | "quality">>) => {
+    if (!selected) return
+    const target = selectedPrices[index]
+    if (!target) return
+    setDraftPricing((items) =>
+      items.map((item) =>
+        item === target
+          ? {
+              ...item,
+              ...patch,
+            }
+          : item
+      )
+    )
+  }
+
   const handleSave = async () => {
     if (!selected) return
+    const enabledPriceKeys = selectedPrices
+      .filter((price) => price.enabled)
+      .map((price) =>
+        price.type === "video"
+          ? `${price.type}:${price.quality ?? ""}:${price.duration_seconds ?? ""}`
+          : `${price.type}:${price.quality ?? ""}`
+      )
+    if (new Set(enabledPriceKeys).size !== enabledPriceKeys.length) {
+      setFeedback({ type: "error", message: "同一参数组合只能保留一个启用价格。" })
+      return
+    }
+
     setSaving(true)
     setFeedback(null)
     try {
@@ -270,7 +335,13 @@ export function ModelConfigPanel() {
           <div>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-950">价格配置</h3>
-              <span className="text-xs text-slate-500">扣点 = 成本 x 倍率 x 100</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">扣点 = 成本 x 倍率 x 100</span>
+                <Button onClick={addPrice} size="sm" variant="outline">
+                  <Plus className="h-4 w-4" />
+                  添加价格
+                </Button>
+              </div>
             </div>
             <div className="grid gap-3">
               {selectedPrices.length === 0 && (
@@ -278,17 +349,52 @@ export function ModelConfigPanel() {
                   当前模型还没有价格项，前台不会展示。
                 </div>
               )}
-              {selectedPrices.map((price) => (
-                <div className="rounded-lg border border-slate-200 p-3" key={price.id}>
+              {selectedPrices.map((price, index) => (
+                <div className="rounded-lg border border-slate-200 p-3" key={price.id ?? `${price.type}-${price.model}-${index}`}>
                   <div className="flex items-center justify-between">
                     <div className="font-medium text-slate-900">{getPriceLabel(price)}</div>
                     <Button
-                      onClick={() => updatePrice(price.id, { enabled: !price.enabled })}
+                      onClick={() => updatePrice(price, { enabled: !price.enabled })}
                       size="sm"
                       variant={price.enabled ? "default" : "outline"}
                     >
                       {price.enabled ? "启用" : "停用"}
                     </Button>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <label className="grid gap-1">
+                      <span className="text-xs text-slate-500">清晰度</span>
+                      <select
+                        className="h-9 rounded-md border border-slate-200 bg-slate-50 px-2 text-sm outline-none focus:border-indigo-300 focus:bg-white"
+                        onChange={(event) => updatePriceVariant(index, { quality: event.target.value })}
+                        value={price.quality ?? ""}
+                      >
+                        {(price.type === "image" ? imageModelSettings[price.model].qualities : videoModelSettings[price.model].qualities).map((quality) => (
+                          <option key={quality} value={quality}>
+                            {quality}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {price.type === "video" && (
+                      <label className="grid gap-1">
+                        <span className="text-xs text-slate-500">时长</span>
+                        <select
+                          className="h-9 rounded-md border border-slate-200 bg-slate-50 px-2 text-sm outline-none focus:border-indigo-300 focus:bg-white"
+                          onChange={(event) => updatePriceVariant(index, { duration_seconds: Number.parseInt(event.target.value, 10) })}
+                          value={`${price.duration_seconds ?? 0}`}
+                        >
+                          {videoModelSettings[price.model].durations.map((duration) => {
+                            const seconds = Number.parseInt(duration, 10)
+                            return (
+                              <option key={duration} value={`${seconds}`}>
+                                {duration}
+                              </option>
+                            )
+                          })}
+                        </select>
+                      </label>
+                    )}
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2">
                     <label className="grid gap-1">
@@ -296,7 +402,7 @@ export function ModelConfigPanel() {
                       <input
                         className="h-9 rounded-md border border-slate-200 bg-slate-50 px-2 text-sm outline-none focus:border-indigo-300 focus:bg-white"
                         min="0"
-                        onChange={(event) => updatePrice(price.id, { cost_cny: Number(event.target.value) })}
+                        onChange={(event) => updatePrice(price, { cost_cny: Number(event.target.value) })}
                         step="0.01"
                         type="number"
                         value={price.cost_cny}
@@ -307,7 +413,7 @@ export function ModelConfigPanel() {
                       <input
                         className="h-9 rounded-md border border-slate-200 bg-slate-50 px-2 text-sm outline-none focus:border-indigo-300 focus:bg-white"
                         min="0.1"
-                        onChange={(event) => updatePrice(price.id, { markup: Number(event.target.value) })}
+                        onChange={(event) => updatePrice(price, { markup: Number(event.target.value) })}
                         step="0.1"
                         type="number"
                         value={price.markup}
