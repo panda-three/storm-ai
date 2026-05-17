@@ -523,6 +523,7 @@ function ModelConfigDemo({
   onToggleDefault,
   onToggleFrontend,
   onTogglePrice,
+  onUpdateConfig,
   onUpdatePrice,
 }: {
   configs: DemoModelConfig[]
@@ -531,10 +532,12 @@ function ModelConfigDemo({
   onToggleDefault: (id: string) => void
   onToggleFrontend: (id: string) => void
   onTogglePrice: (modelId: string, priceId: string) => void
+  onUpdateConfig: (id: string, patch: Partial<Pick<DemoModelConfig, "displayName" | "sortOrder">>) => void
   onUpdatePrice: (modelId: string, priceId: string, field: "cost" | "markup", value: number) => void
 }) {
   const selected = configs.find((config) => config.id === selectedId) ?? configs[0]
   const visibleCount = configs.filter((config) => config.frontendEnabled && hasEnabledPrice(config)).length
+  const selectedCanShow = selected.frontendEnabled && hasEnabledPrice(selected)
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-8">
@@ -547,10 +550,10 @@ function ModelConfigDemo({
                 管理员后台原型
               </div>
               <h1 className="mt-4 text-2xl font-semibold tracking-normal text-slate-950 sm:text-3xl">
-                模型展示与价格配置
+                创作台模型配置
               </h1>
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                后台能看到渠道；前台只显示模型名称。关闭展示或没有启用价格的模型不会出现在创作台。
+                后台配置渠道、内部模型和展示名称；创作台只显示“前台展示名称”，接口仍使用内部模型和接口模型。
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:w-72">
@@ -567,7 +570,7 @@ function ModelConfigDemo({
 
           <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
             <div className="grid grid-cols-[1.35fr_88px_110px_110px_92px] border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500 max-lg:hidden">
-              <div>模型名称</div>
+              <div>前台展示名称</div>
               <div>类型</div>
               <div>渠道</div>
               <div>前台展示</div>
@@ -594,15 +597,15 @@ function ModelConfigDemo({
                     >
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-sm font-semibold text-slate-950">{config.model}</span>
+                          <span className="truncate text-sm font-semibold text-slate-950">{config.displayName}</span>
                           {config.defaultModel && (
                             <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-700">
-                              默认
+                              初始选中
                             </span>
                           )}
                         </div>
                         <div className="mt-1 text-xs text-slate-400">
-                          排序 {config.sortOrder} · 内部模型同前台模型名称
+                          内部模型：{config.model}
                         </div>
                       </div>
                       <div className="text-sm text-slate-600">{config.type === "image" ? "图片" : "视频"}</div>
@@ -634,7 +637,7 @@ function ModelConfigDemo({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-xs font-medium text-slate-500">当前编辑</div>
-              <h2 className="mt-1 truncate text-lg font-semibold text-slate-950">{selected.model}</h2>
+              <h2 className="mt-1 truncate text-lg font-semibold text-slate-950">{selected.displayName}</h2>
               <p className="mt-1 text-sm text-slate-500">
                 {selected.provider} · {selected.type === "image" ? "图片模型" : "视频模型"}
               </p>
@@ -649,6 +652,39 @@ function ModelConfigDemo({
           </div>
 
           <div className="mt-5 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <label className="grid gap-1.5">
+              <span className="text-sm font-medium text-slate-800">前台展示名称</span>
+              <input
+                className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
+                onChange={(event) => onUpdateConfig(selected.id, { displayName: event.target.value })}
+                value={selected.displayName}
+              />
+              <span className="text-xs text-slate-500">只影响创作台下拉和用户看到的名称，不影响接口调用。</span>
+            </label>
+            <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-500">
+              <div className="flex justify-between gap-3">
+                <span>内部模型</span>
+                <span className="font-medium text-slate-800">{selected.model}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span>接口模型</span>
+                <span className="font-medium text-slate-800">{selected.apiModel}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span>渠道</span>
+                <span className="font-medium text-slate-800">{selected.provider}</span>
+              </div>
+            </div>
+            <label className="grid gap-1.5">
+              <span className="text-sm font-medium text-slate-800">创作台排序</span>
+              <input
+                className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
+                min="1"
+                onChange={(event) => onUpdateConfig(selected.id, { sortOrder: Number(event.target.value) })}
+                type="number"
+                value={selected.sortOrder}
+              />
+            </label>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium text-slate-800">前台展示</div>
@@ -662,14 +698,24 @@ function ModelConfigDemo({
             </div>
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-medium text-slate-800">默认模型</div>
-                <div className="text-xs text-slate-500">同类型只保留一个默认项</div>
+                <div className="text-sm font-medium text-slate-800">创作台初始选中</div>
+                <div className="text-xs text-slate-500">用户进入图片/视频创作台时默认选中</div>
               </div>
               <SwitchButton
                 checked={selected.defaultModel}
-                label={selected.defaultModel ? "默认" : "非默认"}
+                label={selected.defaultModel ? "初始选中" : "普通"}
                 onChange={() => onToggleDefault(selected.id)}
               />
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-3">
+            <div className="text-sm font-semibold text-slate-950">新增模型操作</div>
+            <div className="mt-3 grid gap-2 text-sm text-slate-600">
+              <div className="rounded-xl bg-slate-50 px-3 py-2">1. 选择已接入渠道：云雾 / APIMart / ToAPIs</div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2">2. 填内部模型和接口模型，展示名可自由命名</div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2">3. 配置价格并开启“前台展示”</div>
+              <div className="rounded-xl bg-amber-50 px-3 py-2 text-amber-800">新渠道需要先开发接入，再出现在渠道列表里。</div>
             </div>
           </div>
 
@@ -725,7 +771,7 @@ function ModelConfigDemo({
           </div>
 
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
-            这只是 UI demo：开关会实时影响创作台下拉，但不会写入真实后台。
+            这只是 UI demo：开关会实时影响创作台下拉，但不会写入真实后台。当前选中模型{selectedCanShow ? "可" : "不可"}出现在创作台。
           </div>
         </aside>
       </section>
@@ -776,6 +822,20 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
               prices: config.prices.map((price) =>
                 price.id === priceId ? { ...price, enabled: !price.enabled } : price
               ),
+            }
+          : config
+      )
+    )
+  }
+  const handleUpdateConfig = (id: string, patch: Partial<Pick<DemoModelConfig, "displayName" | "sortOrder">>) => {
+    setModelConfigs((configs) =>
+      configs.map((config) =>
+        config.id === id
+          ? {
+              ...config,
+              ...patch,
+              displayName: patch.displayName ?? config.displayName,
+              sortOrder: Number.isFinite(patch.sortOrder) ? Number(patch.sortOrder) : config.sortOrder,
             }
           : config
       )
@@ -887,6 +947,7 @@ function StudioDemo({ onBackHome }: { onBackHome: () => void }) {
               onToggleDefault={handleToggleDefault}
               onToggleFrontend={handleToggleFrontend}
               onTogglePrice={handleTogglePrice}
+              onUpdateConfig={handleUpdateConfig}
               onUpdatePrice={handleUpdatePrice}
             />
           ) : (
