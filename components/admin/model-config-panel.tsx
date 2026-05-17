@@ -52,7 +52,7 @@ function ReadonlyField({ label, value }: { label: string; value: string }) {
 }
 
 export function ModelConfigPanel() {
-  const { modelConfigs, modelPricing, refreshAdminConfig, saving, setFeedback, setSaving } = useAdmin()
+  const { modelConfigLoading, modelConfigs, modelPricing, refreshAdminConfig, saving, setFeedback, setSaving } = useAdmin()
   const [selectedKey, setSelectedKey] = useState("")
   const [draftConfigs, setDraftConfigs] = useState<ModelConfig[]>(modelConfigs)
   const [draftPricing, setDraftPricing] = useState<ModelPricingDraft[]>(modelPricing)
@@ -198,6 +198,52 @@ export function ModelConfigPanel() {
     }
   }
 
+  if (modelConfigLoading && draftConfigs.length === 0) {
+    return (
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="grid content-start gap-5">
+          <div className="grid items-start gap-3 sm:grid-cols-3">
+            {["前台可见模型", "已配置模型", "价格真源"].map((label) => (
+              <div className="h-[118px] rounded-lg border border-slate-200 bg-white p-4" key={label}>
+                <div className="text-sm text-slate-500">{label}</div>
+                <div className="mt-4 h-8 w-16 animate-pulse rounded bg-slate-100" />
+              </div>
+            ))}
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <div className="h-5 w-24 animate-pulse rounded bg-slate-100" />
+              <div className="mt-2 h-4 w-80 max-w-full animate-pulse rounded bg-slate-100" />
+            </div>
+            <div className="divide-y divide-slate-100">
+              {Array.from({ length: 6 }, (_, index) => (
+                <div className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1.3fr)_80px_100px_100px_90px] lg:items-center" key={index}>
+                  <div className="min-w-0">
+                    <div className="h-5 w-44 animate-pulse rounded bg-slate-100" />
+                    <div className="mt-2 h-4 w-64 max-w-full animate-pulse rounded bg-slate-100" />
+                  </div>
+                  <div className="h-5 w-10 animate-pulse rounded bg-slate-100" />
+                  <div className="h-5 w-16 animate-pulse rounded bg-slate-100" />
+                  <div className="h-8 w-24 animate-pulse rounded-full bg-slate-100" />
+                  <div className="h-5 w-14 animate-pulse rounded bg-slate-100" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <aside className="min-h-[360px] rounded-lg border border-slate-200 bg-white p-5">
+          <div className="h-5 w-24 animate-pulse rounded bg-slate-100" />
+          <div className="mt-4 h-7 w-44 animate-pulse rounded bg-slate-100" />
+          <div className="mt-6 grid gap-3">
+            {Array.from({ length: 7 }, (_, index) => (
+              <div className="h-10 animate-pulse rounded-md bg-slate-100" key={index} />
+            ))}
+          </div>
+        </aside>
+      </div>
+    )
+  }
+
   if (!selected) {
     return <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-500">暂无已配置模型。</div>
   }
@@ -205,18 +251,18 @@ export function ModelConfigPanel() {
   const catalog = getCatalogEntry(selected.type, selected.model)
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <div className="grid gap-5">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="grid content-start gap-5">
+        <div className="grid items-start gap-3 sm:grid-cols-3">
+          <div className="h-fit rounded-lg border border-slate-200 bg-white p-4">
             <div className="text-sm text-slate-500">前台可见模型</div>
             <div className="mt-2 text-3xl font-semibold text-slate-950">{visibleCount}</div>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="h-fit rounded-lg border border-slate-200 bg-white p-4">
             <div className="text-sm text-slate-500">已配置模型</div>
             <div className="mt-2 text-3xl font-semibold text-slate-950">{draftConfigs.length}</div>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="h-fit rounded-lg border border-slate-200 bg-white p-4">
             <div className="text-sm text-slate-500">价格真源</div>
             <div className="mt-2 text-sm font-medium text-slate-700">沿用当前数据库价格</div>
           </div>

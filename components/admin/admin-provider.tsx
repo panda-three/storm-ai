@@ -34,6 +34,7 @@ interface AdminContextValue {
   creditPackages: CreditPackage[]
   customerService: CustomerServiceSettings
   feedback: Feedback
+  modelConfigLoading: boolean
   modelPricing: ModelPricing[]
   modelConfigs: ModelConfig[]
   redeemCodes: RedeemCode[]
@@ -78,43 +79,81 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   const [adminAccounts, setAdminAccounts] = useState<AdminAccountSummary[]>([])
   const [modelPricing, setModelPricing] = useState<ModelPricing[]>([])
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
+  const [modelConfigLoading, setModelConfigLoading] = useState(true)
   const [redeemCodes, setRedeemCodes] = useState<RedeemCode[]>([])
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [saving, setSaving] = useState(false)
   const isAdmin = account?.role === "admin"
   const accountUserId = account?.userId ?? ""
 
-  const refreshAdminConfig = useCallback(async () => {
+  const refreshModelConfig = useCallback(async () => {
+    setModelConfigLoading(true)
+    try {
+      const [configs, pricing] = await Promise.all([
+        loadModelConfigs({ includeDisabled: true }),
+        loadModelPricing({ includeDisabled: true }),
+      ])
+      setModelConfigs(configs)
+      setModelPricing(pricing)
+    } finally {
+      setModelConfigLoading(false)
+    }
+  }, [])
+
+  const refreshAdminConfig = useCallback(async ({ includeModelConfig = true } = {}) => {
     if (!userId || accountStatus !== "ready" || accountUserId !== userId || !isAdmin) {
       setAdminAccounts([])
       setRedeemCodes([])
+      setModelConfigs([])
+      setModelPricing([])
+      setModelConfigLoading(false)
       return
     }
 
     try {
       setSyncError("")
-      const [settings, packages, configs, pricing, codes, accounts] = await Promise.all([
+      const modelConfigPromise = includeModelConfig
+        ? refreshModelConfig()
+        : Promise.resolve()
+      const [settings, packages, codes, accounts] = await Promise.all([
         loadCustomerServiceSettings(),
         loadCreditPackages({ includeDisabled: true }),
-        loadModelConfigs({ includeDisabled: true }),
-        loadModelPricing({ includeDisabled: true }),
         loadRedeemCodes(),
         loadAdminAccounts(),
+        modelConfigPromise,
       ])
       setCustomerService(settings)
       setCreditPackages(packages)
-      setModelConfigs(configs)
-      setModelPricing(pricing)
       setRedeemCodes(codes)
       setAdminAccounts(accounts)
     } catch (error) {
       setSyncError(getErrorMessage(error, "加载管理员后台数据失败。"))
     }
-  }, [accountStatus, accountUserId, isAdmin, setSyncError, userId])
+  }, [accountStatus, accountUserId, isAdmin, refreshModelConfig, setSyncError, userId])
+
+  const refreshAllAdminData = useCallback(async () => {
+    if (!userId || accountStatus !== "ready" || accountUserId !== userId || !isAdmin) {
+      setAdminAccounts([])
+      setRedeemCodes([])
+      setModelConfigs([])
+      setModelPricing([])
+      return
+    }
+
+    setSyncError("")
+    try {
+      await refreshModelConfig()
+    } catch (error) {
+      setSyncError(getErrorMessage(error, "加载模型配置失败。"))
+      return
+    }
+
+    await refreshAdminConfig({ includeModelConfig: false })
+  }, [accountStatus, accountUserId, isAdmin, refreshAdminConfig, refreshModelConfig, setSyncError, userId])
 
   useEffect(() => {
-    refreshAdminConfig()
-  }, [refreshAdminConfig])
+    refreshAllAdminData()
+  }, [refreshAllAdminData])
 
   const value = useMemo(
     () => ({
@@ -122,6 +161,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       creditPackages,
       customerService,
       feedback,
+      modelConfigLoading,
       modelConfigs,
       modelPricing,
       redeemCodes,
@@ -134,7 +174,18 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       setModelPricing,
       setSaving,
     }),
-    [adminAccounts, creditPackages, customerService, feedback, modelConfigs, modelPricing, redeemCodes, refreshAdminConfig, saving]
+    [
+      adminAccounts,
+      creditPackages,
+      customerService,
+      feedback,
+      modelConfigLoading,
+      modelConfigs,
+      modelPricing,
+      redeemCodes,
+      refreshAdminConfig,
+      saving,
+    ]
   )
 
   if (!authReady) {
