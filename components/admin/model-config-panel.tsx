@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from "react"
 import { Eye, EyeOff, Loader2, Plus, Save, Settings2 } from "lucide-react"
 import { useAdmin } from "@/components/admin/admin-provider"
 import { Button } from "@/components/ui/button"
-import { calculatePricingCredits, saveModelConfigBundle, type ModelConfig, type ModelPricingDraft } from "@/lib/supabase"
+import {
+  calculatePricingCredits,
+  getSupabaseErrorMessage,
+  saveModelConfigBundle,
+  type ModelConfig,
+  type ModelPricingDraft,
+} from "@/lib/supabase"
 import { formatModelNameForDisplay } from "@/lib/model-display"
 import { getCatalogEntry } from "@/lib/model-catalog"
 import { imageModelSettings, videoModelSettings } from "@/lib/model-options"
@@ -186,7 +192,7 @@ export function ModelConfigPanel() {
       await refreshAdminConfig()
       setFeedback({ type: "success", message: "模型配置已保存。" })
     } catch (error) {
-      setFeedback({ type: "error", message: error instanceof Error ? error.message : "模型配置保存失败。" })
+      setFeedback({ type: "error", message: getSupabaseErrorMessage(error, "模型配置保存失败。") })
     } finally {
       setSaving(false)
     }
@@ -224,6 +230,7 @@ export function ModelConfigPanel() {
           <div className="divide-y divide-slate-100">
             {sortedConfigs.map((config) => {
               const prices = draftPricing.filter((price) => price.type === config.type && price.model === config.model)
+              const configCatalog = getCatalogEntry(config.type, config.model)
               return (
                 <button
                   className={cn(
@@ -246,7 +253,7 @@ export function ModelConfigPanel() {
                     <div className="mt-1 truncate text-xs text-slate-400">内部模型：{config.model}</div>
                   </div>
                   <div className="text-sm text-slate-600">{config.type === "image" ? "图片" : "视频"}</div>
-                  <div className="text-sm font-medium text-slate-700">{catalog?.provider ?? "未知"}</div>
+                  <div className="text-sm font-medium text-slate-700">{configCatalog?.provider ?? "未知"}</div>
                   <StatusPill enabled={config.frontend_enabled} />
                   <div className="text-sm text-slate-600">
                     {enabledPriceCount(prices)}/{prices.length} 启用

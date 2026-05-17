@@ -179,8 +179,9 @@
       "vscode-editor:新建代码文件": false
     }
   },
-  "active": "8ec0b6e57e61c42e",
+  "active": "0ae29a87060f3372",
   "lastOpenFiles": [
+    "release-checklist.md",
     "supabase-schema.sql",
     "scripts/audit-production-model-config.mjs",
     "lib/model-catalog.ts",
@@ -191,7 +192,6 @@
     "node_modules/@hookform",
     "node_modules/@types",
     "node_modules/@tailwindcss",
-    "node_modules/@eslint",
     "docs/manual-release.md",
     "docs/self-hosted-supabase.md",
     "docs/linux-deployment.md",
@@ -204,7 +204,6 @@
     "docs/generation-queue-and-task-flow-research.md",
     "docs/storm-ai-conversation-index.md",
     "docs/storm-ai-conversations.md",
-    "release-checklist.md",
     "develop1.md",
     "需求文档.md",
     "AGENTS.md",

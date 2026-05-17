@@ -1631,6 +1631,18 @@ begin
     raise exception '模型排序无效。';
   end if;
 
+  -- Clear the previous default before promoting a new one so the partial
+  -- unique index on (type) never sees two default rows in the same statement.
+  if p_initial_selected then
+    update public.model_configs
+    set
+      initial_selected = false,
+      updated_at = now()
+    where type = p_type
+      and model <> p_model
+      and initial_selected = true;
+  end if;
+
   insert into public.model_configs (
     type,
     model,
@@ -1657,16 +1669,6 @@ begin
     sort_order = excluded.sort_order,
     updated_at = now()
   returning * into v_config;
-
-  if p_initial_selected then
-    update public.model_configs
-    set
-      initial_selected = false,
-      updated_at = now()
-    where type = p_type
-      and model <> p_model
-      and initial_selected = true;
-  end if;
 
   if jsonb_typeof(p_prices) <> 'array' then
     raise exception '价格配置格式无效。';
