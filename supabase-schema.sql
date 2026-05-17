@@ -562,51 +562,27 @@ as $$
 $$;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
-select 'image', 'gemini-3.1-flash-image-preview', 'nano banana pro（y通道)', true, true, 10
-where exists (
-  select 1 from public.model_pricing
-  where type = 'image' and model = 'gemini-3.1-flash-image-preview' and enabled = true
-)
+values ('image', 'gemini-3.1-flash-image-preview', 'nano banana pro（y通道)', true, true, 10)
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
-select 'image', 'gpt-image-2-all', 'GPT Image 2', true, false, 20
-where exists (
-  select 1 from public.model_pricing
-  where type = 'image' and model = 'gpt-image-2-all' and enabled = true
-)
+values ('image', 'gpt-image-2-all', 'GPT Image 2', true, false, 20)
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
-select 'image', 'image2-M通道', 'GPT Image 2 · M通道', true, false, 30
-where exists (
-  select 1 from public.model_pricing
-  where type = 'image' and model = 'image2-M通道' and enabled = true
-)
+values ('image', 'image2-M通道', 'GPT Image 2 · M通道', true, false, 30)
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
-select 'image', 'image2-Toa通道', 'GPT Image 2 · ToA通道', true, false, 40
-where exists (
-  select 1 from public.model_pricing
-  where type = 'image' and model = 'image2-Toa通道' and enabled = true
-)
+values ('image', 'image2-Toa通道', 'GPT Image 2 · ToA通道', true, false, 40)
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
-select 'video', 'veo_3_1-fast', 'VEO 3.1 Fast', true, true, 10
-where exists (
-  select 1 from public.model_pricing
-  where type = 'video' and model = 'veo_3_1-fast' and enabled = true
-)
+values ('video', 'veo_3_1-fast', 'VEO 3.1 Fast', true, true, 10)
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
-select 'video', 'grok-video-3', 'Grok Video 3', true, false, 20
-where exists (
-  select 1 from public.model_pricing
-  where type = 'video' and model = 'grok-video-3' and enabled = true
-)
+values ('video', 'grok-video-3', 'Grok Video 3', true, false, 20)
 on conflict (type, model) do nothing;
 
 create table if not exists public.generation_jobs (

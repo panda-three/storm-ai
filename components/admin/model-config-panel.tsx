@@ -273,6 +273,11 @@ export function ModelConfigPanel() {
               <span className="text-xs text-slate-500">扣点 = 成本 x 倍率 x 100</span>
             </div>
             <div className="grid gap-3">
+              {selectedPrices.length === 0 && (
+                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
+                  当前模型还没有价格项，前台不会展示。
+                </div>
+              )}
               {selectedPrices.map((price) => (
                 <div className="rounded-lg border border-slate-200 p-3" key={price.id}>
                   <div className="flex items-center justify-between">
