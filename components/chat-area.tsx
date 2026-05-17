@@ -4,8 +4,8 @@ import { type DragEvent, useEffect, useRef, useState } from "react"
 import type { WorkspaceSection } from "@/lib/workspace-section"
 import type { MembershipTier } from "@/lib/local-store"
 import { generationRetentionNotice, type ProjectItem, type ProjectStatus, type ProjectType } from "@/lib/project-history"
-import type { CreditPackage, CustomerServiceSettings, ModelPricing } from "@/lib/supabase"
-import { calculatePricingCredits, clearSupabaseLocalSession, getSupabaseClient, redeemCreditCode } from "@/lib/supabase"
+import type { CreditPackage, CustomerServiceSettings, ModelConfig, PublicModelPricing } from "@/lib/supabase"
+import { clearSupabaseLocalSession, getSupabaseClient, redeemCreditCode } from "@/lib/supabase"
 import { formatLedgerDateTime } from "@/lib/date-time"
 import { formatLedgerCodeForDisplay } from "@/lib/ledger-display"
 import { formatModelNameForDisplay } from "@/lib/model-display"
@@ -81,7 +81,8 @@ interface ChatAreaProps {
   onProjectDelete: (id: string) => void
   onProjectUpdate: (item: ProjectItem) => void
   onAccountRefresh: () => Promise<void>
-  modelPricing: ModelPricing[]
+  modelPricing: PublicModelPricing[]
+  modelConfigs: ModelConfig[]
   projects: ProjectItem[]
   redeemedCodes: string[]
   sidebarOpen: boolean
@@ -499,7 +500,7 @@ function ModeDropdown({
 }
 
 function findModelPricing(
-  pricing: ModelPricing[],
+  pricing: PublicModelPricing[],
   params: {
     aspectRatio?: string
     duration?: string
@@ -518,6 +519,69 @@ function findModelPricing(
 
     return true
   })
+}
+
+function getAvailableModelConfigs(
+  type: "image" | "video",
+  configs: ModelConfig[],
+  pricing: PublicModelPricing[]
+) {
+  return configs
+    .filter((config) => config.type === type && config.frontend_enabled)
+    .filter((config) => pricing.some((item) => item.type === type && item.model === config.model && item.enabled))
+    .sort((a, b) => a.sort_order - b.sort_order)
+}
+
+function getDefaultModel(type: "image" | "video", configs: ModelConfig[]) {
+  const selected = configs.find((config) => config.initial_selected)
+  if (selected) return selected.model
+  if (configs[0]) return configs[0].model
+  return type === "image" ? imageModelOptions[0] : videoModelOptions[0]
+}
+
+function getAvailableQualities(pricing: PublicModelPricing[], type: "image" | "video", model: string) {
+  return Array.from(
+    new Set(
+      pricing
+        .filter((item) => item.enabled && item.type === type && item.model === model && item.quality)
+        .map((item) => item.quality as string)
+    )
+  )
+}
+
+function getPreferredImageQuality(model: string, availableQualities: string[]) {
+  const preferred = imageModelSettings[model]?.qualities[1] ?? imageModelSettings[model]?.qualities[0] ?? ""
+  return availableQualities.includes(preferred) ? preferred : availableQualities[0] ?? preferred
+}
+
+function getAvailableVideoVariants(pricing: PublicModelPricing[], model: string) {
+  const items = pricing.filter((item) => item.enabled && item.type === "video" && item.model === model)
+  return {
+    durations: Array.from(new Set(items.map((item) => `${item.duration_seconds ?? 0} 秒`))),
+    qualities: Array.from(new Set(items.map((item) => item.quality).filter((item): item is string => Boolean(item)))),
+  }
+}
+
+function getPreferredVideoDuration(
+  model: string,
+  variants: {
+    durations: string[]
+    qualities: string[]
+  }
+) {
+  const preferred = videoModelSettings[model]?.durations[0] ?? ""
+  return variants.durations.includes(preferred) ? preferred : variants.durations[0] ?? preferred
+}
+
+function getPreferredVideoQuality(
+  model: string,
+  variants: {
+    durations: string[]
+    qualities: string[]
+  }
+) {
+  const preferred = videoModelSettings[model]?.qualities[0] ?? ""
+  return variants.qualities.includes(preferred) ? preferred : variants.qualities[0] ?? preferred
 }
 
 function isMembershipActive(membershipTier: MembershipTier | null, membershipExpiresAt: string | null) {
@@ -657,6 +721,27 @@ function PricingLoadingNotice() {
     <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
       正在加载价格配置...
     </div>
+  )
+}
+
+function UnavailableWorkspace({
+  onSectionChange,
+  type,
+}: {
+  onSectionChange: (section: WorkspaceSection) => void
+  type: "图片" | "视频"
+}) {
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+      <div className="max-w-xl">
+        <h2 className="text-lg font-semibold text-slate-950">当前暂无可用{type}模型</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-500">管理员尚未发布可用模型或可售参数，暂时无法提交新的{type}任务。</p>
+        <Button className="mt-5 rounded-2xl" onClick={() => onSectionChange("history")} variant="outline">
+          查看历史项目
+          <ArrowRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </section>
   )
 }
 
@@ -821,6 +906,7 @@ export function ChatArea({
   membershipExpiresAt,
   membershipFreeImageQualities,
   membershipTier,
+  modelConfigs,
   modelPricing,
   onProjectAdd,
   onProjectDelete,
@@ -834,6 +920,7 @@ export function ChatArea({
   userId,
 }: ChatAreaProps) {
   const meta = sectionMeta[activeSection]
+  const modelDisplayNames = Object.fromEntries(modelConfigs.map((config) => [config.model, config.display_name]))
 
   useEffect(() => {
     const pendingProjects = projects.filter((project) => project.status === "生成中" && project.taskId && !isOptimisticTaskId(project.taskId))
@@ -1033,6 +1120,7 @@ export function ChatArea({
               membershipExpiresAt={membershipExpiresAt}
               membershipFreeImageQualities={membershipFreeImageQualities}
               membershipTier={membershipTier}
+              modelConfigs={modelConfigs}
               modelPricing={modelPricing}
               onAccountRefresh={onAccountRefresh}
               onSectionChange={onSectionChange}
@@ -1042,6 +1130,7 @@ export function ChatArea({
             <VideoWorkspace
               billingReady={billingReady}
               creditBalance={creditBalance}
+              modelConfigs={modelConfigs}
               modelPricing={modelPricing}
               onAccountRefresh={onAccountRefresh}
               onSectionChange={onSectionChange}
@@ -1051,6 +1140,7 @@ export function ChatArea({
           {activeSection === "history" && (
             <HistoryWorkspace
               items={projects}
+              modelDisplayNames={modelDisplayNames}
               onDeleteProject={onProjectDelete}
               onSectionChange={onSectionChange}
             />
@@ -1081,6 +1171,7 @@ function ImageWorkspace({
   membershipExpiresAt,
   membershipFreeImageQualities,
   membershipTier,
+  modelConfigs,
   modelPricing,
   onAccountRefresh,
   onImageGenerated,
@@ -1091,15 +1182,19 @@ function ImageWorkspace({
   membershipExpiresAt: string | null
   membershipFreeImageQualities: string[]
   membershipTier: MembershipTier | null
-  modelPricing: ModelPricing[]
+  modelConfigs: ModelConfig[]
+  modelPricing: PublicModelPricing[]
   onAccountRefresh: () => Promise<void>
   onImageGenerated: (result: ImageResult) => void
   onSectionChange: (section: WorkspaceSection) => void
 }) {
   const [prompt, setPrompt] = useState("")
-  const [model, setModel] = useState(imageModelOptions[0])
+  const availableModels = getAvailableModelConfigs("image", modelConfigs, modelPricing)
+  const defaultModel = getDefaultModel("image", availableModels)
+  const [model, setModel] = useState(defaultModel)
   const imageSettings = imageModelSettings[model]
-  const [quality, setQuality] = useState(imageSettings.qualities[1])
+  const availableQualities = getAvailableQualities(modelPricing, "image", model)
+  const [quality, setQuality] = useState(getPreferredImageQuality(model, availableQualities))
   const [ratio, setRatio] = useState(imageSettings.ratios[0])
   const [imageCount, setImageCount] = useState(imageCountOptions[2])
   const parsedImageCount = parseImageCount(imageCount)
@@ -1119,7 +1214,7 @@ function ImageWorkspace({
     type: "image",
   })
   const membershipCoversQuality = isMembershipActive(membershipTier, membershipExpiresAt) && membershipFreeImageQualities.includes(quality)
-  const estimatedCredits = currentPricing ? (membershipCoversQuality ? 0 : calculatePricingCredits(currentPricing) * effectiveImageCount) : null
+  const estimatedCredits = currentPricing ? (membershipCoversQuality ? 0 : currentPricing.credits * effectiveImageCount) : null
 
   useEffect(() => {
     const draft = readRegenerationDraft()
@@ -1128,11 +1223,11 @@ function ImageWorkspace({
     clearRegenerationDraft()
     setPrompt(draft.prompt)
 
-    const defaultModel = imageModelOptions[0]
+    const defaultModel = getDefaultModel("image", availableModels)
     const defaultSettings = imageModelSettings[defaultModel]
     const defaultQuality = defaultSettings.qualities[1] ?? defaultSettings.qualities[0]
     const defaultRatio = defaultSettings.ratios[0]
-    const nextModel = draft.model && imageModelOptions.includes(draft.model) ? draft.model : defaultModel
+    const nextModel = draft.model && availableModels.some((item) => item.model === draft.model) ? draft.model : defaultModel
     const settings = imageModelSettings[nextModel]
     const nextQuality = draft.quality && settings.qualities.includes(draft.quality) ? draft.quality : defaultQuality
     const nextRatioOptions = getImageRatiosForSelection(nextModel, nextQuality)
@@ -1146,7 +1241,19 @@ function ImageWorkspace({
       setImageCount(nextImageCount)
     }
     window.requestAnimationFrame(() => promptRef.current?.focus())
-  }, [])
+  }, [availableModels])
+
+  useEffect(() => {
+    if (!availableModels.some((item) => item.model === model)) {
+      setModel(defaultModel)
+    }
+  }, [availableModels, defaultModel, model])
+
+  useEffect(() => {
+    if (!availableQualities.includes(quality)) {
+      setQuality(getPreferredImageQuality(model, availableQualities))
+    }
+  }, [availableQualities, model, quality])
 
   const handlePromptChange = (value: string) => {
     setPrompt(value)
@@ -1175,6 +1282,10 @@ function ImageWorkspace({
       setImageCount("1")
     }
   }, [imageCount, isApimartImage])
+
+  if (availableModels.length === 0) {
+    return <UnavailableWorkspace type="图片" onSectionChange={onSectionChange} />
+  }
 
   const handleReferenceImageChange = async (files: FileList | null) => {
     if (!files?.length) return
@@ -1477,9 +1588,9 @@ function ImageWorkspace({
                           setImageCount("1")
                         }
                       }}
-                      options={imageModelOptions.map((option) => ({
-                        label: getOptionLabel(option),
-                        value: option,
+                      options={availableModels.map((option) => ({
+                        label: option.display_name,
+                        value: option.model,
                       }))}
                       value={model}
                     />
@@ -1487,7 +1598,7 @@ function ImageWorkspace({
                       icon={Sparkles}
                       label="图片清晰度"
                       onChange={setQuality}
-                      options={imageSettings.qualities.map((option) => ({
+                      options={availableQualities.map((option) => ({
                         label: option,
                         value: option,
                       }))}
@@ -1557,6 +1668,7 @@ function ImageWorkspace({
 function VideoWorkspace({
   billingReady,
   creditBalance,
+  modelConfigs,
   modelPricing,
   onAccountRefresh,
   onVideoGenerated,
@@ -1564,16 +1676,20 @@ function VideoWorkspace({
 }: {
   billingReady: boolean
   creditBalance: number
-  modelPricing: ModelPricing[]
+  modelConfigs: ModelConfig[]
+  modelPricing: PublicModelPricing[]
   onAccountRefresh: () => Promise<void>
   onVideoGenerated: (result: VideoResult) => void
   onSectionChange: (section: WorkspaceSection) => void
 }) {
   const [prompt, setPrompt] = useState("")
-  const [model, setModel] = useState(videoModelOptions[0])
+  const availableModels = getAvailableModelConfigs("video", modelConfigs, modelPricing)
+  const defaultModel = getDefaultModel("video", availableModels)
+  const [model, setModel] = useState(defaultModel)
   const modelSettings = videoModelSettings[model]
-  const [duration, setDuration] = useState(modelSettings.durations[0])
-  const [quality, setQuality] = useState(modelSettings.qualities[0])
+  const availableVariants = getAvailableVideoVariants(modelPricing, model)
+  const [duration, setDuration] = useState(getPreferredVideoDuration(model, availableVariants))
+  const [quality, setQuality] = useState(getPreferredVideoQuality(model, availableVariants))
   const [aspectRatio, setAspectRatio] = useState(modelSettings.aspectRatios[0])
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState("")
@@ -1590,7 +1706,7 @@ function VideoWorkspace({
     quality,
     type: "video",
   })
-  const estimatedCredits = currentPricing ? calculatePricingCredits(currentPricing) : null
+  const estimatedCredits = currentPricing ? currentPricing.credits : null
 
   useEffect(() => {
     const draft = readRegenerationDraft()
@@ -1599,9 +1715,9 @@ function VideoWorkspace({
     clearRegenerationDraft()
     setPrompt(draft.prompt)
 
-    const defaultModel = videoModelOptions[0]
+    const defaultModel = getDefaultModel("video", availableModels)
     const defaultSettings = videoModelSettings[defaultModel]
-    const nextModel = draft.model && videoModelOptions.includes(draft.model) ? draft.model : defaultModel
+    const nextModel = draft.model && availableModels.some((item) => item.model === draft.model) ? draft.model : defaultModel
     const settings = videoModelSettings[nextModel]
     const nextDuration = draft.duration && settings.durations.includes(draft.duration) ? draft.duration : defaultSettings.durations[0]
     const nextQuality = draft.quality && settings.qualities.includes(draft.quality) ? draft.quality : defaultSettings.qualities[0]
@@ -1612,19 +1728,25 @@ function VideoWorkspace({
     setQuality(nextQuality)
     setAspectRatio(nextAspectRatio)
     window.requestAnimationFrame(() => promptRef.current?.focus())
-  }, [])
+  }, [availableModels])
 
   useEffect(() => {
-    if (!modelSettings.durations.includes(duration)) {
-      setDuration(modelSettings.durations[0])
+    if (!availableModels.some((item) => item.model === model)) {
+      setModel(defaultModel)
     }
-    if (!modelSettings.qualities.includes(quality)) {
-      setQuality(modelSettings.qualities[0])
+  }, [availableModels, defaultModel, model])
+
+  useEffect(() => {
+    if (!availableVariants.durations.includes(duration)) {
+      setDuration(getPreferredVideoDuration(model, availableVariants))
+    }
+    if (!availableVariants.qualities.includes(quality)) {
+      setQuality(getPreferredVideoQuality(model, availableVariants))
     }
     if (!modelSettings.aspectRatios.includes(aspectRatio)) {
       setAspectRatio(modelSettings.aspectRatios[0])
     }
-  }, [aspectRatio, duration, modelSettings, quality])
+  }, [aspectRatio, availableVariants, duration, model, modelSettings, quality])
 
   useEffect(() => {
     if (referenceImages.length <= maxVideoReferenceImages) return
@@ -1653,6 +1775,10 @@ function VideoWorkspace({
       objectUrls.clear()
     }
   }, [])
+
+  if (availableModels.length === 0) {
+    return <UnavailableWorkspace type="视频" onSectionChange={onSectionChange} />
+  }
 
   const handleReferenceImageChange = (files: FileList | null) => {
     if (!files?.length) return
@@ -1943,9 +2069,9 @@ function VideoWorkspace({
                         setQuality(settings.qualities[0])
                         setAspectRatio(settings.aspectRatios[0])
                       }}
-                      options={videoModelOptions.map((option) => ({
-                        label: getOptionLabel(option),
-                        value: option,
+                      options={availableModels.map((option) => ({
+                        label: option.display_name,
+                        value: option.model,
                       }))}
                       value={model}
                     />
@@ -1953,7 +2079,7 @@ function VideoWorkspace({
                       icon={Film}
                       label="视频时长"
                       onChange={setDuration}
-                      options={modelSettings.durations.map((option) => ({
+                      options={availableVariants.durations.map((option) => ({
                         label: option,
                         value: option,
                       }))}
@@ -1973,7 +2099,7 @@ function VideoWorkspace({
                       icon={Sparkles}
                       label="视频清晰度"
                       onChange={setQuality}
-                      options={modelSettings.qualities.map((option) => ({
+                      options={availableVariants.qualities.map((option) => ({
                         label: option,
                         value: option,
                       }))}
@@ -2019,10 +2145,12 @@ type HistoryFilter = "全部" | ProjectType
 
 function HistoryWorkspace({
   items,
+  modelDisplayNames,
   onDeleteProject,
   onSectionChange,
 }: {
   items: ProjectItem[]
+  modelDisplayNames: Record<string, string>
   onDeleteProject: (id: string) => void
   onSectionChange: (section: WorkspaceSection) => void
 }) {
@@ -2104,7 +2232,7 @@ function HistoryWorkspace({
                         {item.type} · {item.time}
                         {item.previewLabel ? ` · ${item.previewLabel}` : ""}
                       </div>
-                      {item.model && <div className="mt-1 truncate text-xs text-slate-400">模型：{formatModelNameForDisplay(item.model)}</div>}
+                      {item.model && <div className="mt-1 truncate text-xs text-slate-400">模型：{formatModelNameForDisplay(item.model, undefined, modelDisplayNames)}</div>}
                     </div>
                   </div>
                   <StatusBadge status={item.status} />
@@ -2115,7 +2243,12 @@ function HistoryWorkspace({
         </div>
       </div>
 
-      <HistoryDetailPanel item={selectedItem} onDelete={handleDelete} onSectionChange={onSectionChange} />
+      <HistoryDetailPanel
+        item={selectedItem}
+        modelDisplayNames={modelDisplayNames}
+        onDelete={handleDelete}
+        onSectionChange={onSectionChange}
+      />
     </section>
   )
 }
@@ -2215,10 +2348,12 @@ function StatusBadge({ status }: { status: ProjectStatus }) {
 
 function HistoryDetailPanel({
   item,
+  modelDisplayNames,
   onDelete,
   onSectionChange,
 }: {
   item: ProjectItem | null
+  modelDisplayNames: Record<string, string>
   onDelete: (id: string) => void
   onSectionChange: (section: WorkspaceSection) => void
 }) {
@@ -2316,7 +2451,7 @@ function HistoryDetailPanel({
             {item.previewLabel ? ` · ${item.previewLabel}` : ""}
           </div>
         </div>
-        <DetailRow label="模型" value={item.model ? formatModelNameForDisplay(item.model) : "未记录"} />
+        <DetailRow label="模型" value={item.model ? formatModelNameForDisplay(item.model, undefined, modelDisplayNames) : "未记录"} />
         {item.status === "生成中" && <DetailRow label="当前阶段" value={getPendingStageLabel(item)} />}
         <DetailRow label="任务 ID" value={item.taskId ?? "示例项目无任务 ID"} />
         {item.taskError && <DetailRow label="失败原因" value={item.taskError} />}

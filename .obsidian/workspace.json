@@ -11,10 +11,12 @@
             "id": "ed9d89daec125893",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "vscode-editor",
+              "state": {
+                "file": "supabase-schema.sql"
+              },
               "icon": "lucide-file",
-              "title": "新标签页"
+              "title": "supabase-schema"
             }
           }
         ]
@@ -167,36 +169,45 @@
   },
   "left-ribbon": {
     "hiddenItems": {
-      "vscode-editor:新建代码文件": false,
       "switcher:打开快速切换": false,
       "graph:查看关系图谱": false,
       "canvas:新建白板": false,
       "daily-notes:打开/创建今天的日记": false,
       "templates:插入模板": false,
       "command-palette:打开命令面板": false,
-      "bases:新建数据库": false
+      "bases:新建数据库": false,
+      "vscode-editor:新建代码文件": false
     }
   },
   "active": "ed9d89daec125893",
   "lastOpenFiles": [
+    "scripts/audit-production-model-config.mjs",
+    "lib/model-catalog.ts",
+    "tsconfig.tsbuildinfo",
+    "node_modules/@vercel",
+    "node_modules/@supabase",
+    "node_modules/@radix-ui",
+    "node_modules/@hookform",
+    "node_modules/@types",
+    "node_modules/@tailwindcss",
+    "node_modules/@eslint",
+    "node_modules",
+    "docs/manual-release.md",
+    "docs/self-hosted-supabase.md",
+    "docs/linux-deployment.md",
+    "docs/logging.md",
+    "docs/server-deployment-runbook.md",
+    "docs/operations-costs.md",
+    "docs/README.md",
+    "docs/vercel-error-troubleshooting.md",
+    "docs/vercel-usage-metrics.md",
+    "docs/generation-queue-and-task-flow-research.md",
     "docs/storm-ai-conversation-index.md",
     "docs/storm-ai-conversations.md",
-    "scripts/export-codex-conversations.mjs",
-    "scripts",
-    "supabase-schema.sql",
     "release-checklist.md",
     "develop1.md",
     "需求文档.md",
     "AGENTS.md",
-    "develop.md",
-    "app/admin/ledger/page.tsx",
-    "app/admin/users/page.tsx",
-    "app/admin/redeem-codes/page.tsx",
-    "app/admin/pricing/page.tsx",
-    "app/admin/packages/page.tsx",
-    "app/admin/customer-service/page.tsx",
-    "app/admin/layout.tsx",
-    "docs/generation-queue-and-task-flow-research.md",
-    "docs/vercel-usage-metrics.md"
+    "develop.md"
   ]
 }

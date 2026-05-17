@@ -26,6 +26,7 @@ import { formatLedgerDateTime } from "@/lib/date-time"
 import type { GenerationJob } from "@/lib/generation-jobs"
 import { formatModelNameForDisplay } from "@/lib/model-display"
 import type { ProjectStatus, ProjectType } from "@/lib/project-history"
+import { loadPublicModelConfigs, type ModelConfig } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 
 type TaskStatusValue = "submitted" | "processing" | "completed" | "failed" | "partial_completed"
@@ -142,6 +143,7 @@ export default function TaskResultPage() {
   const [copied, setCopied] = useState(false)
   const [displayProgress, setDisplayProgress] = useState(13)
   const [viewerUrl, setViewerUrl] = useState("")
+  const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
   const projectType = getProjectType(task)
   const status = getStatusLabel(task)
 
@@ -194,6 +196,11 @@ export default function TaskResultPage() {
   }, [accountStatus, authReady, loadTask, user])
 
   useEffect(() => {
+    if (!authReady || !user || accountStatus === "error") return
+    loadPublicModelConfigs().then(setModelConfigs).catch(() => undefined)
+  }, [accountStatus, authReady, user])
+
+  useEffect(() => {
     if (status !== "生成中") {
       setDisplayProgress(status === "已完成" ? 100 : 0)
       return
@@ -213,7 +220,8 @@ export default function TaskResultPage() {
   }, [status, task?.progress])
 
   const prompt = task?.raw?.prompt ?? ""
-  const model = task?.raw?.model ? formatModelNameForDisplay(task.raw.model) : "未记录模型"
+  const modelDisplayNames = Object.fromEntries(modelConfigs.map((config) => [config.model, config.display_name]))
+  const model = task?.raw?.model ? formatModelNameForDisplay(task.raw.model, undefined, modelDisplayNames) : "未记录模型"
   const quality = task?.raw?.quality ?? undefined
   const aspectRatio = task?.raw?.aspect_ratio ?? undefined
   const duration = task?.raw?.duration_seconds ? `${task.raw.duration_seconds} 秒` : undefined

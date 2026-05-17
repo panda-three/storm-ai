@@ -21,7 +21,6 @@ const adminNavItems = [
   { href: "/admin", label: "总览", icon: BarChart3 },
   { href: "/admin/customer-service", label: "客服配置", icon: QrCode },
   { href: "/admin/packages", label: "套餐", icon: Coins },
-  { href: "/admin/pricing", label: "模型价格", icon: Settings2 },
   { href: "/admin/model-config", label: "模型配置", icon: Settings2 },
   { href: "/admin/redeem-codes", label: "兑换码", icon: Ticket },
   { href: "/admin/users", label: "用户", icon: Users },

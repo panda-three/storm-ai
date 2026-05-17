@@ -417,6 +417,198 @@ create table if not exists public.model_pricing (
   unique (model, type, quality, duration_seconds, aspect_ratio)
 );
 
+create table if not exists public.model_configs (
+  id uuid primary key default gen_random_uuid(),
+  type text not null check (type in ('image', 'video')),
+  model text not null,
+  display_name text not null,
+  frontend_enabled boolean not null default true,
+  initial_selected boolean not null default false,
+  sort_order integer not null default 100 check (sort_order > 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (type, model)
+);
+
+alter table public.model_configs add column if not exists display_name text;
+alter table public.model_configs add column if not exists frontend_enabled boolean not null default true;
+alter table public.model_configs add column if not exists initial_selected boolean not null default false;
+alter table public.model_configs add column if not exists sort_order integer not null default 100;
+alter table public.model_configs add column if not exists created_at timestamptz not null default now();
+alter table public.model_configs add column if not exists updated_at timestamptz not null default now();
+
+with ranked_active_image_prices as (
+  select
+    id,
+    row_number() over (
+      partition by model, quality
+      order by updated_at desc, created_at desc, id desc
+    ) as rank
+  from public.model_pricing
+  where enabled = true
+    and type = 'image'
+    and duration_seconds is null
+    and aspect_ratio is null
+)
+update public.model_pricing
+set
+  enabled = false,
+  updated_at = now()
+where id in (
+  select id
+  from ranked_active_image_prices
+  where rank > 1
+);
+
+with ranked_active_video_prices as (
+  select
+    id,
+    row_number() over (
+      partition by model, quality, duration_seconds
+      order by updated_at desc, created_at desc, id desc
+    ) as rank
+  from public.model_pricing
+  where enabled = true
+    and type = 'video'
+    and aspect_ratio is null
+)
+update public.model_pricing
+set
+  enabled = false,
+  updated_at = now()
+where id in (
+  select id
+  from ranked_active_video_prices
+  where rank > 1
+);
+
+create unique index if not exists model_pricing_active_image_unique_idx
+on public.model_pricing (model, quality)
+where enabled = true and type = 'image' and duration_seconds is null and aspect_ratio is null;
+
+create unique index if not exists model_pricing_active_video_unique_idx
+on public.model_pricing (model, quality, duration_seconds)
+where enabled = true and type = 'video' and aspect_ratio is null;
+
+create unique index if not exists model_configs_initial_selected_unique_idx
+on public.model_configs (type)
+where initial_selected = true;
+
+create or replace view public.public_model_pricing
+as
+select
+  id,
+  model,
+  type,
+  quality,
+  duration_seconds,
+  enabled,
+  ceil(cost_cny * markup * 100)::integer as credits
+from public.model_pricing
+where enabled = true;
+
+create or replace function public.load_public_model_pricing()
+returns table (
+  id uuid,
+  model text,
+  type text,
+  quality text,
+  duration_seconds integer,
+  enabled boolean,
+  credits integer
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    pricing.id,
+    pricing.model,
+    pricing.type,
+    pricing.quality,
+    pricing.duration_seconds,
+    pricing.enabled,
+    ceil(pricing.cost_cny * pricing.markup * 100)::integer as credits
+  from public.model_pricing as pricing
+  where pricing.enabled = true;
+$$;
+
+create or replace function public.load_public_model_configs()
+returns table (
+  id uuid,
+  type text,
+  model text,
+  display_name text,
+  frontend_enabled boolean,
+  initial_selected boolean,
+  sort_order integer
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    config.id,
+    config.type,
+    config.model,
+    config.display_name,
+    config.frontend_enabled,
+    config.initial_selected,
+    config.sort_order
+  from public.model_configs as config
+  order by config.type asc, config.sort_order asc;
+$$;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+select 'image', 'gemini-3.1-flash-image-preview', 'nano banana pro（y通道)', true, true, 10
+where exists (
+  select 1 from public.model_pricing
+  where type = 'image' and model = 'gemini-3.1-flash-image-preview' and enabled = true
+)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+select 'image', 'gpt-image-2-all', 'GPT Image 2', true, false, 20
+where exists (
+  select 1 from public.model_pricing
+  where type = 'image' and model = 'gpt-image-2-all' and enabled = true
+)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+select 'image', 'image2-M通道', 'GPT Image 2 · M通道', true, false, 30
+where exists (
+  select 1 from public.model_pricing
+  where type = 'image' and model = 'image2-M通道' and enabled = true
+)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+select 'image', 'image2-Toa通道', 'GPT Image 2 · ToA通道', true, false, 40
+where exists (
+  select 1 from public.model_pricing
+  where type = 'image' and model = 'image2-Toa通道' and enabled = true
+)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+select 'video', 'veo_3_1-fast', 'VEO 3.1 Fast', true, true, 10
+where exists (
+  select 1 from public.model_pricing
+  where type = 'video' and model = 'veo_3_1-fast' and enabled = true
+)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+select 'video', 'grok-video-3', 'Grok Video 3', true, false, 20
+where exists (
+  select 1 from public.model_pricing
+  where type = 'video' and model = 'grok-video-3' and enabled = true
+)
+on conflict (type, model) do nothing;
+
 create table if not exists public.generation_jobs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -571,6 +763,7 @@ alter table public.credit_packages enable row level security;
 alter table public.redeem_codes enable row level security;
 alter table public.account_security_events enable row level security;
 alter table public.model_pricing enable row level security;
+alter table public.model_configs enable row level security;
 alter table public.generation_jobs enable row level security;
 alter table public.site_settings enable row level security;
 alter table public.user_active_sessions enable row level security;
@@ -663,11 +856,26 @@ create policy "Authenticated users can read enabled model pricing"
 on public.model_pricing
 for select
 to authenticated
-using (enabled = true or public.is_admin());
+using (public.is_admin());
 
 drop policy if exists "Admins can manage model pricing" on public.model_pricing;
 create policy "Admins can manage model pricing"
 on public.model_pricing
+for all
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "Authenticated users can read enabled model configs" on public.model_configs;
+create policy "Authenticated users can read enabled model configs"
+on public.model_configs
+for select
+to authenticated
+using (frontend_enabled = true or public.is_admin());
+
+drop policy if exists "Admins can manage model configs" on public.model_configs;
+create policy "Admins can manage model configs"
+on public.model_configs
 for all
 to authenticated
 using (public.is_admin())
@@ -1407,6 +1615,139 @@ begin
 end;
 $$;
 
+create or replace function public.save_model_config_bundle(
+  p_type text,
+  p_model text,
+  p_display_name text,
+  p_frontend_enabled boolean,
+  p_initial_selected boolean,
+  p_sort_order integer,
+  p_prices jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_config public.model_configs%rowtype;
+  v_price jsonb;
+  v_enabled_count integer;
+  v_selected_count integer;
+begin
+  if not public.is_admin() then
+    raise exception '无管理员权限。';
+  end if;
+
+  if p_type not in ('image', 'video') then
+    raise exception '模型类型无效。';
+  end if;
+
+  if nullif(trim(coalesce(p_model, '')), '') is null then
+    raise exception '缺少模型名称。';
+  end if;
+
+  if nullif(trim(coalesce(p_display_name, '')), '') is null then
+    raise exception '缺少前台展示名称。';
+  end if;
+
+  if p_sort_order is null or p_sort_order <= 0 then
+    raise exception '模型排序无效。';
+  end if;
+
+  insert into public.model_configs (
+    type,
+    model,
+    display_name,
+    frontend_enabled,
+    initial_selected,
+    sort_order,
+    updated_at
+  )
+  values (
+    p_type,
+    p_model,
+    trim(p_display_name),
+    p_frontend_enabled,
+    p_initial_selected,
+    p_sort_order,
+    now()
+  )
+  on conflict (type, model) do update
+  set
+    display_name = excluded.display_name,
+    frontend_enabled = excluded.frontend_enabled,
+    initial_selected = excluded.initial_selected,
+    sort_order = excluded.sort_order,
+    updated_at = now()
+  returning * into v_config;
+
+  if p_initial_selected then
+    update public.model_configs
+    set
+      initial_selected = false,
+      updated_at = now()
+    where type = p_type
+      and model <> p_model
+      and initial_selected = true;
+  end if;
+
+  if jsonb_typeof(p_prices) <> 'array' then
+    raise exception '价格配置格式无效。';
+  end if;
+
+  for v_price in select * from jsonb_array_elements(p_prices)
+  loop
+    update public.model_pricing
+    set
+      cost_cny = greatest(0, coalesce((v_price ->> 'cost_cny')::numeric, cost_cny)),
+      markup = greatest(0.0001, coalesce((v_price ->> 'markup')::numeric, markup)),
+      enabled = coalesce((v_price ->> 'enabled')::boolean, enabled),
+      updated_at = now()
+    where id = (v_price ->> 'id')::uuid
+      and type = p_type
+      and model = p_model;
+
+    if not found then
+      raise exception '模型价格不存在或不匹配。';
+    end if;
+  end loop;
+
+  select count(*)
+  into v_enabled_count
+  from public.model_configs as config
+  where config.type = p_type
+    and config.frontend_enabled = true
+    and exists (
+      select 1
+      from public.model_pricing as pricing
+      where pricing.type = config.type
+        and pricing.model = config.model
+        and pricing.enabled = true
+    );
+
+  select count(*)
+  into v_selected_count
+  from public.model_configs as config
+  where config.type = p_type
+    and config.initial_selected = true
+    and config.frontend_enabled = true
+    and exists (
+      select 1
+      from public.model_pricing as pricing
+      where pricing.type = config.type
+        and pricing.model = config.model
+        and pricing.enabled = true
+    );
+
+  if v_enabled_count > 0 and v_selected_count <> 1 then
+    raise exception '当前类型存在可用模型时，必须且只能保留一个初始选中模型。';
+  end if;
+
+  return to_jsonb(v_config);
+end;
+$$;
+
 create or replace function public.fail_generation_job_with_refund(
   p_job_id uuid,
   p_reason text
@@ -1504,5 +1845,8 @@ revoke execute on function public.fail_generation_job_with_refund(uuid, text) fr
 grant execute on function public.spend_generation_credits(uuid, integer, text, text) to service_role;
 grant execute on function public.record_free_generation_usage(uuid, text, text) to service_role;
 grant execute on function public.refund_generation_credits(uuid, integer, text, text) to service_role;
+grant execute on function public.load_public_model_configs() to authenticated;
+grant execute on function public.load_public_model_pricing() to authenticated;
+grant execute on function public.save_model_config_bundle(text, text, text, boolean, boolean, integer, jsonb) to authenticated;
 grant execute on function public.create_generation_job_with_billing(uuid, integer, text, text, text, text, text, text, integer, text, text, integer, boolean, text) to service_role;
 grant execute on function public.fail_generation_job_with_refund(uuid, text) to service_role;

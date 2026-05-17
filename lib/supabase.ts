@@ -66,6 +66,26 @@ export interface ModelPricing {
   type: "image" | "video"
 }
 
+export interface PublicModelPricing {
+  credits: number
+  duration_seconds: number | null
+  enabled: boolean
+  id: string
+  model: string
+  quality: string | null
+  type: "image" | "video"
+}
+
+export interface ModelConfig {
+  display_name: string
+  frontend_enabled: boolean
+  id: string
+  initial_selected: boolean
+  model: string
+  sort_order: number
+  type: "image" | "video"
+}
+
 export interface AdminAccountSummary {
   active_session_created_at: string | null
   active_session_device_label: string | null
@@ -425,6 +445,71 @@ export async function loadModelPricing({ includeDisabled = false } = {}): Promis
   if (error) throw error
 
   return (data ?? []) as ModelPricing[]
+}
+
+export async function loadPublicModelPricing(): Promise<PublicModelPricing[]> {
+  const supabase = getSupabaseClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase.rpc("load_public_model_pricing")
+  if (error) throw error
+  return (data ?? []) as PublicModelPricing[]
+}
+
+export async function loadModelConfigs({ includeDisabled = false } = {}): Promise<ModelConfig[]> {
+  const supabase = getSupabaseClient()
+  if (!supabase) return []
+
+  let query = supabase
+    .from("model_configs")
+    .select("id, type, model, display_name, frontend_enabled, initial_selected, sort_order")
+    .order("type", { ascending: true })
+    .order("sort_order", { ascending: true })
+
+  if (!includeDisabled) {
+    query = query.eq("frontend_enabled", true)
+  }
+
+  const { data, error } = await query
+  if (error) throw error
+  return (data ?? []) as ModelConfig[]
+}
+
+export async function loadPublicModelConfigs(): Promise<ModelConfig[]> {
+  const supabase = getSupabaseClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase.rpc("load_public_model_configs")
+  if (error) throw error
+  return (data ?? []) as ModelConfig[]
+}
+
+export async function saveModelConfigBundle({
+  config,
+  pricing,
+}: {
+  config: Omit<ModelConfig, "id">
+  pricing: ModelPricing[]
+}) {
+  const supabase = getSupabaseClient()
+  if (!supabase) return
+
+  const { error } = await supabase.rpc("save_model_config_bundle", {
+    p_display_name: config.display_name,
+    p_frontend_enabled: config.frontend_enabled,
+    p_initial_selected: config.initial_selected,
+    p_model: config.model,
+    p_prices: pricing.map((item) => ({
+      cost_cny: item.cost_cny,
+      enabled: item.enabled,
+      id: item.id,
+      markup: item.markup,
+    })),
+    p_sort_order: config.sort_order,
+    p_type: config.type,
+  })
+
+  if (error) throw error
 }
 
 export async function saveModelPricing(pricing: Omit<ModelPricing, "id"> & { id?: string }) {

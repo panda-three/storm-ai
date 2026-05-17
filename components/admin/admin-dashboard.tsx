@@ -9,7 +9,7 @@ import { isSelectableModelPricing } from "@/lib/model-options"
 const dashboardLinks = [
   { href: "/admin/customer-service", label: "客服配置", description: "微信号、二维码和充值说明", icon: QrCode },
   { href: "/admin/packages", label: "套餐管理", description: "点数包和会员包", icon: Coins },
-  { href: "/admin/pricing", label: "模型价格", description: "图片/视频模型扣点", icon: Settings2 },
+  { href: "/admin/model-config", label: "模型配置", description: "模型展示和图片/视频扣点", icon: Settings2 },
   { href: "/admin/redeem-codes", label: "兑换码", description: "生成和查看兑换码", icon: Ticket },
   { href: "/admin/users", label: "用户余额", description: "最近账户和余额", icon: Users },
   { href: "/admin/ledger", label: "点数流水", description: "充值、扣费和退款记录", icon: ReceiptText },

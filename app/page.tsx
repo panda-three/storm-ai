@@ -19,13 +19,14 @@ import {
 import {
   type CreditPackage,
   type CustomerServiceSettings,
-  type ModelPricing,
+  type ModelConfig,
+  type PublicModelPricing,
   getSupabaseClient,
   loadCreditPackages,
   loadCustomerServiceSettings,
-  loadModelPricing,
+  loadPublicModelConfigs,
+  loadPublicModelPricing,
 } from "@/lib/supabase"
-import { isSelectableModelPricing } from "@/lib/model-options"
 
 function visibleProjects(projects: ProjectItem[]) {
   return projects.filter((project) => !isDeletedProjectItem(project))
@@ -72,7 +73,8 @@ function HomeContent() {
     wechatId: "",
   })
   const [creditPackages, setCreditPackages] = useState<CreditPackage[]>([])
-  const [modelPricing, setModelPricing] = useState<ModelPricing[]>([])
+  const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
+  const [modelPricing, setModelPricing] = useState<PublicModelPricing[]>([])
   const [billingReady, setBillingReady] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("image")
@@ -94,14 +96,16 @@ function HomeContent() {
     try {
       setSyncError("")
       setBillingReady(false)
-      const [settings, packages, pricing] = await Promise.all([
+      const [settings, packages, configs, pricing] = await Promise.all([
         loadCustomerServiceSettings(),
         loadCreditPackages({ includeDisabled: false }),
-        loadModelPricing({ includeDisabled: false }),
+        loadPublicModelConfigs(),
+        loadPublicModelPricing(),
       ])
       setCustomerService(settings)
       setCreditPackages(packages)
-      setModelPricing(pricing.filter(isSelectableModelPricing))
+      setModelConfigs(configs)
+      setModelPricing(pricing)
       setBillingReady(true)
     } catch (error) {
       setSyncError(getErrorMessage(error, "加载充值配置失败。"))
@@ -229,7 +233,8 @@ function HomeContent() {
         membershipExpiresAt={account.membershipExpiresAt}
         membershipFreeImageQualities={account.membershipFreeImageQualities}
         membershipTier={account.membershipTier}
-        modelPricing={modelPricing.filter((item) => item.enabled)}
+        modelConfigs={modelConfigs}
+        modelPricing={modelPricing}
         onProjectAdd={addProject}
         onProjectDelete={deleteProject}
         onProjectUpdate={updateProject}

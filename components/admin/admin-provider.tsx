@@ -11,11 +11,13 @@ import {
   type AdminAccountSummary,
   type CreditPackage,
   type CustomerServiceSettings,
+  type ModelConfig,
   type ModelPricing,
   type RedeemCode,
   loadAdminAccounts,
   loadCreditPackages,
   loadCustomerServiceSettings,
+  loadModelConfigs,
   loadModelPricing,
   loadRedeemCodes,
 } from "@/lib/supabase"
@@ -33,6 +35,7 @@ interface AdminContextValue {
   customerService: CustomerServiceSettings
   feedback: Feedback
   modelPricing: ModelPricing[]
+  modelConfigs: ModelConfig[]
   redeemCodes: RedeemCode[]
   refreshAdminConfig: () => Promise<void>
   saving: boolean
@@ -40,6 +43,7 @@ interface AdminContextValue {
   setCustomerService: (settings: CustomerServiceSettings) => void
   setFeedback: (feedback: Feedback) => void
   setModelPricing: (pricing: ModelPricing[]) => void
+  setModelConfigs: (configs: ModelConfig[]) => void
   setSaving: (saving: boolean) => void
 }
 
@@ -73,6 +77,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   const [creditPackages, setCreditPackages] = useState<CreditPackage[]>([])
   const [adminAccounts, setAdminAccounts] = useState<AdminAccountSummary[]>([])
   const [modelPricing, setModelPricing] = useState<ModelPricing[]>([])
+  const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
   const [redeemCodes, setRedeemCodes] = useState<RedeemCode[]>([])
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [saving, setSaving] = useState(false)
@@ -88,15 +93,17 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
 
     try {
       setSyncError("")
-      const [settings, packages, pricing, codes, accounts] = await Promise.all([
+      const [settings, packages, configs, pricing, codes, accounts] = await Promise.all([
         loadCustomerServiceSettings(),
         loadCreditPackages({ includeDisabled: true }),
+        loadModelConfigs({ includeDisabled: true }),
         loadModelPricing({ includeDisabled: true }),
         loadRedeemCodes(),
         loadAdminAccounts(),
       ])
       setCustomerService(settings)
       setCreditPackages(packages)
+      setModelConfigs(configs)
       setModelPricing(pricing)
       setRedeemCodes(codes)
       setAdminAccounts(accounts)
@@ -115,6 +122,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       creditPackages,
       customerService,
       feedback,
+      modelConfigs,
       modelPricing,
       redeemCodes,
       refreshAdminConfig,
@@ -122,10 +130,11 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       setCreditPackages,
       setCustomerService,
       setFeedback,
+      setModelConfigs,
       setModelPricing,
       setSaving,
     }),
-    [adminAccounts, creditPackages, customerService, feedback, modelPricing, redeemCodes, refreshAdminConfig, saving]
+    [adminAccounts, creditPackages, customerService, feedback, modelConfigs, modelPricing, redeemCodes, refreshAdminConfig, saving]
   )
 
   if (!authReady) {

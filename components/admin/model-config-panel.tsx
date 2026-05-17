@@ -1,149 +1,27 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { CheckCircle2, Eye, EyeOff, Info, Plus, Save, Settings2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Eye, EyeOff, Loader2, Save, Settings2 } from "lucide-react"
+import { useAdmin } from "@/components/admin/admin-provider"
 import { Button } from "@/components/ui/button"
-import { calculatePricingCredits } from "@/lib/supabase"
-import {
-  apimartGptImage2ApiModelName,
-  apimartGptImage2ModelName,
-  gptImage2AllModelName,
-  grokVideo3ModelName,
-  imageModelOptions,
-  toaGptImage2ModelName,
-  toapisGptImage2ApiModelName,
-  videoModelOptions,
-  yunwuGeminiImageModelName,
-  yunwuVeo31FastVideoModelName,
-} from "@/lib/model-options"
+import { calculatePricingCredits, saveModelConfigBundle, type ModelConfig, type ModelPricing } from "@/lib/supabase"
+import { formatModelNameForDisplay } from "@/lib/model-display"
+import { getCatalogEntry } from "@/lib/model-catalog"
 import { cn } from "@/lib/utils"
 
-type ModelKind = "image" | "video"
-type ProviderLabel = "云雾" | "APIMart" | "ToAPIs"
-
-interface DemoPrice {
-  cost_cny: number
-  enabled: boolean
-  id: string
-  label: string
-  markup: number
+function enabledPriceCount(prices: ModelPricing[]) {
+  return prices.filter((price) => price.enabled).length
 }
 
-interface DemoModelConfig {
-  apiModel: string
-  displayName: string
-  frontendEnabled: boolean
-  id: string
-  initialSelected: boolean
-  internalModel: string
-  prices: DemoPrice[]
-  provider: ProviderLabel
-  sortOrder: number
-  type: ModelKind
-}
-
-const demoModelConfigs: DemoModelConfig[] = [
-  {
-    apiModel: yunwuGeminiImageModelName,
-    displayName: "Nano Banana Pro",
-    frontendEnabled: true,
-    id: "image-yunwu-gemini",
-    initialSelected: true,
-    internalModel: yunwuGeminiImageModelName,
-    prices: [
-      { cost_cny: 0.3, enabled: true, id: "1k", label: "1K", markup: 2 },
-      { cost_cny: 0.6, enabled: true, id: "2k", label: "2K", markup: 2 },
-      { cost_cny: 1.2, enabled: true, id: "4k", label: "4K", markup: 2 },
-    ],
-    provider: "云雾",
-    sortOrder: 1,
-    type: "image",
-  },
-  {
-    apiModel: "gpt-image-2",
-    displayName: "GPT Image 2",
-    frontendEnabled: true,
-    id: "image-yunwu-gpt",
-    initialSelected: false,
-    internalModel: gptImage2AllModelName,
-    prices: [
-      { cost_cny: 0.9, enabled: true, id: "2k", label: "2K", markup: 2 },
-    ],
-    provider: "云雾",
-    sortOrder: 2,
-    type: "image",
-  },
-  {
-    apiModel: apimartGptImage2ApiModelName,
-    displayName: "GPT Image 2 · M通道",
-    frontendEnabled: true,
-    id: "image-apimart-gpt",
-    initialSelected: false,
-    internalModel: apimartGptImage2ModelName,
-    prices: [
-      { cost_cny: 0.35, enabled: true, id: "1k", label: "1K", markup: 2 },
-      { cost_cny: 0.75, enabled: true, id: "2k", label: "2K", markup: 2 },
-      { cost_cny: 1.6, enabled: false, id: "4k", label: "4K", markup: 2 },
-    ],
-    provider: "APIMart",
-    sortOrder: 3,
-    type: "image",
-  },
-  {
-    apiModel: toapisGptImage2ApiModelName,
-    displayName: "GPT Image 2 · ToA通道",
-    frontendEnabled: false,
-    id: "image-toapis-gpt",
-    initialSelected: false,
-    internalModel: toaGptImage2ModelName,
-    prices: [
-      { cost_cny: 0.32, enabled: true, id: "1k", label: "1K", markup: 2 },
-      { cost_cny: 0.7, enabled: true, id: "2k", label: "2K", markup: 2 },
-      { cost_cny: 1.45, enabled: true, id: "4k", label: "4K", markup: 2 },
-    ],
-    provider: "ToAPIs",
-    sortOrder: 4,
-    type: "image",
-  },
-  {
-    apiModel: yunwuVeo31FastVideoModelName,
-    displayName: "VEO 3.1 Fast",
-    frontendEnabled: true,
-    id: "video-yunwu-veo",
-    initialSelected: true,
-    internalModel: yunwuVeo31FastVideoModelName,
-    prices: [
-      { cost_cny: 2, enabled: true, id: "8s-720p", label: "8 秒 · 720P", markup: 2 },
-      { cost_cny: 4, enabled: true, id: "8s-1080p", label: "8 秒 · 1080P", markup: 2 },
-      { cost_cny: 8, enabled: false, id: "8s-4k", label: "8 秒 · 4K", markup: 2 },
-    ],
-    provider: "云雾",
-    sortOrder: 1,
-    type: "video",
-  },
-  {
-    apiModel: grokVideo3ModelName,
-    displayName: "Grok Video 3",
-    frontendEnabled: true,
-    id: "video-yunwu-grok",
-    initialSelected: false,
-    internalModel: grokVideo3ModelName,
-    prices: [
-      { cost_cny: 1.8, enabled: true, id: "6s-720p", label: "6 秒 · 720P", markup: 2 },
-    ],
-    provider: "云雾",
-    sortOrder: 2,
-    type: "video",
-  },
-]
-
-function enabledPriceCount(config: DemoModelConfig) {
-  return config.prices.filter((price) => price.enabled).length
+function getPriceLabel(price: ModelPricing) {
+  if (price.type === "video") {
+    return `${price.duration_seconds ?? 0} 秒 · ${price.quality ?? "未配置"}`
+  }
+  return price.quality ?? "未配置"
 }
 
 function StatusPill({ enabled }: { enabled: boolean }) {
   const Icon = enabled ? Eye : EyeOff
-
   return (
     <span
       className={cn(
@@ -167,56 +45,93 @@ function ReadonlyField({ label, value }: { label: string; value: string }) {
 }
 
 export function ModelConfigPanel() {
-  const [configs, setConfigs] = useState<DemoModelConfig[]>(demoModelConfigs)
-  const [selectedId, setSelectedId] = useState(demoModelConfigs[0].id)
-  const [feedback, setFeedback] = useState("")
-  const selected = configs.find((config) => config.id === selectedId) ?? configs[0]
-  const visibleCount = configs.filter((config) => config.frontendEnabled && enabledPriceCount(config) > 0).length
-  const knownModelCount = imageModelOptions.length + videoModelOptions.length
+  const { modelConfigs, modelPricing, refreshAdminConfig, saving, setFeedback, setSaving } = useAdmin()
+  const [selectedKey, setSelectedKey] = useState("")
+  const [draftConfigs, setDraftConfigs] = useState<ModelConfig[]>(modelConfigs)
+  const [draftPricing, setDraftPricing] = useState<ModelPricing[]>(modelPricing)
+
+  useEffect(() => setDraftConfigs(modelConfigs), [modelConfigs])
+  useEffect(() => setDraftPricing(modelPricing), [modelPricing])
 
   const sortedConfigs = useMemo(
-    () => configs.slice().sort((a, b) => a.type.localeCompare(b.type) || a.sortOrder - b.sortOrder),
-    [configs]
+    () => draftConfigs.slice().sort((a, b) => a.type.localeCompare(b.type) || a.sort_order - b.sort_order),
+    [draftConfigs]
   )
+  const fallbackSelected = sortedConfigs[0]
+  const selected =
+    sortedConfigs.find((config) => `${config.type}:${config.model}` === selectedKey) ?? fallbackSelected
+  const selectedPrices = selected
+    ? draftPricing.filter((price) => price.type === selected.type && price.model === selected.model)
+    : []
 
-  const updateSelected = (patch: Partial<Pick<DemoModelConfig, "displayName" | "frontendEnabled" | "initialSelected" | "sortOrder">>) => {
-    setConfigs((items) =>
+  useEffect(() => {
+    if (!selectedKey && fallbackSelected) {
+      setSelectedKey(`${fallbackSelected.type}:${fallbackSelected.model}`)
+    }
+  }, [fallbackSelected, selectedKey])
+
+  const visibleCount = draftConfigs.filter((config) => {
+    const prices = draftPricing.filter((price) => price.type === config.type && price.model === config.model)
+    return config.frontend_enabled && enabledPriceCount(prices) > 0
+  }).length
+
+  const updateSelected = (patch: Partial<Omit<ModelConfig, "id" | "model" | "type">>) => {
+    if (!selected) return
+    setDraftConfigs((items) =>
       items.map((item) => {
-        if (item.id !== selected.id) {
-          return patch.initialSelected && item.type === selected.type ? { ...item, initialSelected: false } : item
+        if (item.type !== selected.type || item.model !== selected.model) {
+          return patch.initial_selected && item.type === selected.type ? { ...item, initial_selected: false } : item
         }
-
-        return {
-          ...item,
-          ...patch,
-          displayName: patch.displayName ?? item.displayName,
-          sortOrder: Number.isFinite(patch.sortOrder) ? Number(patch.sortOrder) : item.sortOrder,
-        }
+        return { ...item, ...patch }
       })
     )
   }
 
-  const updatePrice = (priceId: string, patch: Partial<Pick<DemoPrice, "cost_cny" | "enabled" | "markup">>) => {
-    setConfigs((items) =>
+  const updatePrice = (id: string, patch: Partial<Pick<ModelPricing, "cost_cny" | "enabled" | "markup">>) => {
+    setDraftPricing((items) =>
       items.map((item) =>
-        item.id === selected.id
+        item.id === id
           ? {
               ...item,
-              prices: item.prices.map((price) =>
-                price.id === priceId
-                  ? {
-                      ...price,
-                      ...patch,
-                      cost_cny: Number.isFinite(patch.cost_cny) ? Number(patch.cost_cny) : price.cost_cny,
-                      markup: Number.isFinite(patch.markup) ? Number(patch.markup) : price.markup,
-                    }
-                  : price
-              ),
+              ...patch,
+              cost_cny: Number.isFinite(patch.cost_cny) ? Number(patch.cost_cny) : item.cost_cny,
+              markup: Number.isFinite(patch.markup) ? Number(patch.markup) : item.markup,
             }
           : item
       )
     )
   }
+
+  const handleSave = async () => {
+    if (!selected) return
+    setSaving(true)
+    setFeedback(null)
+    try {
+      await saveModelConfigBundle({
+        config: {
+          display_name: selected.display_name.trim(),
+          frontend_enabled: selected.frontend_enabled,
+          initial_selected: selected.initial_selected,
+          model: selected.model,
+          sort_order: selected.sort_order,
+          type: selected.type,
+        },
+        pricing: selectedPrices,
+      })
+      await refreshAdminConfig()
+      setFeedback({ type: "success", message: "模型配置已保存。" })
+    } catch (error) {
+      setFeedback({ type: "error", message: error instanceof Error ? error.message : "模型配置保存失败。" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!selected) {
+    return <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-500">暂无已配置模型。</div>
+  }
+
+  const catalog = getCatalogEntry(selected.type, selected.model)
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -227,76 +142,54 @@ export function ModelConfigPanel() {
             <div className="mt-2 text-3xl font-semibold text-slate-950">{visibleCount}</div>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <div className="text-sm text-slate-500">当前内置模型</div>
-            <div className="mt-2 text-3xl font-semibold text-slate-950">{knownModelCount}</div>
+            <div className="text-sm text-slate-500">已配置模型</div>
+            <div className="mt-2 text-3xl font-semibold text-slate-950">{draftConfigs.length}</div>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <div className="text-sm text-slate-500">本页状态</div>
-            <div className="mt-2 text-sm font-medium text-amber-700">UI 原型，不写入数据库</div>
+            <div className="text-sm text-slate-500">价格真源</div>
+            <div className="mt-2 text-sm font-medium text-slate-700">沿用当前数据库价格</div>
           </div>
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <div>
-              <h2 className="text-base font-semibold text-slate-950">模型列表</h2>
-              <p className="mt-1 text-sm text-slate-500">后台可见渠道；创作台只显示前台展示名称。</p>
-            </div>
-            <Button className="bg-indigo-600 text-white hover:bg-indigo-700" size="sm">
-              <Plus className="h-4 w-4" />
-              添加模型
-            </Button>
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h2 className="text-base font-semibold text-slate-950">模型列表</h2>
+            <p className="mt-1 text-sm text-slate-500">后台管理前台展示；新上游模型仍需先完成代码接入。</p>
           </div>
-
-          <div className="grid grid-cols-[minmax(0,1.3fr)_80px_100px_100px_90px] border-b border-slate-100 bg-slate-50 px-5 py-3 text-xs font-medium text-slate-500 max-lg:hidden">
-            <div>前台展示名称</div>
-            <div>类型</div>
-            <div>渠道</div>
-            <div>前台展示</div>
-            <div>价格</div>
-          </div>
-
           <div className="divide-y divide-slate-100">
-            {sortedConfigs.map((config) => (
-              <button
-                className={cn(
-                  "grid w-full cursor-pointer gap-3 px-5 py-4 text-left transition-colors lg:grid-cols-[minmax(0,1.3fr)_80px_100px_100px_90px] lg:items-center",
-                  config.id === selected.id ? "bg-indigo-50/70" : "hover:bg-slate-50"
-                )}
-                key={config.id}
-                onClick={() => setSelectedId(config.id)}
-                type="button"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-semibold text-slate-950">{config.displayName}</span>
-                    {config.initialSelected && (
-                      <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
-                        初始选中
-                      </span>
-                    )}
+            {sortedConfigs.map((config) => {
+              const prices = draftPricing.filter((price) => price.type === config.type && price.model === config.model)
+              return (
+                <button
+                  className={cn(
+                    "grid w-full gap-3 px-5 py-4 text-left transition-colors lg:grid-cols-[minmax(0,1.3fr)_80px_100px_100px_90px] lg:items-center",
+                    config.type === selected.type && config.model === selected.model ? "bg-indigo-50/70" : "hover:bg-slate-50"
+                  )}
+                  key={`${config.type}:${config.model}`}
+                  onClick={() => setSelectedKey(`${config.type}:${config.model}`)}
+                  type="button"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-slate-950">{config.display_name}</span>
+                      {config.initial_selected && (
+                        <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                          初始选中
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 truncate text-xs text-slate-400">内部模型：{config.model}</div>
                   </div>
-                  <div className="mt-1 truncate text-xs text-slate-400">内部模型：{config.internalModel}</div>
-                </div>
-                <div className="text-sm text-slate-600">{config.type === "image" ? "图片" : "视频"}</div>
-                <div className="text-sm font-medium text-slate-700">{config.provider}</div>
-                <StatusPill enabled={config.frontendEnabled} />
-                <div className="text-sm text-slate-600">
-                  {enabledPriceCount(config)}/{config.prices.length} 启用
-                </div>
-              </button>
-            ))}
+                  <div className="text-sm text-slate-600">{config.type === "image" ? "图片" : "视频"}</div>
+                  <div className="text-sm font-medium text-slate-700">{catalog?.provider ?? "未知"}</div>
+                  <StatusPill enabled={config.frontend_enabled} />
+                  <div className="text-sm text-slate-600">
+                    {enabledPriceCount(prices)}/{prices.length} 启用
+                  </div>
+                </button>
+              )
+            })}
           </div>
-        </div>
-
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
-          <div className="flex items-center gap-2 font-semibold">
-            <Info className="h-4 w-4" />
-            新增模型操作
-          </div>
-          <p className="mt-2">
-            已接入渠道的新模型：选择渠道、填写内部模型和接口模型、设置前台展示名称、配置价格并开启展示。新渠道必须先开发接入适配器，后台才会出现该渠道选项。
-          </p>
         </div>
       </div>
 
@@ -307,43 +200,31 @@ export function ModelConfigPanel() {
               <Settings2 className="h-4 w-4" />
               当前编辑
             </div>
-            <h2 className="mt-2 truncate text-lg font-semibold text-slate-950">{selected.displayName}</h2>
+            <h2 className="mt-2 truncate text-lg font-semibold text-slate-950">{selected.display_name}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              {selected.provider} · {selected.type === "image" ? "图片模型" : "视频模型"}
+              {catalog?.provider ?? "未知"} · {selected.type === "image" ? "图片模型" : "视频模型"}
             </p>
           </div>
-          <Button
-            className="bg-slate-950 text-white hover:bg-slate-800"
-            size="sm"
-            onClick={() => setFeedback("已保存当前 UI 原型状态。真实保存会在下一阶段接入。")}
-          >
-            <Save className="h-4 w-4" />
+          <Button className="bg-slate-950 text-white hover:bg-slate-800" disabled={saving} onClick={handleSave} size="sm">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             保存
           </Button>
         </div>
-
-        {feedback && (
-          <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            <CheckCircle2 className="h-4 w-4" />
-            {feedback}
-          </div>
-        )}
 
         <div className="mt-5 grid gap-4">
           <label className="grid gap-1">
             <span className="text-sm font-medium text-slate-700">前台展示名称</span>
             <input
               className="h-10 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
-              onChange={(event) => updateSelected({ displayName: event.target.value })}
-              value={selected.displayName}
+              onChange={(event) => updateSelected({ display_name: event.target.value })}
+              value={selected.display_name}
             />
-            <span className="text-xs text-slate-500">只影响创作台下拉显示，不影响接口调用。</span>
           </label>
 
           <div className="grid gap-2">
-            <ReadonlyField label="内部模型" value={selected.internalModel} />
-            <ReadonlyField label="接口模型" value={selected.apiModel} />
-            <ReadonlyField label="渠道" value={selected.provider} />
+            <ReadonlyField label="内部模型" value={selected.model} />
+            <ReadonlyField label="接口模型" value={catalog?.apiModel ?? selected.model} />
+            <ReadonlyField label="默认展示名" value={formatModelNameForDisplay(selected.model, selected.type)} />
           </div>
 
           <label className="grid gap-1">
@@ -351,9 +232,9 @@ export function ModelConfigPanel() {
             <input
               className="h-10 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
               min="1"
-              onChange={(event) => updateSelected({ sortOrder: Number(event.target.value) })}
+              onChange={(event) => updateSelected({ sort_order: Number(event.target.value) })}
               type="number"
-              value={selected.sortOrder}
+              value={selected.sort_order}
             />
           </label>
 
@@ -364,11 +245,11 @@ export function ModelConfigPanel() {
                 <div className="text-xs text-slate-500">关闭后创作台不显示该模型</div>
               </div>
               <Button
-                onClick={() => updateSelected({ frontendEnabled: !selected.frontendEnabled })}
+                onClick={() => updateSelected({ frontend_enabled: !selected.frontend_enabled })}
                 size="sm"
-                variant={selected.frontendEnabled ? "default" : "outline"}
+                variant={selected.frontend_enabled ? "default" : "outline"}
               >
-                {selected.frontendEnabled ? "开启" : "关闭"}
+                {selected.frontend_enabled ? "开启" : "关闭"}
               </Button>
             </div>
             <div className="flex items-center justify-between gap-3">
@@ -377,25 +258,25 @@ export function ModelConfigPanel() {
                 <div className="text-xs text-slate-500">同类型只保留一个初始选中项</div>
               </div>
               <Button
-                onClick={() => updateSelected({ initialSelected: true })}
+                onClick={() => updateSelected({ initial_selected: true })}
                 size="sm"
-                variant={selected.initialSelected ? "default" : "outline"}
+                variant={selected.initial_selected ? "default" : "outline"}
               >
-                {selected.initialSelected ? "初始选中" : "设为初始"}
+                {selected.initial_selected ? "初始选中" : "设为初始"}
               </Button>
             </div>
           </div>
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-950">价格配置预览</h3>
+              <h3 className="text-sm font-semibold text-slate-950">价格配置</h3>
               <span className="text-xs text-slate-500">扣点 = 成本 x 倍率 x 100</span>
             </div>
             <div className="grid gap-3">
-              {selected.prices.map((price) => (
+              {selectedPrices.map((price) => (
                 <div className="rounded-lg border border-slate-200 p-3" key={price.id}>
                   <div className="flex items-center justify-between">
-                    <div className="font-medium text-slate-900">{price.label}</div>
+                    <div className="font-medium text-slate-900">{getPriceLabel(price)}</div>
                     <Button
                       onClick={() => updatePrice(price.id, { enabled: !price.enabled })}
                       size="sm"

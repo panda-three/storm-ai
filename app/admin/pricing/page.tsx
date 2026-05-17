@@ -1,7 +1,5 @@
-"use client"
-
-import { PricingPanel } from "@/components/admin/pricing-panel"
+import { redirect } from "next/navigation"
 
 export default function AdminPricingPage() {
-  return <PricingPanel />
+  redirect("/admin/model-config")
 }
