@@ -724,6 +724,17 @@ function PricingLoadingNotice() {
   )
 }
 
+function WorkspaceLoadingNotice({ type }: { type: "图片" | "视频" }) {
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+      <div className="flex items-center gap-3 text-sm text-slate-500">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        正在加载{type}模型配置...
+      </div>
+    </section>
+  )
+}
+
 function UnavailableWorkspace({
   onSectionChange,
   type,
@@ -1283,6 +1294,10 @@ function ImageWorkspace({
     }
   }, [imageCount, isApimartImage])
 
+  if (!billingReady) {
+    return <WorkspaceLoadingNotice type="图片" />
+  }
+
   if (availableModels.length === 0) {
     return <UnavailableWorkspace type="图片" onSectionChange={onSectionChange} />
   }
@@ -1775,6 +1790,10 @@ function VideoWorkspace({
       objectUrls.clear()
     }
   }, [])
+
+  if (!billingReady) {
+    return <WorkspaceLoadingNotice type="视频" />
+  }
 
   if (availableModels.length === 0) {
     return <UnavailableWorkspace type="视频" onSectionChange={onSectionChange} />

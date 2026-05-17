@@ -1,6 +1,7 @@
 import {
   grokVideo3ModelName,
   yunwuGeminiImageModelName,
+  yunwuSeedream5ImageModelName,
   yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-types"
@@ -9,6 +10,7 @@ const YUNWU_BASE_URL = process.env.YUNWU_BASE_URL ?? "https://yunwu.ai"
 const yunwuDefaultTimeoutMs = 60_000
 const yunwuGeminiImageTimeoutMs = 360_000
 const yunwuGptImageTimeoutMs = 360_000
+const yunwuSeedreamImageTimeoutMs = 360_000
 const yunwuVeo31FastApiModel = "veo3.1-fast"
 
 export interface YunwuReferenceImage {
@@ -34,6 +36,15 @@ export interface YunwuGptImageRequest {
   imageUrls?: string[]
   model: string
   prompt: string
+  ratio: string
+}
+
+export interface YunwuSeedreamImageRequest {
+  imageCount?: number
+  imageUrls?: string[]
+  model: string
+  prompt: string
+  quality: string
   ratio: string
 }
 
@@ -129,6 +140,74 @@ export async function createYunwuGptImages(request: YunwuGptImageRequest) {
   }
 
   return imageUrls
+}
+
+export async function createYunwuSeedreamImages(request: YunwuSeedreamImageRequest) {
+  const imageCount = normalizeImageCount(request.imageCount)
+  const results = await Promise.allSettled(Array.from({ length: imageCount }, () => createSingleYunwuSeedreamImage(request)))
+  const imageUrls = results
+    .filter((result): result is PromiseFulfilledResult<string> => result.status === "fulfilled")
+    .map((result) => result.value)
+
+  if (imageUrls.length === 0) {
+    const errors = Array.from(
+      new Set(
+        results
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason))
+          .filter(Boolean)
+      )
+    )
+    throw new Error(errors.length > 0 ? errors.join("；") : "yw Seedream 图片接口已返回，但未找到可用图片地址。")
+  }
+
+  return imageUrls
+}
+
+async function createSingleYunwuSeedreamImage(request: YunwuSeedreamImageRequest) {
+  const imageUrls = request.imageUrls ?? []
+  const payload = {
+    model: yunwuSeedream5ImageModelName,
+    prompt: request.prompt,
+    size: normalizeSeedreamImageSize(request.quality, request.ratio),
+    output_format: "png",
+    response_format: "url",
+    watermark: false,
+    ...(imageUrls.length > 0 ? { image: imageUrls } : {}),
+  }
+
+  logYunwu("seedream image input", {
+    ...payload,
+    image: imageUrls.length,
+    model: request.model,
+  })
+
+  const data = await yunwuJsonRequest(
+    "/v1/images/generations",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    {
+      timeoutMs: yunwuSeedreamImageTimeoutMs,
+      timeoutMessage: "yw Seedream 图片生成等待超时，请稍后重试，或减少参考图后再试。",
+    }
+  )
+  const urls = extractMediaUrls(data, ["url", "image", "image_url", "image_urls", "data", "content", "b64_json"], [
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "gif",
+    "avif",
+  ])
+
+  if (urls.length === 0) {
+    throw new Error("yw Seedream 图片接口已返回，但未找到可用图片地址。")
+  }
+
+  logYunwu("seedream image output", { imageUrls: urls.length })
+  return urls[0]
 }
 
 async function createSingleYunwuGptImage(request: YunwuGptImageRequest) {
@@ -318,6 +397,40 @@ function normalizeGptImageSize(ratio: string) {
   if (width > height) return "1536x1024"
   if (height > width) return "1024x1536"
   return "1024x1024"
+}
+
+function normalizeSeedreamImageSize(quality: string, ratio: string) {
+  const normalizedQuality = quality.trim().toUpperCase() === "3K" ? "3K" : "2K"
+  const normalizedRatio = ratio.trim()
+
+  if (!normalizedRatio || normalizedRatio === "默认" || normalizedRatio === "auto") {
+    return normalizedQuality
+  }
+
+  const sizes: Record<string, Record<string, string>> = {
+    "2K": {
+      "1:1": "2048x2048",
+      "4:3": "2304x1728",
+      "3:4": "1728x2304",
+      "16:9": "2848x1600",
+      "9:16": "1600x2848",
+      "3:2": "2496x1664",
+      "2:3": "1664x2496",
+      "21:9": "3136x1344",
+    },
+    "3K": {
+      "1:1": "3072x3072",
+      "4:3": "3456x2592",
+      "3:4": "2592x3456",
+      "16:9": "4096x2304",
+      "9:16": "2304x4096",
+      "2:3": "2496x3744",
+      "3:2": "3744x2496",
+      "21:9": "4704x2016",
+    },
+  }
+
+  return sizes[normalizedQuality][normalizedRatio] ?? normalizedQuality
 }
 
 function normalizeGrokVideoSize(quality: string) {

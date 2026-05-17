@@ -7,6 +7,7 @@ import {
   toapisGptImage2ApiModelName,
   videoModelOptions,
   yunwuGeminiImageModelName,
+  yunwuSeedream5ImageModelName,
   yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 
@@ -33,6 +34,13 @@ export const modelCatalog: ModelCatalogEntry[] = [
     apiModel: "gpt-image-2",
     defaultDisplayName: "GPT Image 2",
     model: imageModelOptions[1],
+    provider: "yunwu",
+    type: "image",
+  },
+  {
+    apiModel: yunwuSeedream5ImageModelName,
+    defaultDisplayName: "Seedream 5.0",
+    model: yunwuSeedream5ImageModelName,
     provider: "yunwu",
     type: "image",
   },

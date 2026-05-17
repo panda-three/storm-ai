@@ -15,6 +15,8 @@ export const toapisImage2KRatios = ["1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4
 export const toapisImage4KRatios = ["16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
 export const mengfactoryGeminiImageModelName = "Gemini 3.1 Flash Image Preview"
 export const yunwuGeminiImageModelName = "gemini-3.1-flash-image-preview"
+export const yunwuSeedream5ImageModelName = "doubao-seedream-5-0-260128"
+export const yunwuSeedream5ImageRatios = ["默认", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"]
 export const mengfactoryGeminiImageApiModelName = yunwuGeminiImageModelName
 export const mengfactoryVeoVideoModelName = "VEO 3.1 FAST"
 export const yunwuVeo31FastVideoModelName = "veo_3_1-fast"
@@ -28,6 +30,7 @@ export const imageModelOptions = [
   gptImage2AllModelName,
   apimartGptImage2ModelName,
   toaGptImage2ModelName,
+  yunwuSeedream5ImageModelName,
 ]
 
 export const imageModelSettings: Record<
@@ -48,6 +51,10 @@ export const imageModelSettings: Record<
   [yunwuGeminiImageModelName]: {
     qualities: ["1K", "2K", "4K"],
     ratios: ["默认", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "1:8", "4:1", "8:1"],
+  },
+  [yunwuSeedream5ImageModelName]: {
+    qualities: ["2K", "3K"],
+    ratios: yunwuSeedream5ImageRatios,
   },
   [gptImage2ModelName]: {
     qualities: ["1K", "2K", "4K"],
@@ -83,8 +90,12 @@ export function isYunwuGptImageModel(model: string) {
   return model === gptImage2AllModelName
 }
 
+export function isYunwuSeedream5ImageModel(model: string) {
+  return model === yunwuSeedream5ImageModelName
+}
+
 export function isYunwuImageModel(model: string) {
-  return isYunwuGeminiImageModel(model) || isYunwuGptImageModel(model)
+  return isYunwuGeminiImageModel(model) || isYunwuGptImageModel(model) || isYunwuSeedream5ImageModel(model)
 }
 
 export function isToapisImageModel(model: string) {

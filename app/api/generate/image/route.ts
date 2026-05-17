@@ -10,6 +10,7 @@ import {
 import {
   createYunwuGeminiImage,
   createYunwuGptImages,
+  createYunwuSeedreamImages,
   type YunwuGeneratedImage,
 } from "@/lib/yunwu"
 import {
@@ -36,6 +37,7 @@ import {
   isYunwuGeminiImageModel,
   isYunwuGptImageModel,
   isYunwuImageModel,
+  isYunwuSeedream5ImageModel,
   isValidImageRatioForQuality,
   toapisImageProviderName,
   yunwuGeminiImageModelName,
@@ -209,6 +211,11 @@ export async function POST(request: Request) {
           stage = "prepare_yunwu_gpt_references"
         })
       : []
+    const yunwuSeedreamReferenceImageUrls = isYunwuSeedream5ImageModel(model)
+      ? await prepareYunwuReferenceImageUrls(preparedReferenceImages, userId, () => {
+          stage = "prepare_yunwu_seedream_references"
+        })
+      : []
     const toapisReferenceImageUrls = isToapisImage
       ? await prepareToapisReferenceImageUrls(preparedReferenceImages, () => {
           stage = "prepare_toapis_references"
@@ -369,13 +376,22 @@ export async function POST(request: Request) {
         )
       : await Promise.allSettled(
           (
-            await createYunwuGptImages({
-              imageUrls: yunwuReferenceImageUrls,
-              imageCount,
-              model,
-              prompt,
-              ratio,
-            })
+            isYunwuSeedream5ImageModel(model)
+              ? await createYunwuSeedreamImages({
+                  imageUrls: yunwuSeedreamReferenceImageUrls,
+                  imageCount,
+                  model,
+                  prompt,
+                  quality,
+                  ratio,
+                })
+              : await createYunwuGptImages({
+                  imageUrls: yunwuReferenceImageUrls,
+                  imageCount,
+                  model,
+                  prompt,
+                  ratio,
+                })
           ).map((url) =>
             persistRemoteGeneratedImage({
               sourceUrl: url,
@@ -584,7 +600,11 @@ function buildFailureMessage({
 
 function getFailureStageLabel(stage: string) {
   if (stage === "submit_yunwu_generation") return "yw 图片生成失败"
-  if (stage === "prepare_yunwu_gemini_references" || stage === "prepare_yunwu_gpt_references") return "yw 参考图处理失败"
+  if (
+    stage === "prepare_yunwu_gemini_references" ||
+    stage === "prepare_yunwu_gpt_references" ||
+    stage === "prepare_yunwu_seedream_references"
+  ) return "yw 参考图处理失败"
   if (stage === "complete_yunwu_job") return "yw 图片任务结算失败"
   if (stage === "check_apimart_config") return "APIMart 配置检查失败"
   if (stage === "submit_apimart_generation") return "APIMart 图片生成提交失败"

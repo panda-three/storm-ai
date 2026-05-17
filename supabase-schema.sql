@@ -578,6 +578,10 @@ values ('image', 'image2-Toa通道', 'GPT Image 2 · ToA通道', true, false, 40
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+values ('image', 'doubao-seedream-5-0-260128', 'Seedream 5.0', true, false, 50)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
 values ('video', 'veo_3_1-fast', 'VEO 3.1 Fast', true, true, 10)
 on conflict (type, model) do nothing;
 

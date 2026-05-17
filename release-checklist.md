@@ -46,7 +46,7 @@
 
 ## 功能验收
 
-- 生图：选择 `gemini-3.1-flash-image-preview` 或 `gpt-image-2-all`，提交任务后能展示真实图片。
+- 生图：选择 `gemini-3.1-flash-image-preview`、`gpt-image-2-all` 或 `doubao-seedream-5-0-260128`，提交任务后能展示真实图片。
 - 视频：选择 `veo_3_1-fast` 或 `grok-video-3`，提交任务后能轮询并展示真实视频。
 - 历史项目：生成结果、任务 ID、上游任务 ID、预览 URL、失败原因可保存并查看；刷新后不应同时出现同一任务的“已完成”和“生成中”重复记录。
 - 点数兑换：有效兑换码可增加点数，重复兑换会被拦截，兑换流水可查看。
