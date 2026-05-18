@@ -53,11 +53,11 @@ export interface YunwuSeedreamImageRequest {
 
 export interface YunwuGrokImagineImageRequest {
   imageCount?: number
+  imageUrl: string
   model: string
   prompt: string
   quality: string
   ratio: string
-  referenceImage: YunwuReferenceImage
 }
 
 export interface YunwuVideoRequest {
@@ -178,34 +178,30 @@ export async function createYunwuSeedreamImages(request: YunwuSeedreamImageReque
 
 export async function createYunwuGrokImagineImages(request: YunwuGrokImagineImageRequest) {
   const imageCount = normalizeImageCount(request.imageCount)
-  const formData = new FormData()
-  formData.set("model", grokImagineImageModelName)
-  formData.set("prompt", request.prompt)
-  formData.set("aspect_ratio", normalizeGrokImagineAspectRatio(request.ratio))
-  formData.set("response_format", "url")
-  formData.set("resolution", normalizeGrokImagineResolution(request.quality))
-  formData.set("quality", "medium")
-  formData.set("n", String(imageCount))
-  formData.set(
-    "image",
-    new Blob([request.referenceImage.buffer], { type: request.referenceImage.mimeType }),
-    getGrokImagineReferenceFilename(request.referenceImage.mimeType)
-  )
+  const payload = {
+    model: grokImagineImageModelName,
+    prompt: request.prompt,
+    image: {
+      url: request.imageUrl,
+    },
+    aspect_ratio: normalizeGrokImagineAspectRatio(request.ratio),
+    response_format: "url",
+    resolution: normalizeGrokImagineResolution(request.quality),
+    quality: "medium",
+    n: imageCount,
+  }
 
   logYunwu("grok imagine image input", {
-    aspect_ratio: normalizeGrokImagineAspectRatio(request.ratio),
+    ...payload,
     image: 1,
     model: request.model,
-    n: imageCount,
-    quality: "medium",
-    resolution: normalizeGrokImagineResolution(request.quality),
   })
 
-  const data = await yunwuFormRequest(
+  const data = await yunwuJsonRequest(
     "/v1/images/edits",
     {
       method: "POST",
-      body: formData,
+      body: JSON.stringify(payload),
     },
     {
       timeoutMs: yunwuGrokImagineImageTimeoutMs,
@@ -512,12 +508,6 @@ function normalizeGrokImagineAspectRatio(ratio: string) {
   return value || "auto"
 }
 
-function getGrokImagineReferenceFilename(mimeType: string) {
-  if (mimeType.includes("webp")) return "reference.webp"
-  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "reference.jpg"
-  return "reference.png"
-}
-
 async function yunwuJsonRequest(
   pathOrUrl: string | URL,
   init: RequestInit,
@@ -539,48 +529,6 @@ async function yunwuJsonRequest(
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        ...init.headers,
-      },
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw new Error(timeoutMessage, { cause: error })
-    }
-
-    throw error
-  }
-
-  const data = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    throw new Error(describeYunwuError(response.status, data))
-  }
-
-  return data
-}
-
-async function yunwuFormRequest(
-  pathOrUrl: string | URL,
-  init: RequestInit,
-  {
-    timeoutMessage = "yw 请求等待超时，请稍后重试。",
-    timeoutMs = yunwuDefaultTimeoutMs,
-  }: {
-    timeoutMessage?: string
-    timeoutMs?: number
-  } = {}
-) {
-  const apiKey = getYunwuApiKey()
-  const url = typeof pathOrUrl === "string" ? new URL(pathOrUrl, YUNWU_BASE_URL) : pathOrUrl
-  let response: Response
-
-  try {
-    response = await fetch(url, {
-      ...init,
-      headers: {
-        Accept: "application/json",
         Authorization: `Bearer ${apiKey}`,
         ...init.headers,
       },
