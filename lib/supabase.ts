@@ -7,6 +7,7 @@ export type PackageType = "credits" | "membership"
 export interface SupabaseAccountRow {
   allow_multi_device_sessions: boolean
   credit_balance: number
+  email: string | null
   ledger: LocalAccountData["ledger"]
   membership_expires_at: string | null
   membership_free_image_qualities: string[] | null
@@ -125,6 +126,7 @@ export interface AdminAccountSummary {
 export interface AdminAccountRow {
   allow_multi_device_sessions: boolean
   credit_balance: number
+  email: string | null
   ledger: LocalAccountData["ledger"]
   membership_expires_at: string | null
   membership_free_image_qualities: string[] | null
@@ -285,7 +287,7 @@ export async function loadSupabaseAccount(userId: string): Promise<SupabaseAccou
 
   const { data, error } = await supabase
     .from("user_accounts")
-    .select("user_id, username, credit_balance, projects, ledger, redeemed_codes, role, membership_tier, membership_expires_at, membership_free_image_qualities, must_change_password, temporary_password_set_at, temporary_password_set_by, allow_multi_device_sessions")
+    .select("user_id, email, username, credit_balance, projects, ledger, redeemed_codes, role, membership_tier, membership_expires_at, membership_free_image_qualities, must_change_password, temporary_password_set_at, temporary_password_set_by, allow_multi_device_sessions")
     .eq("user_id", userId)
     .maybeSingle()
 

@@ -1,5 +1,6 @@
 create table if not exists public.user_accounts (
   user_id uuid primary key references auth.users(id) on delete cascade,
+  email text,
   username text,
   credit_balance integer not null default 0,
   membership_tier text check (membership_tier in ('vip', 'svip')),
@@ -17,6 +18,7 @@ create table if not exists public.user_accounts (
   updated_at timestamptz not null default now()
 );
 
+alter table public.user_accounts add column if not exists email text;
 alter table public.user_accounts add column if not exists role text not null default 'user';
 alter table public.user_accounts add column if not exists allow_multi_device_sessions boolean not null default false;
 alter table public.user_accounts add column if not exists username text;
@@ -37,7 +39,14 @@ alter table public.user_accounts drop constraint if exists user_accounts_usernam
 alter table public.user_accounts add constraint user_accounts_username_format_check check (username is null or username ~ '^[A-Za-z0-9_]{3,24}$') not valid;
 
 create unique index if not exists user_accounts_username_unique_idx on public.user_accounts (lower(username)) where username is not null;
+create index if not exists user_accounts_email_idx on public.user_accounts (lower(email)) where email is not null;
 create index if not exists user_accounts_updated_at_idx on public.user_accounts (updated_at desc);
+
+update public.user_accounts as account
+set email = auth_user.email
+from auth.users as auth_user
+where account.user_id = auth_user.id
+  and account.email is distinct from auth_user.email;
 
 create table if not exists public.user_active_sessions (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -177,15 +186,19 @@ begin
     return jsonb_build_object('ok', true, 'claimed', false, 'multiDevice', true);
   end if;
 
-  if v_existing.session_id = v_session_id and v_existing.revoked_at is null then
+  if v_existing.revoked_at is null and (
+    v_existing.session_id = v_session_id
+    or v_existing.device_label = v_device_label
+  ) then
     update public.user_active_sessions
     set
+      session_id = v_session_id,
       device_label = v_device_label,
       last_seen_at = now(),
       updated_at = now()
     where user_id = v_user_id;
 
-    return jsonb_build_object('ok', true, 'claimed', false);
+    return jsonb_build_object('ok', true, 'claimed', false, 'sameDevice', true);
   end if;
 
   if v_existing.revoked_at is null and v_existing.last_seen_at > now() - interval '7 days' then
@@ -313,8 +326,13 @@ begin
     raise exception '用户名需为 3-24 位字母、数字或下划线。';
   end if;
 
-  insert into public.user_accounts (user_id, username, credit_balance)
-  values (new.id, v_username, 0);
+  insert into public.user_accounts (user_id, email, username, credit_balance)
+  values (new.id, new.email, v_username, 0)
+  on conflict (user_id) do update
+  set
+    email = excluded.email,
+    username = excluded.username,
+    updated_at = now();
 
   return new;
 exception
@@ -323,10 +341,33 @@ exception
 end;
 $$;
 
+create or replace function public.sync_user_account_email()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.user_accounts
+  set
+    email = new.email,
+    updated_at = now()
+  where user_id = new.id
+    and email is distinct from new.email;
+
+  return new;
+end;
+$$;
+
 drop trigger if exists create_account_for_new_user on auth.users;
 create trigger create_account_for_new_user
 after insert on auth.users
 for each row execute function public.create_account_for_new_user();
+
+drop trigger if exists sync_user_account_email on auth.users;
+create trigger sync_user_account_email
+after update of email on auth.users
+for each row execute function public.sync_user_account_email();
 
 create table if not exists public.credit_packages (
   id uuid primary key default gen_random_uuid(),
