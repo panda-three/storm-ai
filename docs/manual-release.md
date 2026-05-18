@@ -23,6 +23,8 @@ curl -I https://www.zlaction.online
 
 如果服务器上有意外本地改动，不要直接 `git pull`。先找开发人员确认这些改动是否要提交、保留或丢弃。
 
+如果这次是你刚刚在服务器上直接修过代码，先按 [git-sync-workflow.md](git-sync-workflow.md) 把修复提交并推送到 GitHub，再继续发布。
+
 ## 标准发布流程
 
 ```bash

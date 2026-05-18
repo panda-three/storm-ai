@@ -8,6 +8,7 @@
 |---|---|
 | 第一次在新服务器部署 | [linux-deployment.md](linux-deployment.md) |
 | 平时把新代码发布到生产 | [manual-release.md](manual-release.md) |
+| 本地和服务器都可能改代码，如何避免版本打架 | [git-sync-workflow.md](git-sync-workflow.md) |
 | 网站或生成任务出问题，看日志 | [logging.md](logging.md) |
 | 查看当前服务器实际信息 | [server-deployment-runbook.md](server-deployment-runbook.md) |
 | 了解后续费用、续费、开支检查 | [operations-costs.md](operations-costs.md) |

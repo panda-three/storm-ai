@@ -1,6 +1,7 @@
 import {
   apimartGptImage2ApiModelName,
   apimartGptImage2ModelName,
+  grokImagineImageModelName,
   grokVideo310sModelName,
   grokVideo3ModelName,
   imageModelOptions,
@@ -42,6 +43,13 @@ export const modelCatalog: ModelCatalogEntry[] = [
     apiModel: yunwuSeedream5ImageModelName,
     defaultDisplayName: "Seedream 5.0",
     model: yunwuSeedream5ImageModelName,
+    provider: "yunwu",
+    type: "image",
+  },
+  {
+    apiModel: grokImagineImageModelName,
+    defaultDisplayName: "Grok Imagine Image",
+    model: grokImagineImageModelName,
     provider: "yunwu",
     type: "image",
   },

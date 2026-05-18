@@ -179,6 +179,8 @@
   },
   "active": "a81201d0541965af",
   "lastOpenFiles": [
+    "docs/git-sync-workflow.md",
+    "scripts/install-git-hooks.sh",
     "supabase-schema.sql",
     "release-checklist.md",
     "scripts/audit-production-model-config.mjs",
@@ -189,7 +191,6 @@
     "node_modules/@radix-ui",
     "node_modules/@hookform",
     "node_modules/@types",
-    "node_modules/@tailwindcss",
     "docs/manual-release.md",
     "docs/self-hosted-supabase.md",
     "docs/linux-deployment.md",

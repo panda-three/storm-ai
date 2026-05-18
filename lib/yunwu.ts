@@ -1,4 +1,5 @@
 import {
+  grokImagineImageModelName,
   grokVideo310sModelName,
   grokVideo3ModelName,
   yunwuGeminiImageModelName,
@@ -12,6 +13,7 @@ const yunwuDefaultTimeoutMs = 60_000
 const yunwuGeminiImageTimeoutMs = 360_000
 const yunwuGptImageTimeoutMs = 360_000
 const yunwuSeedreamImageTimeoutMs = 360_000
+const yunwuGrokImagineImageTimeoutMs = 360_000
 const yunwuVeo31FastApiModel = "veo3.1-fast"
 
 export interface YunwuReferenceImage {
@@ -47,6 +49,15 @@ export interface YunwuSeedreamImageRequest {
   prompt: string
   quality: string
   ratio: string
+}
+
+export interface YunwuGrokImagineImageRequest {
+  imageCount?: number
+  model: string
+  prompt: string
+  quality: string
+  ratio: string
+  referenceImage: YunwuReferenceImage
 }
 
 export interface YunwuVideoRequest {
@@ -163,6 +174,59 @@ export async function createYunwuSeedreamImages(request: YunwuSeedreamImageReque
   }
 
   return imageUrls
+}
+
+export async function createYunwuGrokImagineImages(request: YunwuGrokImagineImageRequest) {
+  const imageCount = normalizeImageCount(request.imageCount)
+  const formData = new FormData()
+  formData.set("model", grokImagineImageModelName)
+  formData.set("prompt", request.prompt)
+  formData.set("aspect_ratio", normalizeGrokImagineAspectRatio(request.ratio))
+  formData.set("response_format", "url")
+  formData.set("resolution", normalizeGrokImagineResolution(request.quality))
+  formData.set("quality", "medium")
+  formData.set("n", String(imageCount))
+  formData.set(
+    "image",
+    new Blob([request.referenceImage.buffer], { type: request.referenceImage.mimeType }),
+    getGrokImagineReferenceFilename(request.referenceImage.mimeType)
+  )
+
+  logYunwu("grok imagine image input", {
+    aspect_ratio: normalizeGrokImagineAspectRatio(request.ratio),
+    image: 1,
+    model: request.model,
+    n: imageCount,
+    quality: "medium",
+    resolution: normalizeGrokImagineResolution(request.quality),
+  })
+
+  const data = await yunwuFormRequest(
+    "/v1/images/edits",
+    {
+      method: "POST",
+      body: formData,
+    },
+    {
+      timeoutMs: yunwuGrokImagineImageTimeoutMs,
+      timeoutMessage: "yw Grok Imagine 图片生成等待超时，请稍后重试。",
+    }
+  )
+  const urls = extractMediaUrls(data, ["url", "image", "image_url", "image_urls", "data", "content", "b64_json"], [
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "gif",
+    "avif",
+  ])
+
+  if (urls.length === 0) {
+    throw new Error("yw Grok Imagine 图片接口已返回，但未找到可用图片地址。")
+  }
+
+  logYunwu("grok imagine image output", { imageUrls: urls.length })
+  return urls.slice(0, imageCount)
 }
 
 async function createSingleYunwuSeedreamImage(request: YunwuSeedreamImageRequest) {
@@ -439,6 +503,21 @@ function normalizeGrokVideoSize(quality: string) {
   return quality.trim().toUpperCase() === "480P" ? "480P" : "720P"
 }
 
+function normalizeGrokImagineResolution(quality: string) {
+  return quality.trim().toUpperCase() === "2K" ? "2k" : "1k"
+}
+
+function normalizeGrokImagineAspectRatio(ratio: string) {
+  const value = ratio.trim()
+  return value || "auto"
+}
+
+function getGrokImagineReferenceFilename(mimeType: string) {
+  if (mimeType.includes("webp")) return "reference.webp"
+  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "reference.jpg"
+  return "reference.png"
+}
+
 async function yunwuJsonRequest(
   pathOrUrl: string | URL,
   init: RequestInit,
@@ -460,6 +539,48 @@ async function yunwuJsonRequest(
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        ...init.headers,
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(timeoutMessage, { cause: error })
+    }
+
+    throw error
+  }
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(describeYunwuError(response.status, data))
+  }
+
+  return data
+}
+
+async function yunwuFormRequest(
+  pathOrUrl: string | URL,
+  init: RequestInit,
+  {
+    timeoutMessage = "yw 请求等待超时，请稍后重试。",
+    timeoutMs = yunwuDefaultTimeoutMs,
+  }: {
+    timeoutMessage?: string
+    timeoutMs?: number
+  } = {}
+) {
+  const apiKey = getYunwuApiKey()
+  const url = typeof pathOrUrl === "string" ? new URL(pathOrUrl, YUNWU_BASE_URL) : pathOrUrl
+  let response: Response
+
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        Accept: "application/json",
         Authorization: `Bearer ${apiKey}`,
         ...init.headers,
       },

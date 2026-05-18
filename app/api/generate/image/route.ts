@@ -9,6 +9,7 @@ import {
 } from "@/lib/generation-jobs"
 import {
   createYunwuGeminiImage,
+  createYunwuGrokImagineImages,
   createYunwuGptImages,
   createYunwuSeedreamImages,
   type YunwuGeneratedImage,
@@ -32,6 +33,7 @@ import {
   gptImage2Supported4KRatios,
   imageModelSettings,
   isApimartImageModel,
+  isGrokImagineImageModel,
   isSelectableImageModel,
   isToapisImageModel,
   isYunwuGeminiImageModel,
@@ -126,6 +128,10 @@ export async function POST(request: Request) {
       )
     }
 
+    if (isGrokImagineImageModel(model) && referenceFiles.length + storedReferenceImages.length !== 1) {
+      return NextResponse.json({ ok: false, error: "Grok Imagine Image 必须且只能提交 1 张参考图。" }, { status: 400 })
+    }
+
     stage = "load_pricing"
     const pricing = await loadImagePricing({ model, quality })
     if (!pricing) {
@@ -216,6 +222,14 @@ export async function POST(request: Request) {
           stage = "prepare_yunwu_seedream_references"
         })
       : []
+    const grokImagineReferenceImage = isGrokImagineImageModel(model)
+      ? preparedReferenceImages[0]
+        ? {
+            buffer: preparedReferenceImages[0].buffer,
+            mimeType: preparedReferenceImages[0].mimeType,
+          }
+        : undefined
+      : undefined
     const toapisReferenceImageUrls = isToapisImage
       ? await prepareToapisReferenceImageUrls(preparedReferenceImages, () => {
           stage = "prepare_toapis_references"
@@ -374,7 +388,33 @@ export async function POST(request: Request) {
             return uploaded.publicUrl
           })
         )
-      : await Promise.allSettled(
+      : isGrokImagineImageModel(model)
+        ? await Promise.allSettled(
+            (
+              grokImagineReferenceImage
+                ? await createYunwuGrokImagineImages({
+                    imageCount,
+                    model,
+                    prompt,
+                    quality,
+                    ratio,
+                    referenceImage: grokImagineReferenceImage,
+                  })
+                : []
+            ).map((url) =>
+              persistRemoteGeneratedImage({
+                sourceUrl: url,
+                userId,
+              }).catch((error) => {
+                console.warn("[Generate Image] yunwu remote image mirror failed", {
+                  error: describeServerError(error, "生成图片转存失败。"),
+                  url,
+                })
+                return url
+              })
+            )
+          )
+        : await Promise.allSettled(
           (
             isYunwuSeedream5ImageModel(model)
               ? await createYunwuSeedreamImages({

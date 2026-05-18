@@ -15,8 +15,10 @@ export const toapisImage2KRatios = ["1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4
 export const toapisImage4KRatios = ["16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
 export const mengfactoryGeminiImageModelName = "Gemini 3.1 Flash Image Preview"
 export const yunwuGeminiImageModelName = "gemini-3.1-flash-image-preview"
+export const grokImagineImageModelName = "grok-imagine-image"
 export const yunwuSeedream5ImageModelName = "doubao-seedream-5-0-260128"
 export const yunwuSeedream5ImageRatios = ["默认", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"]
+export const grokImagineImageRatios = ["auto", "1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "9:19.5", "19.5:9", "9:20", "20:9", "1:2", "2:1"]
 export const mengfactoryGeminiImageApiModelName = yunwuGeminiImageModelName
 export const mengfactoryVeoVideoModelName = "VEO 3.1 FAST"
 export const yunwuVeo31FastVideoModelName = "veo_3_1-fast"
@@ -32,6 +34,7 @@ export const imageModelOptions = [
   apimartGptImage2ModelName,
   toaGptImage2ModelName,
   yunwuSeedream5ImageModelName,
+  grokImagineImageModelName,
 ]
 
 export const imageModelSettings: Record<
@@ -56,6 +59,10 @@ export const imageModelSettings: Record<
   [yunwuSeedream5ImageModelName]: {
     qualities: ["2K", "3K"],
     ratios: yunwuSeedream5ImageRatios,
+  },
+  [grokImagineImageModelName]: {
+    qualities: ["1K", "2K"],
+    ratios: grokImagineImageRatios,
   },
   [gptImage2ModelName]: {
     qualities: ["1K", "2K", "4K"],
@@ -95,8 +102,12 @@ export function isYunwuSeedream5ImageModel(model: string) {
   return model === yunwuSeedream5ImageModelName
 }
 
+export function isGrokImagineImageModel(model: string) {
+  return model === grokImagineImageModelName
+}
+
 export function isYunwuImageModel(model: string) {
-  return isYunwuGeminiImageModel(model) || isYunwuGptImageModel(model) || isYunwuSeedream5ImageModel(model)
+  return isYunwuGeminiImageModel(model) || isYunwuGptImageModel(model) || isYunwuSeedream5ImageModel(model) || isGrokImagineImageModel(model)
 }
 
 export function isToapisImageModel(model: string) {

@@ -26,6 +26,17 @@ No test runner is currently configured. Before adding tests, introduce a project
 
 This directory is not currently initialized as a Git repository, so no project history is available to infer commit conventions. Use concise, imperative commit subjects, for example `Add chat input loading state` or `Fix sidebar mobile toggle`. Pull requests should include a short summary, verification steps, linked issues when applicable, and screenshots or screen recordings for visible UI changes.
 
+## Git Synchronization Workflow
+
+This project may be edited from both a local machine and the production Linux server. Treat `origin/main` as the single source of truth.
+
+- Before making a commit or push on `main`, first make sure the current checkout is not behind `origin/main`.
+- Prefer `git pull --rebase origin main` before starting work on either machine when the working tree allows it.
+- Any production hotfix made on the Linux server must be committed and pushed to `origin/main` promptly so the local checkout can receive it.
+- Use the repository hooks installed by `sh scripts/install-git-hooks.sh`; do not bypass sync-related hook failures.
+- When asked to commit changes in this repo, first inspect which changes already existed, avoid including unrelated user edits, verify sync state, then commit only the intended work.
+- The detailed operating procedure lives in `docs/git-sync-workflow.md`.
+
 ## Security & Configuration Tips
 
 Keep secrets out of source files and commit only safe defaults. Use `.env.local` for local environment variables and document required keys without values. Do not edit generated Next.js files such as `next-env.d.ts` unless the framework requires it.

@@ -63,6 +63,7 @@ mkdir -p /usr
 git clone git@github.com:panda-three/storm-ai.git /usr/storm-ai
 cd /usr/storm-ai
 git checkout main
+sh scripts/install-git-hooks.sh
 ```
 
 创建 PM2 需要的路径别名：

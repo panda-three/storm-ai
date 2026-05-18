@@ -14,6 +14,7 @@ import {
   getImageRatiosForSelection,
   imageModelOptions,
   imageModelSettings,
+  isGrokImagineImageModel,
   isApimartImageModel,
   videoModelOptions,
   videoModelSettings,
@@ -1210,6 +1211,7 @@ function ImageWorkspace({
   const [imageCount, setImageCount] = useState(imageCountOptions[2])
   const parsedImageCount = parseImageCount(imageCount)
   const isApimartImage = isApimartImageModel(model)
+  const isGrokImagineImage = isGrokImagineImageModel(model)
   const effectiveImageCount = isApimartImage ? 1 : parsedImageCount
   const ratioOptions = getImageRatiosForSelection(model, quality)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -1294,6 +1296,17 @@ function ImageWorkspace({
     }
   }, [imageCount, isApimartImage])
 
+  useEffect(() => {
+    if (!isGrokImagineImage || referenceImages.length <= 1) return
+
+    const removed = referenceImages.slice(1)
+    removed.forEach((image) => {
+      URL.revokeObjectURL(image.previewUrl)
+      objectUrlsRef.current.delete(image.previewUrl)
+    })
+    setReferenceImages(referenceImages.slice(0, 1))
+  }, [isGrokImagineImage, referenceImages])
+
   if (!billingReady) {
     return <WorkspaceLoadingNotice type="图片" />
   }
@@ -1305,11 +1318,12 @@ function ImageWorkspace({
   const handleReferenceImageChange = async (files: FileList | null) => {
     if (!files?.length) return
 
-    const availableSlots = maxReferenceImages - referenceImages.length
+    const maxImageReferences = isGrokImagineImage ? 1 : maxReferenceImages
+    const availableSlots = maxImageReferences - referenceImages.length
     const selectedFiles = Array.from(files).slice(0, Math.max(availableSlots, 0))
 
     if (availableSlots <= 0) {
-      setError(`参考图最多上传 ${maxReferenceImages} 张。`)
+      setError(`参考图最多上传 ${maxImageReferences} 张。`)
       if (referenceInputRef.current) referenceInputRef.current.value = ""
       return
     }
@@ -1343,7 +1357,7 @@ function ImageWorkspace({
     }
 
     if (files.length > availableSlots) {
-      nextError = `参考图最多上传 ${maxReferenceImages} 张，已保留前 ${availableSlots} 张。`
+      nextError = `参考图最多上传 ${maxImageReferences} 张，已保留前 ${availableSlots} 张。`
     }
 
     if (validImages.length > 0) {
@@ -1365,7 +1379,8 @@ function ImageWorkspace({
   const handleReferenceDragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!hasDraggedFiles(event)) return
     event.preventDefault()
-    event.dataTransfer.dropEffect = isGenerating || referenceImages.length >= maxReferenceImages ? "none" : "copy"
+    event.dataTransfer.dropEffect =
+      isGenerating || referenceImages.length >= (isGrokImagineImage ? 1 : maxReferenceImages) ? "none" : "copy"
     if (!isGenerating) {
       setIsReferenceDragActive(true)
     }
@@ -1402,6 +1417,11 @@ function ImageWorkspace({
     if (!trimmedPrompt) {
       setError("请先输入生图提示词。")
       window.requestAnimationFrame(() => promptRef.current?.focus())
+      return
+    }
+
+    if (isGrokImagineImage && referenceImages.length !== 1) {
+      setError("Grok Imagine Image 必须上传 1 张参考图。")
       return
     }
 
@@ -1565,10 +1585,10 @@ function ImageWorkspace({
                 type="file"
               />
               <UploadColumn
-                disabled={isGenerating || referenceImages.length >= maxReferenceImages}
+                disabled={isGenerating || referenceImages.length >= (isGrokImagineImage ? 1 : maxReferenceImages)}
                 isActive={isReferenceDragActive}
                 label="添加参考图"
-                maxReferenceImages={maxReferenceImages}
+                maxReferenceImages={isGrokImagineImage ? 1 : maxReferenceImages}
                 onClick={() => referenceInputRef.current?.click()}
                 referenceImages={referenceImages}
                 onRemove={handleReferenceImageRemove}
