@@ -11,12 +11,14 @@
             "id": "ea90ea45f167b345",
             "type": "leaf",
             "state": {
-              "type": "vscode-editor",
+              "type": "markdown",
               "state": {
-                "file": "hooks/use-toast.ts"
+                "file": "docs/logging.md",
+                "mode": "source",
+                "source": false
               },
               "icon": "lucide-file",
-              "title": "use-toast"
+              "title": "logging"
             }
           }
         ]
@@ -181,6 +183,20 @@
   },
   "active": "ea90ea45f167b345",
   "lastOpenFiles": [
+    "app/api/admin/users/[userId]/session-policy/route.ts",
+    "app/api/admin/users/[userId]/session-policy",
+    "lib/generation-ledger.ts",
+    "docs/manual-release.md",
+    "docs/linux-deployment.md",
+    "docs/self-hosted-supabase.md",
+    "docs/operations-costs.md",
+    "docs/vercel-error-troubleshooting.md",
+    "docs/vercel-usage-metrics.md",
+    "docs/server-deployment-runbook.md",
+    "docs/README.md",
+    "docs/generation-queue-and-task-flow-research.md",
+    "docs/git-sync-workflow.md",
+    "hooks/use-toast.ts",
     "hooks/use-mobile.ts",
     "hooks/use-account-session.ts",
     "problem/slow-query.md",
@@ -188,25 +204,11 @@
     "problem/需求文档.md",
     "problem",
     "未命名文件夹",
-    "docs/git-sync-workflow.md",
     "scripts/install-git-hooks.sh",
     "supabase-schema.sql",
     "release-checklist.md",
     "scripts/audit-production-model-config.mjs",
-    "lib/model-catalog.ts",
-    "tsconfig.tsbuildinfo",
-    "node_modules/@vercel",
-    "node_modules/@supabase",
-    "docs/manual-release.md",
-    "docs/self-hosted-supabase.md",
-    "docs/linux-deployment.md",
     "docs/logging.md",
-    "docs/server-deployment-runbook.md",
-    "docs/operations-costs.md",
-    "docs/README.md",
-    "docs/vercel-error-troubleshooting.md",
-    "docs/vercel-usage-metrics.md",
-    "docs/generation-queue-and-task-flow-research.md",
     "docs/storm-ai-conversation-index.md",
     "docs/storm-ai-conversations.md",
     "develop1.md",

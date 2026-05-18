@@ -60,6 +60,7 @@ function HomeContent() {
     accountStatus,
     authReady,
     refreshAccount,
+    reloadAuthSession,
     setAccount,
     setSyncError,
     signOut,
@@ -173,7 +174,7 @@ function HomeContent() {
   }
 
   if (!user) {
-    return <AuthPanel onAuthed={() => undefined} variant="landing" />
+    return <AuthPanel onAuthed={reloadAuthSession} variant="landing" />
   }
 
   if (accountStatus === "error") {

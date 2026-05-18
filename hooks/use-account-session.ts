@@ -159,6 +159,43 @@ export function useAccountSession() {
     setSyncError(message ?? "")
   }, [])
 
+  const reloadAuthSession = useCallback(async () => {
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      setUser(null)
+      setAuthReady(true)
+      return
+    }
+
+    try {
+      const { data, error } = await supabase.auth.getUser()
+      if (error || !data.user) {
+        await clearSession("登录状态已失效，请重新登录。")
+        return
+      }
+
+      try {
+        await claimCurrentAuthSession(supabase)
+      } catch (error) {
+        await clearSession(getErrorMessage(error, "该账号已在其他设备登录，请先退出旧设备或联系管理员解除。"))
+        return
+      }
+
+      setSyncError("")
+      setUser(data.user)
+      setAuthReady(true)
+    } catch (error) {
+      if (isSessionInvalidError(error)) {
+        await clearSession(getErrorMessage(error, "登录状态已失效，请重新登录。"))
+        return
+      }
+
+      setSyncError(getErrorMessage(error, "加载登录状态失败。"))
+      setUser(null)
+      setAuthReady(true)
+    }
+  }, [clearSession])
+
   useEffect(() => {
     let active = true
     const supabase = getSupabaseClient()
@@ -421,6 +458,7 @@ export function useAccountSession() {
     accountStatus,
     authReady,
     refreshAccount,
+    reloadAuthSession,
     setAccount,
     setSyncError,
     signOut,
