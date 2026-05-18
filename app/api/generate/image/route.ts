@@ -222,10 +222,13 @@ export async function POST(request: Request) {
           stage = "prepare_yunwu_seedream_references"
         })
       : []
-    const grokImagineReferenceImageUrl = isGrokImagineImageModel(model)
-      ? (await prepareYunwuReferenceImageUrls(preparedReferenceImages, userId, () => {
-          stage = "prepare_yunwu_grok_imagine_references"
-        }))[0]
+    const grokImagineReferenceImage = isGrokImagineImageModel(model)
+      ? preparedReferenceImages[0]
+        ? {
+            buffer: preparedReferenceImages[0].buffer,
+            mimeType: preparedReferenceImages[0].mimeType,
+          }
+        : undefined
       : undefined
     const toapisReferenceImageUrls = isToapisImage
       ? await prepareToapisReferenceImageUrls(preparedReferenceImages, () => {
@@ -388,14 +391,14 @@ export async function POST(request: Request) {
       : isGrokImagineImageModel(model)
         ? await Promise.allSettled(
             (
-              grokImagineReferenceImageUrl
+              grokImagineReferenceImage
                 ? await createYunwuGrokImagineImages({
                     imageCount,
-                    imageUrl: grokImagineReferenceImageUrl,
                     model,
                     prompt,
                     quality,
                     ratio,
+                    referenceImage: grokImagineReferenceImage,
                   })
                 : []
             ).map((url) =>
@@ -640,8 +643,7 @@ function getFailureStageLabel(stage: string) {
   if (
     stage === "prepare_yunwu_gemini_references" ||
     stage === "prepare_yunwu_gpt_references" ||
-    stage === "prepare_yunwu_seedream_references" ||
-    stage === "prepare_yunwu_grok_imagine_references"
+    stage === "prepare_yunwu_seedream_references"
   ) return "yw 参考图处理失败"
   if (stage === "complete_yunwu_job") return "yw 图片任务结算失败"
   if (stage === "check_apimart_config") return "APIMart 配置检查失败"
