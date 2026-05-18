@@ -78,7 +78,7 @@ export function LedgerPanel() {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-base font-semibold">最近点数流水</h2>
+        <h2 className="text-base font-semibold">当前页用户点数流水</h2>
         {filteredLedger.length > 0 && (
           <div className="text-xs text-slate-500">
             第 {ledgerStart}-{ledgerEnd} 条，共 {filteredLedger.length} 条

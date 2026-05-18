@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Copy, KeyRound, Loader2, LogOut, Monitor, ShieldAlert, Smartphone } from "lucide-react"
+import { ChevronLeft, ChevronRight, Copy, KeyRound, Loader2, LogOut, Monitor, ShieldAlert, Smartphone } from "lucide-react"
 import { useAdmin } from "@/components/admin/admin-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,10 +29,21 @@ async function getAccessToken() {
 }
 
 export function UsersPanel() {
-  const { adminAccounts, refreshAdminConfig, setFeedback } = useAdmin()
+  const {
+    adminAccounts,
+    adminAccountsLoading,
+    adminAccountsPage,
+    adminAccountsPageSize,
+    adminAccountsTotal,
+    adminAccountsTotalPages,
+    refreshAdminAccounts,
+    setFeedback,
+  } = useAdmin()
   const [selectedAccount, setSelectedAccount] = useState<AdminAccountSummary | null>(null)
   const [temporaryPassword, setTemporaryPassword] = useState("")
   const [loadingUserId, setLoadingUserId] = useState("")
+  const pageStart = adminAccountsTotal === 0 ? 0 : (adminAccountsPage - 1) * adminAccountsPageSize + 1
+  const pageEnd = Math.min(adminAccountsPage * adminAccountsPageSize, adminAccountsTotal)
 
   const handleRevokeActiveSession = async (account: AdminAccountSummary) => {
     setLoadingUserId(account.user_id)
@@ -52,7 +63,7 @@ export function UsersPanel() {
       }
 
       setFeedback({ message: "登录占用已解除。", type: "success" })
-      await refreshAdminConfig()
+      await refreshAdminAccounts(adminAccountsPage)
     } catch (error) {
       setFeedback({
         message: error instanceof Error ? error.message : "解除登录占用失败。",
@@ -88,7 +99,7 @@ export function UsersPanel() {
         message: account.allow_multi_device_sessions ? "已恢复单设备登录限制。" : "已允许该账号多设备登录。",
         type: "success",
       })
-      await refreshAdminConfig()
+      await refreshAdminAccounts(adminAccountsPage)
     } catch (error) {
       setFeedback({
         message: error instanceof Error ? error.message : "更新登录策略失败。",
@@ -121,7 +132,7 @@ export function UsersPanel() {
 
       setTemporaryPassword(payload.temporaryPassword)
       setFeedback({ message: "临时密码已生成，只会显示一次。", type: "success" })
-      await refreshAdminConfig()
+      await refreshAdminAccounts(adminAccountsPage)
     } catch (error) {
       setFeedback({
         message: error instanceof Error ? error.message : "生成临时密码失败。",
@@ -149,11 +160,21 @@ export function UsersPanel() {
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold">用户余额概览</h2>
-          <p className="mt-1 text-sm text-slate-500">邮箱未作为已验证身份，仅用于登录标识展示。</p>
+          <p className="mt-1 text-sm text-slate-500">
+            邮箱未作为已验证身份，仅用于登录标识展示。每页显示 {adminAccountsPageSize} 个用户。
+          </p>
+        </div>
+        <div className="text-sm text-slate-500">
+          {adminAccountsTotal > 0 ? `${pageStart}-${pageEnd} / ${adminAccountsTotal}` : "0 / 0"}
         </div>
       </div>
       <div className="mt-4 grid gap-3">
-        {adminAccounts.length === 0 ? (
+        {adminAccountsLoading ? (
+          <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+            正在加载用户...
+          </div>
+        ) : adminAccounts.length === 0 ? (
           <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">暂无用户账户。</div>
         ) : (
           adminAccounts.map((item) => (
@@ -250,6 +271,31 @@ export function UsersPanel() {
             </div>
           ))
         )}
+      </div>
+      <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-sm text-slate-500">
+          第 {adminAccountsPage} / {adminAccountsTotalPages} 页
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            disabled={adminAccountsLoading || adminAccountsPage <= 1}
+            onClick={() => refreshAdminAccounts(adminAccountsPage - 1)}
+            type="button"
+            variant="outline"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            上一页
+          </Button>
+          <Button
+            disabled={adminAccountsLoading || adminAccountsPage >= adminAccountsTotalPages}
+            onClick={() => refreshAdminAccounts(adminAccountsPage + 1)}
+            type="button"
+            variant="outline"
+          >
+            下一页
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       <Dialog open={Boolean(selectedAccount)} onOpenChange={handleDialogOpenChange}>
         <DialogContent>

@@ -123,6 +123,14 @@ export interface AdminAccountSummary {
   username: string | null
 }
 
+export interface AdminAccountsPage {
+  accounts: AdminAccountSummary[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
 export interface AdminAccountRow {
   allow_multi_device_sessions: boolean
   credit_balance: number
@@ -296,17 +304,37 @@ export async function loadSupabaseAccount(userId: string): Promise<SupabaseAccou
   return data as SupabaseAccountRow | null
 }
 
-export async function loadAdminAccounts(): Promise<AdminAccountSummary[]> {
+export async function loadAdminAccounts({ page = 1, pageSize = 10 } = {}): Promise<AdminAccountsPage> {
   const supabase = getSupabaseClient()
-  if (!supabase) return []
+  if (!supabase) {
+    return {
+      accounts: [],
+      page,
+      pageSize,
+      total: 0,
+      totalPages: 1,
+    }
+  }
 
   const { data, error } = await supabase.auth.getSession()
   if (error) throw error
 
   const token = data.session?.access_token
-  if (!token) return []
+  if (!token) {
+    return {
+      accounts: [],
+      page,
+      pageSize,
+      total: 0,
+      totalPages: 1,
+    }
+  }
 
-  const response = await fetch("/api/admin/users", {
+  const searchParams = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  })
+  const response = await fetch(`/api/admin/users?${searchParams.toString()}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -317,7 +345,13 @@ export async function loadAdminAccounts(): Promise<AdminAccountSummary[]> {
     throw new Error(payload.error || "加载用户列表失败。")
   }
 
-  return (Array.isArray(payload.accounts) ? payload.accounts : []) as AdminAccountSummary[]
+  return {
+    accounts: (Array.isArray(payload.accounts) ? payload.accounts : []) as AdminAccountSummary[],
+    page: typeof payload.page === "number" ? payload.page : page,
+    pageSize: typeof payload.pageSize === "number" ? payload.pageSize : pageSize,
+    total: typeof payload.total === "number" ? payload.total : 0,
+    totalPages: typeof payload.totalPages === "number" ? payload.totalPages : 1,
+  }
 }
 
 export async function saveSupabaseAccount(account: LocalAccountData) {

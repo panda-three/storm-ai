@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { AlertCircle, ArrowLeft, CheckCircle2 } from "lucide-react"
 import { AuthPanel } from "@/components/auth-panel"
 import { ForcedPasswordChange } from "@/components/forced-password-change"
@@ -22,6 +23,14 @@ import {
   loadRedeemCodes,
 } from "@/lib/supabase"
 
+const emptyAdminAccountsPage = {
+  accounts: [],
+  page: 1,
+  pageSize: 10,
+  total: 0,
+  totalPages: 1,
+}
+
 type Feedback =
   | {
       message: string
@@ -31,6 +40,11 @@ type Feedback =
 
 interface AdminContextValue {
   adminAccounts: AdminAccountSummary[]
+  adminAccountsLoading: boolean
+  adminAccountsPage: number
+  adminAccountsPageSize: number
+  adminAccountsTotal: number
+  adminAccountsTotalPages: number
   creditPackages: CreditPackage[]
   customerService: CustomerServiceSettings
   feedback: Feedback
@@ -38,7 +52,8 @@ interface AdminContextValue {
   modelPricing: ModelPricing[]
   modelConfigs: ModelConfig[]
   redeemCodes: RedeemCode[]
-  refreshAdminConfig: () => Promise<void>
+  refreshAdminAccounts: (page?: number) => Promise<void>
+  refreshAdminConfig: (options?: { includeModelConfig?: boolean; accountsPage?: number }) => Promise<void>
   saving: boolean
   setCreditPackages: (packages: CreditPackage[]) => void
   setCustomerService: (settings: CustomerServiceSettings) => void
@@ -59,6 +74,7 @@ export function useAdmin() {
 }
 
 export function AdminProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
   const {
     account,
     accountStatus,
@@ -77,6 +93,10 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   })
   const [creditPackages, setCreditPackages] = useState<CreditPackage[]>([])
   const [adminAccounts, setAdminAccounts] = useState<AdminAccountSummary[]>([])
+  const [adminAccountsLoading, setAdminAccountsLoading] = useState(false)
+  const [adminAccountsPage, setAdminAccountsPage] = useState(1)
+  const [adminAccountsTotal, setAdminAccountsTotal] = useState(0)
+  const [adminAccountsTotalPages, setAdminAccountsTotalPages] = useState(1)
   const [modelPricing, setModelPricing] = useState<ModelPricing[]>([])
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
   const [modelConfigLoading, setModelConfigLoading] = useState(true)
@@ -85,6 +105,8 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   const [saving, setSaving] = useState(false)
   const isAdmin = account?.role === "admin"
   const accountUserId = account?.userId ?? ""
+  const adminAccountsPageSize = 10
+  const shouldLoadAdminAccounts = pathname === "/admin" || pathname === "/admin/users" || pathname === "/admin/ledger"
 
   const refreshModelConfig = useCallback(async () => {
     setModelConfigLoading(true)
@@ -100,9 +122,34 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const refreshAdminConfig = useCallback(async ({ includeModelConfig = true } = {}) => {
+  const resetAdminAccounts = useCallback(() => {
+    setAdminAccounts([])
+    setAdminAccountsPage(1)
+    setAdminAccountsTotal(0)
+    setAdminAccountsTotalPages(1)
+  }, [])
+
+  const refreshAdminAccounts = useCallback(async (page = adminAccountsPage) => {
     if (!userId || accountStatus !== "ready" || accountUserId !== userId || !isAdmin) {
-      setAdminAccounts([])
+      resetAdminAccounts()
+      return
+    }
+
+    setAdminAccountsLoading(true)
+    try {
+      const accountsPage = await loadAdminAccounts({ page, pageSize: adminAccountsPageSize })
+      setAdminAccounts(accountsPage.accounts)
+      setAdminAccountsPage(accountsPage.page)
+      setAdminAccountsTotal(accountsPage.total)
+      setAdminAccountsTotalPages(accountsPage.totalPages)
+    } finally {
+      setAdminAccountsLoading(false)
+    }
+  }, [accountStatus, accountUserId, adminAccountsPage, isAdmin, resetAdminAccounts, userId])
+
+  const refreshAdminConfig = useCallback(async ({ includeModelConfig = true, accountsPage = adminAccountsPage } = {}) => {
+    if (!userId || accountStatus !== "ready" || accountUserId !== userId || !isAdmin) {
+      resetAdminAccounts()
       setRedeemCodes([])
       setModelConfigs([])
       setModelPricing([])
@@ -111,29 +158,38 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
+      setAdminAccountsLoading(true)
       setSyncError("")
       const modelConfigPromise = includeModelConfig
         ? refreshModelConfig()
         : Promise.resolve()
-      const [settings, packages, codes, accounts] = await Promise.all([
+      const accountsPagePromise = shouldLoadAdminAccounts
+        ? loadAdminAccounts({ page: accountsPage, pageSize: adminAccountsPageSize })
+        : Promise.resolve(emptyAdminAccountsPage)
+      const [settings, packages, codes, accountsPageData] = await Promise.all([
         loadCustomerServiceSettings(),
         loadCreditPackages({ includeDisabled: true }),
         loadRedeemCodes(),
-        loadAdminAccounts(),
+        accountsPagePromise,
         modelConfigPromise,
       ])
       setCustomerService(settings)
       setCreditPackages(packages)
       setRedeemCodes(codes)
-      setAdminAccounts(accounts)
+      setAdminAccounts(accountsPageData.accounts)
+      setAdminAccountsPage(accountsPageData.page)
+      setAdminAccountsTotal(accountsPageData.total)
+      setAdminAccountsTotalPages(accountsPageData.totalPages)
     } catch (error) {
       setSyncError(getErrorMessage(error, "加载管理员后台数据失败。"))
+    } finally {
+      setAdminAccountsLoading(false)
     }
-  }, [accountStatus, accountUserId, isAdmin, refreshModelConfig, setSyncError, userId])
+  }, [accountStatus, accountUserId, adminAccountsPage, isAdmin, refreshModelConfig, resetAdminAccounts, setSyncError, shouldLoadAdminAccounts, userId])
 
   const refreshAllAdminData = useCallback(async () => {
     if (!userId || accountStatus !== "ready" || accountUserId !== userId || !isAdmin) {
-      setAdminAccounts([])
+      resetAdminAccounts()
       setRedeemCodes([])
       setModelConfigs([])
       setModelPricing([])
@@ -149,7 +205,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     }
 
     await refreshAdminConfig({ includeModelConfig: false })
-  }, [accountStatus, accountUserId, isAdmin, refreshAdminConfig, refreshModelConfig, setSyncError, userId])
+  }, [accountStatus, accountUserId, isAdmin, refreshAdminConfig, refreshModelConfig, resetAdminAccounts, setSyncError, userId])
 
   useEffect(() => {
     refreshAllAdminData()
@@ -158,6 +214,11 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       adminAccounts,
+      adminAccountsLoading,
+      adminAccountsPage,
+      adminAccountsPageSize,
+      adminAccountsTotal,
+      adminAccountsTotalPages,
       creditPackages,
       customerService,
       feedback,
@@ -165,6 +226,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       modelConfigs,
       modelPricing,
       redeemCodes,
+      refreshAdminAccounts,
       refreshAdminConfig,
       saving,
       setCreditPackages,
@@ -176,6 +238,10 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       adminAccounts,
+      adminAccountsLoading,
+      adminAccountsPage,
+      adminAccountsTotal,
+      adminAccountsTotalPages,
       creditPackages,
       customerService,
       feedback,
@@ -183,6 +249,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       modelConfigs,
       modelPricing,
       redeemCodes,
+      refreshAdminAccounts,
       refreshAdminConfig,
       saving,
     ]

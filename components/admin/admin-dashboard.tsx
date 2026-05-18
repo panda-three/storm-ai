@@ -16,7 +16,7 @@ const dashboardLinks = [
 ]
 
 export function AdminDashboard() {
-  const { adminAccounts, modelPricing, redeemCodes } = useAdmin()
+  const { adminAccounts, adminAccountsTotal, modelPricing, redeemCodes } = useAdmin()
   const visibleModelPricing = modelPricing.filter(isSelectableModelPricing)
   const totalUserCredits = adminAccounts.reduce((sum, item) => sum + item.credit_balance, 0)
   const usedRedeemCount = redeemCodes.filter((item) => item.status === "used").length
@@ -25,8 +25,8 @@ export function AdminDashboard() {
   return (
     <>
       <div className="grid gap-4 md:grid-cols-4">
-        <AdminMetricCard label="用户账户" value={`${adminAccounts.length}`} />
-        <AdminMetricCard label="用户点数余额合计" value={totalUserCredits.toLocaleString()} />
+        <AdminMetricCard label="用户账户" value={`${adminAccountsTotal}`} />
+        <AdminMetricCard label="当前页用户余额合计" value={totalUserCredits.toLocaleString()} />
         <AdminMetricCard label="已使用兑换码" value={`${usedRedeemCount}/${redeemCodes.length}`} />
         <AdminMetricCard label="启用模型价格" value={`${enabledPricingCount}/${visibleModelPricing.length}`} />
       </div>
