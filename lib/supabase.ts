@@ -304,14 +304,22 @@ export async function loadAdminAccounts(): Promise<AdminAccountSummary[]> {
 }
 
 export async function saveSupabaseAccount(account: LocalAccountData) {
+  return saveSupabaseProjectSyncPayload(getSupabaseProjectSyncPayload(account))
+}
+
+export async function saveSupabaseProjectSyncPayload(projects: LocalAccountData["projects"]) {
   const supabase = getSupabaseClient()
   if (!supabase) return
 
   const { error } = await supabase.rpc("save_user_projects", {
-    p_projects: account.projects.filter((project) => isDeletedProjectItem(project) || !project.taskId),
+    p_projects: projects,
   })
 
   if (error) throw error
+}
+
+export function getSupabaseProjectSyncPayload(account: Pick<LocalAccountData, "projects">) {
+  return account.projects.filter((project) => isDeletedProjectItem(project) || !project.taskId)
 }
 
 export async function loadCustomerServiceSettings(): Promise<CustomerServiceSettings> {

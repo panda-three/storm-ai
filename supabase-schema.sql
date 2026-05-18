@@ -35,6 +35,7 @@ alter table public.user_accounts drop constraint if exists user_accounts_usernam
 alter table public.user_accounts add constraint user_accounts_username_format_check check (username is null or username ~ '^[A-Za-z0-9_]{3,24}$') not valid;
 
 create unique index if not exists user_accounts_username_unique_idx on public.user_accounts (lower(username)) where username is not null;
+create index if not exists user_accounts_updated_at_idx on public.user_accounts (updated_at desc);
 
 create table if not exists public.user_active_sessions (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -389,6 +390,7 @@ alter table public.redeem_codes add constraint redeem_codes_package_shape_check 
 
 create index if not exists redeem_codes_status_idx on public.redeem_codes (status);
 create index if not exists redeem_codes_used_by_idx on public.redeem_codes (used_by);
+create index if not exists redeem_codes_created_at_idx on public.redeem_codes (created_at desc);
 
 create table if not exists public.account_security_events (
   id uuid primary key default gen_random_uuid(),
@@ -684,6 +686,17 @@ on public.generation_jobs (user_id, client_request_id)
 where client_request_id is not null;
 create index if not exists generation_jobs_expires_at_idx on public.generation_jobs (expires_at)
 where status in ('completed', 'failed', 'partial_completed');
+create index if not exists generation_jobs_mirror_queue_idx
+on public.generation_jobs (provider, type, last_checked_at asc nulls first, created_at asc)
+include (status, expires_at);
+create index if not exists generation_jobs_sync_due_provider_idx
+on public.generation_jobs (provider, next_check_at asc, created_at asc)
+include (type, status, sync_locked_until)
+where upstream_task_id is not null;
+create index if not exists generation_jobs_active_created_at_idx
+on public.generation_jobs (created_at asc)
+include (provider, type, upstream_task_id, sync_locked_until)
+where status in ('submitted', 'processing');
 drop index if exists generation_jobs_sync_due_idx;
 create index if not exists generation_jobs_sync_due_idx
 on public.generation_jobs (next_check_at, created_at)
@@ -1094,14 +1107,17 @@ begin
     v_projects := v_projects || jsonb_build_array(v_project);
   end loop;
 
-  insert into public.user_accounts (user_id, projects)
-  values (v_user_id, v_projects)
-  on conflict (user_id) do update
-  set
-    projects = excluded.projects,
-    updated_at = now();
+  if v_projects = v_existing_projects then
+    return jsonb_build_object('ok', true, 'changed', false);
+  end if;
 
-  return jsonb_build_object('ok', true);
+  update public.user_accounts
+  set
+    projects = v_projects,
+    updated_at = now()
+  where user_id = v_user_id;
+
+  return jsonb_build_object('ok', true, 'changed', true);
 end;
 $$;
 

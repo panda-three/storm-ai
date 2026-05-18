@@ -4,17 +4,19 @@
     "type": "split",
     "children": [
       {
-        "id": "950e91b73d65baa1",
+        "id": "266278c439d15914",
         "type": "tabs",
         "children": [
           {
-            "id": "a81201d0541965af",
+            "id": "ea90ea45f167b345",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "vscode-editor",
+              "state": {
+                "file": "hooks/use-toast.ts"
+              },
               "icon": "lucide-file",
-              "title": "新标签页"
+              "title": "use-toast"
             }
           }
         ]
@@ -177,8 +179,15 @@
       "vscode-editor:新建代码文件": false
     }
   },
-  "active": "a81201d0541965af",
+  "active": "ea90ea45f167b345",
   "lastOpenFiles": [
+    "hooks/use-mobile.ts",
+    "hooks/use-account-session.ts",
+    "problem/slow-query.md",
+    "problem/slow-query~.md",
+    "problem/需求文档.md",
+    "problem",
+    "未命名文件夹",
     "docs/git-sync-workflow.md",
     "scripts/install-git-hooks.sh",
     "supabase-schema.sql",
@@ -188,9 +197,6 @@
     "tsconfig.tsbuildinfo",
     "node_modules/@vercel",
     "node_modules/@supabase",
-    "node_modules/@radix-ui",
-    "node_modules/@hookform",
-    "node_modules/@types",
     "docs/manual-release.md",
     "docs/self-hosted-supabase.md",
     "docs/linux-deployment.md",

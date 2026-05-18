@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { SupabaseClient, User } from "@supabase/supabase-js"
 import {
   createDefaultAccount,
@@ -17,9 +17,10 @@ import {
 } from "@/lib/project-history"
 import {
   claimCurrentAuthSession,
+  getSupabaseProjectSyncPayload,
   getSupabaseClient,
   loadSupabaseAccount,
-  saveSupabaseAccount,
+  saveSupabaseProjectSyncPayload,
 } from "@/lib/supabase"
 
 export type AccountStatus = "idle" | "loading" | "ready" | "error"
@@ -136,6 +137,11 @@ export function useAccountSession() {
   const [user, setUser] = useState<User | null>(null)
   const [syncError, setSyncError] = useState("")
   const userId = user?.id ?? ""
+  const accountUserId = account?.userId ?? ""
+  const supabaseProjectSyncPayloadSignature = useMemo(
+    () => JSON.stringify(account ? getSupabaseProjectSyncPayload(account) : []),
+    [account]
+  )
 
   const clearSession = useCallback(async (message?: string) => {
     const supabase = getSupabaseClient()
@@ -303,16 +309,16 @@ export function useAccountSession() {
   }, [clearSession, userId])
 
   useEffect(() => {
-    if (!userId || !account || accountStatus !== "ready" || account.userId !== userId) return
+    if (!userId || accountStatus !== "ready" || accountUserId !== userId) return
 
     const timer = window.setTimeout(() => {
-      saveSupabaseAccount(account).catch((error) => {
+      saveSupabaseProjectSyncPayload(JSON.parse(supabaseProjectSyncPayloadSignature)).catch((error) => {
         setSyncError(getErrorMessage(error, "保存 Supabase 数据失败。"))
       })
     }, 400)
 
     return () => window.clearTimeout(timer)
-  }, [account, accountStatus, userId])
+  }, [accountStatus, accountUserId, supabaseProjectSyncPayloadSignature, userId])
 
   useEffect(() => {
     if (userId || !account) return
