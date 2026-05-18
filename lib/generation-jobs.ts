@@ -1,6 +1,7 @@
 import { getSupabaseServerClient } from "@/lib/server-supabase"
 import { deleteGeneratedImageByPublicUrl, describeServerError, getGeneratedStorageObjectPath } from "@/lib/server-supabase"
 import type { GenerationKind, NormalizedTaskStatus } from "@/lib/generation-types"
+import { buildGenerationFailureRefundReason } from "@/lib/generation-ledger"
 import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 
 export type GenerationJobStatus = "submitted" | "processing" | "completed" | "failed" | "partial_completed"
@@ -235,10 +236,10 @@ export async function updateActiveGenerationJob(
 
 export async function failGenerationJobWithRefund({
   jobId,
-  reason = generationTimeoutMessage,
+  reason,
 }: {
   jobId: string
-  reason?: string
+  reason: string
 }) {
   const { data, error } = await getSupabaseServerClient().rpc("fail_generation_job_with_refund", {
     p_job_id: jobId,
@@ -589,7 +590,15 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
   if (isTerminalGenerationJobStatus(job.status)) return job
 
   if (!job.upstream_task_id) {
-    return failGenerationJobWithRefund({ jobId: job.id })
+    return failGenerationJobWithRefund({
+      jobId: job.id,
+      reason: buildGenerationFailureRefundReason({
+        error: generationTimeoutMessage,
+        model: job.model,
+        provider: job.provider,
+        type: job.type,
+      }),
+    })
   }
 
   if ((job.provider === "toapis" || job.provider === "apimart") && job.type === "image") {
@@ -635,7 +644,15 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
     }
 
     if (status === "failed") {
-      return failGenerationJobWithRefund({ jobId: job.id, reason: taskError || `AI 生成失败退款 · ${job.model}` })
+      return failGenerationJobWithRefund({
+        jobId: job.id,
+        reason: buildGenerationFailureRefundReason({
+          error: taskError,
+          model: job.model,
+          provider: job.provider,
+          type: job.type,
+        }),
+      })
     }
 
     const completedAt = job.completed_at ?? new Date().toISOString()

@@ -16,6 +16,7 @@ import {
   getReferenceStorageObjectPath,
   persistRemoteGeneratedImage,
 } from "@/lib/server-supabase"
+import { buildGenerationFailureRefundReason } from "@/lib/generation-ledger"
 
 const baseRetryMs = 60 * 1000
 const maxRetryMs = 30 * 60 * 1000
@@ -76,7 +77,12 @@ export async function syncApimartGenerationJob(
     if (status === "failed" && lockedJob.status !== "failed") {
       const failedJob = await failGenerationJobWithRefund({
         jobId: lockedJob.id,
-        reason: taskError || `AI 生成失败退款 · ${lockedJob.model}`,
+        reason: buildGenerationFailureRefundReason({
+          error: taskError,
+          model: lockedJob.model,
+          provider: lockedJob.provider,
+          type: lockedJob.type,
+        }),
       })
       await cleanupReferenceUrls(lockedJob.storage_urls)
       logApimartSync("failed_refund", {

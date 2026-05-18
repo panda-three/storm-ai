@@ -5,7 +5,7 @@ import { AlertCircle, CheckCircle2, Loader2, LockKeyhole, LogOut } from "lucide-
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { signInAndClaimSession, getSupabaseClient } from "@/lib/supabase"
+import { releaseCurrentAuthSession, signInAndClaimSession, getSupabaseClient } from "@/lib/supabase"
 
 interface ForcedPasswordChangeProps {
   onChanged: () => Promise<void> | void
@@ -91,6 +91,7 @@ export function ForcedPasswordChange({ onChanged, onSignOut }: ForcedPasswordCha
       setNewPassword("")
       setConfirmPassword("")
       const supabase = getSupabaseClient()
+      await releaseCurrentAuthSession(supabase).catch(() => undefined)
       try {
         await signInAndClaimSession({
           email,

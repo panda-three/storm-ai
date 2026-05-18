@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     ] = await Promise.all([
       supabase
         .from("user_accounts")
-        .select("user_id, username, credit_balance, ledger, role, updated_at, membership_tier, membership_expires_at, membership_free_image_qualities, must_change_password, temporary_password_set_at, temporary_password_set_by")
+        .select("user_id, username, credit_balance, ledger, role, updated_at, membership_tier, membership_expires_at, membership_free_image_qualities, must_change_password, temporary_password_set_at, temporary_password_set_by, allow_multi_device_sessions")
         .order("updated_at", { ascending: false })
         .limit(100),
       supabase

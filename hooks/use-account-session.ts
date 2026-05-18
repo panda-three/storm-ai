@@ -20,6 +20,7 @@ import {
   getSupabaseProjectSyncPayload,
   getSupabaseClient,
   loadSupabaseAccount,
+  releaseCurrentAuthSession,
   saveSupabaseProjectSyncPayload,
 } from "@/lib/supabase"
 
@@ -56,7 +57,9 @@ function isSessionInvalidError(error: unknown) {
   return (
     isInvalidRefreshTokenError(error) ||
     message.includes("登录状态已失效") ||
-    message.includes("请先登录")
+    message.includes("请先登录") ||
+    message.includes("其他设备登录") ||
+    message.includes("登录占用已失效")
   )
 }
 
@@ -195,7 +198,12 @@ export function useAccountSession() {
         return
       }
 
-      await claimCurrentAuthSession(supabase)
+      try {
+        await claimCurrentAuthSession(supabase)
+      } catch (error) {
+        await clearSession(getErrorMessage(error, "该账号已在其他设备登录，请先退出旧设备或联系管理员解除。"))
+        return
+      }
       if (!active) return
 
       setUser(userData.user)
@@ -242,6 +250,27 @@ export function useAccountSession() {
       data.subscription.unsubscribe()
     }
   }, [clearSession])
+
+  useEffect(() => {
+    if (!userId) return
+
+    const supabase = getSupabaseClient()
+    if (!supabase) return
+
+    const refreshActiveSession = () => {
+      claimCurrentAuthSession(supabase).catch((error) => {
+        if (isSessionInvalidError(error)) {
+          clearSession(getErrorMessage(error, "该账号已在其他设备登录，请重新登录。"))
+          return
+        }
+
+        setSyncError(getErrorMessage(error, "刷新登录设备状态失败。"))
+      })
+    }
+
+    const timer = window.setInterval(refreshActiveSession, 5 * 60 * 1000)
+    return () => window.clearInterval(timer)
+  }, [clearSession, userId])
 
   useEffect(() => {
     let active = true
@@ -374,6 +403,7 @@ export function useAccountSession() {
   const signOut = useCallback(async () => {
     const supabase = getSupabaseClient()
     if (supabase) {
+      await releaseCurrentAuthSession(supabase).catch(() => undefined)
       const { error } = await supabase.auth.signOut()
       if (error && isInvalidRefreshTokenError(error)) {
         await clearLocalSupabaseSession(supabase)

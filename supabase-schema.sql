@@ -9,6 +9,7 @@ create table if not exists public.user_accounts (
   ledger jsonb not null default '[]'::jsonb,
   redeemed_codes jsonb not null default '[]'::jsonb,
   role text not null default 'user' check (role in ('user', 'admin')),
+  allow_multi_device_sessions boolean not null default false,
   must_change_password boolean not null default false,
   temporary_password_set_at timestamptz,
   temporary_password_set_by uuid references auth.users(id) on delete set null,
@@ -17,6 +18,7 @@ create table if not exists public.user_accounts (
 );
 
 alter table public.user_accounts add column if not exists role text not null default 'user';
+alter table public.user_accounts add column if not exists allow_multi_device_sessions boolean not null default false;
 alter table public.user_accounts add column if not exists username text;
 alter table public.user_accounts add column if not exists must_change_password boolean not null default false;
 alter table public.user_accounts add column if not exists temporary_password_set_at timestamptz;
@@ -75,12 +77,17 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
+  select coalesce((
+    select account.allow_multi_device_sessions
+    from public.user_accounts as account
+    where account.user_id = auth.uid()
+  ), false) or exists (
     select 1
-    from public.user_active_sessions
-    where user_id = auth.uid()
-      and session_id = public.current_auth_session_id()
-      and revoked_at is null
+    from public.user_active_sessions as active_session
+    where active_session.user_id = auth.uid()
+      and active_session.session_id = public.current_auth_session_id()
+      and active_session.revoked_at is null
+      and active_session.last_seen_at > now() - interval '7 days'
   );
 $$;
 
@@ -112,11 +119,21 @@ declare
   v_user_id uuid := auth.uid();
   v_session_id text := public.current_auth_session_id();
   v_device_label text := left(coalesce(nullif(trim(p_device_label), ''), '未知设备'), 160);
+  v_allow_multi boolean := false;
   v_existing public.user_active_sessions%rowtype;
 begin
   if v_user_id is null or v_session_id is null then
     raise exception '请先登录后再继续。';
   end if;
+
+  insert into public.user_accounts (user_id)
+  values (v_user_id)
+  on conflict (user_id) do nothing;
+
+  select allow_multi_device_sessions
+  into v_allow_multi
+  from public.user_accounts
+  where user_id = v_user_id;
 
   select *
   into v_existing
@@ -145,6 +162,21 @@ begin
     return jsonb_build_object('ok', true, 'claimed', true);
   end if;
 
+  if v_allow_multi then
+    update public.user_active_sessions
+    set
+      session_id = v_session_id,
+      device_label = v_device_label,
+      last_seen_at = now(),
+      revoked_at = null,
+      revoked_reason = null,
+      revoked_by = null,
+      updated_at = now()
+    where user_id = v_user_id;
+
+    return jsonb_build_object('ok', true, 'claimed', false, 'multiDevice', true);
+  end if;
+
   if v_existing.session_id = v_session_id and v_existing.revoked_at is null then
     update public.user_active_sessions
     set
@@ -154,6 +186,10 @@ begin
     where user_id = v_user_id;
 
     return jsonb_build_object('ok', true, 'claimed', false);
+  end if;
+
+  if v_existing.revoked_at is null and v_existing.last_seen_at > now() - interval '7 days' then
+    raise exception '该账号已在其他设备登录，请先退出旧设备或联系管理员解除。';
   end if;
 
   update public.user_active_sessions
@@ -932,6 +968,8 @@ begin
     raise exception '请先登录后再兑换。';
   end if;
 
+  perform public.assert_current_active_session();
+
   if v_code = '' then
     raise exception '请输入兑换码。';
   end if;
@@ -1072,6 +1110,8 @@ begin
     raise exception '请先登录后再保存历史项目。';
   end if;
 
+  perform public.assert_current_active_session();
+
   if jsonb_typeof(coalesce(p_projects, '[]'::jsonb)) <> 'array' then
     raise exception '历史项目格式不正确。';
   end if;
@@ -1141,6 +1181,8 @@ begin
     raise exception '请先登录后再生成。';
   end if;
 
+  perform public.assert_current_active_session();
+
   if p_amount <= 0 then
     raise exception '扣费点数必须大于 0。';
   end if;
@@ -1207,6 +1249,8 @@ begin
   if v_user_id is null then
     raise exception '请先登录后再退款。';
   end if;
+
+  perform public.assert_current_active_session();
 
   if p_amount <= 0 then
     raise exception '退款点数必须大于 0。';
@@ -1642,6 +1686,8 @@ begin
   if not public.is_admin() then
     raise exception '无管理员权限。';
   end if;
+
+  perform public.assert_current_active_session();
 
   if p_type not in ('image', 'video') then
     raise exception '模型类型无效。';

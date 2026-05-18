@@ -20,6 +20,7 @@ import {
   type StoredReferenceImage,
   validateReferenceImageMetadata,
 } from "@/lib/reference-images"
+import { buildGenerationSubmitFailureRefundReason } from "@/lib/generation-ledger"
 
 const maxDefaultVideoReferenceImages = 4
 const maxYunwuVeoComponentsReferenceImages = 3
@@ -34,9 +35,10 @@ interface PreparedVideoReferenceImage {
 }
 
 export async function POST(request: Request) {
-  let billingReason = ""
   let clientRequestId = ""
   let jobId = ""
+  let jobModel = ""
+  let jobProvider = ""
   let upstreamTaskId = ""
   let userId = ""
   let preparedReferenceImages: PreparedVideoReferenceImage[] = []
@@ -55,6 +57,7 @@ export async function POST(request: Request) {
     }
 
     const model = String(getValue("model") ?? yunwuVeo31FastVideoModelName)
+    jobModel = model
     const duration = String(getValue("duration") ?? "8 秒")
     const quality = String(getValue("quality") ?? "720P")
     const aspectRatio = String(getValue("aspectRatio") ?? "16:9")
@@ -101,7 +104,8 @@ export async function POST(request: Request) {
 
     const billingAmount = calculatePricingCredits(pricing)
     const billingReference = `generate_video_${Date.now()}_${crypto.randomUUID()}`
-    billingReason = `AI 视频 · ${model} · ${duration} · ${quality} · ${aspectRatio}`
+    const billingReason = `AI 视频 · ${model} · ${duration} · ${quality} · ${aspectRatio}`
+    jobProvider = "yunwu"
 
     logGenerateVideo("input", {
       contentType: body instanceof FormData ? "multipart/form-data" : "application/json",
@@ -231,7 +235,12 @@ export async function POST(request: Request) {
 
       await failGenerationJobWithRefund({
         jobId,
-        reason: `${billingReason || "AI 视频"}提交失败退款：${message}`,
+        reason: buildGenerationSubmitFailureRefundReason({
+          error: message,
+          model: jobModel || "unknown",
+          provider: jobProvider || "unknown",
+          type: "video",
+        }),
       }).catch(() => undefined)
     }
 

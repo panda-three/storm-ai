@@ -53,6 +53,10 @@ import {
 } from "@/lib/reference-images"
 import { assertApimartConfigured, createApimartGptImage2Task } from "@/lib/apimart"
 import { assertToapisConfigured, createToapisGptImageTask } from "@/lib/toapis"
+import {
+  buildGenerationPartialFailureRefundReason,
+  buildGenerationSubmitFailureRefundReason,
+} from "@/lib/generation-ledger"
 
 interface PreparedReferenceImage {
   buffer: Buffer
@@ -64,9 +68,10 @@ interface PreparedReferenceImage {
 }
 
 export async function POST(request: Request) {
-  let billingReason = ""
   let clientRequestId = ""
   let jobId = ""
+  let jobModel = ""
+  let jobProvider = ""
   let stage = "authenticate"
   let upstreamTaskId = ""
   let userId = ""
@@ -87,6 +92,7 @@ export async function POST(request: Request) {
     }
 
     const model = String(getValue("model") ?? yunwuGeminiImageModelName)
+    jobModel = model
     const quality = String(getValue("quality") ?? "2K")
     const ratio = String(getValue("ratio") ?? "1:1")
     const imageCount = parseImageCount(getValue("imageCount"))
@@ -140,7 +146,7 @@ export async function POST(request: Request) {
 
     let billingAmount = calculatePricingCredits(pricing) * imageCount
     const billingReference = `generate_image_${Date.now()}_${crypto.randomUUID()}`
-    billingReason = `AI 生图 · ${model} · ${quality} · ${imageCount} 张`
+    let billingReason = `AI 生图 · ${model} · ${quality} · ${imageCount} 张`
     stage = "load_membership"
     const membershipCoversQuality = await hasActiveImageMembership({
       quality,
@@ -176,6 +182,7 @@ export async function POST(request: Request) {
     const isApimartImage = isApimartImageModel(model)
     const isToapisImage = isToapisImageModel(model)
     const provider = isApimartImage ? apimartImageProviderName : isToapisImage ? toapisImageProviderName : "yunwu"
+    jobProvider = provider
     logGenerateImage("provider route", {
       isApimartImage,
       isToapisImage,
@@ -489,7 +496,13 @@ export async function POST(request: Request) {
       const partialRefundAmount = calculatePartialRefundAmount(billingAmount, imageUrls.length, imageCount)
       await refundImageGenerationCredits({
         amount: partialRefundAmount,
-        reason: `AI 生图部分失败退款 · ${model} · ${imageCount - imageUrls.length}/${imageCount} 张`,
+        reason: buildGenerationPartialFailureRefundReason({
+          expectedCount: imageCount,
+          failedCount: imageCount - imageUrls.length,
+          model,
+          provider,
+          type: "image",
+        }),
         reference: buildPartialRefundReference(billingReference, imageUrls.length, imageCount),
         userId,
       })
@@ -543,7 +556,12 @@ export async function POST(request: Request) {
 
       await failGenerationJobWithRefund({
         jobId,
-        reason: `${billingReason || "AI 生图"}提交失败退款：${failureMessage}`,
+        reason: buildGenerationSubmitFailureRefundReason({
+          error: failureMessage,
+          model: jobModel || "unknown",
+          provider: jobProvider || "unknown",
+          type: "image",
+        }),
       }).catch(() => undefined)
     }
 

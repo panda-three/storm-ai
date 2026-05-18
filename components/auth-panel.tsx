@@ -21,6 +21,7 @@ import {
   getSupabaseClient,
   getSupabaseErrorMessage,
   isSupabaseConfigured,
+  signInAndClaimSession,
 } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 
@@ -341,18 +342,18 @@ export function AuthPanel({ onAuthed, variant = "page" }: AuthPanelProps) {
           return
         }
 
-        await claimCurrentAuthSession(supabase)
+        try {
+          await claimCurrentAuthSession(supabase)
+        } catch (error) {
+          await clearSupabaseLocalSession(supabase)
+          throw error
+        }
       } else {
-        await clearSupabaseLocalSession(supabase)
-
-        const { error } = await supabase.auth.signInWithPassword({
+        await signInAndClaimSession({
           email: normalizedEmail,
           password,
+          supabase,
         })
-
-        if (error) throw error
-
-        await claimCurrentAuthSession(supabase)
       }
 
       onAuthed()

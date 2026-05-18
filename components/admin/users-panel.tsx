@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Copy, KeyRound, Loader2, LogOut, Monitor, ShieldAlert } from "lucide-react"
+import { Copy, KeyRound, Loader2, LogOut, Monitor, ShieldAlert, Smartphone } from "lucide-react"
 import { useAdmin } from "@/components/admin/admin-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -56,6 +56,42 @@ export function UsersPanel() {
     } catch (error) {
       setFeedback({
         message: error instanceof Error ? error.message : "解除登录占用失败。",
+        type: "error",
+      })
+    } finally {
+      setLoadingUserId("")
+    }
+  }
+
+  const handleToggleMultiDevice = async (account: AdminAccountSummary) => {
+    setLoadingUserId(account.user_id)
+
+    try {
+      const token = await getAccessToken()
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(account.user_id)}/session-policy`, {
+        body: JSON.stringify({
+          allowMultiDeviceSessions: !account.allow_multi_device_sessions,
+        }),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        method: "PATCH",
+      })
+      const payload = await response.json().catch(() => ({}))
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "更新登录策略失败。")
+      }
+
+      setFeedback({
+        message: account.allow_multi_device_sessions ? "已恢复单设备登录限制。" : "已允许该账号多设备登录。",
+        type: "success",
+      })
+      await refreshAdminConfig()
+    } catch (error) {
+      setFeedback({
+        message: error instanceof Error ? error.message : "更新登录策略失败。",
         type: "error",
       })
     } finally {
@@ -135,6 +171,12 @@ export function UsersPanel() {
                         待改密
                       </Badge>
                     )}
+                    {item.allow_multi_device_sessions && (
+                      <Badge className="border-violet-200 bg-violet-50 text-violet-700" variant="outline">
+                        <Smartphone className="h-3 w-3" />
+                        多设备
+                      </Badge>
+                    )}
                     {item.active_session_last_seen_at && !item.active_session_revoked_at && (
                       <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700" variant="outline">
                         <Monitor className="h-3 w-3" />
@@ -182,6 +224,16 @@ export function UsersPanel() {
                   >
                     {loadingUserId === item.user_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
                     解除登录占用
+                  </Button>
+                  <Button
+                    disabled={loadingUserId === item.user_id}
+                    onClick={() => handleToggleMultiDevice(item)}
+                    size="sm"
+                    type="button"
+                    variant={item.allow_multi_device_sessions ? "secondary" : "outline"}
+                  >
+                    {loadingUserId === item.user_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}
+                    {item.allow_multi_device_sessions ? "关闭多设备" : "允许多设备"}
                   </Button>
                   <Button
                     disabled={item.role === "admin" || loadingUserId === item.user_id}

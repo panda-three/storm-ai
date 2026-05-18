@@ -9,6 +9,7 @@ export interface AuthenticatedRequestUser {
 
 interface RequireAuthenticatedUserOptions {
   allowPasswordChangeRequired?: boolean
+  allowInactiveSession?: boolean
 }
 
 export class ServerResponseError extends Error {
@@ -126,26 +127,64 @@ export async function requireAuthenticatedUser(
     throw new ServerResponseError("登录状态缺少会话标识，请重新登录。", 401)
   }
 
-  if (!options.allowPasswordChangeRequired) {
-    const { data: account, error: accountError } = await getSupabaseServerClient()
-      .from("user_accounts")
-      .select("must_change_password")
-      .eq("user_id", data.user.id)
-      .maybeSingle()
+  const { data: account, error: accountError } = await getSupabaseServerClient()
+    .from("user_accounts")
+    .select("must_change_password, allow_multi_device_sessions")
+    .eq("user_id", data.user.id)
+    .maybeSingle()
 
-    if (accountError) {
-      throw new Error(describeServerError(accountError, "读取账户安全状态失败。"), { cause: accountError })
-    }
+  if (accountError) {
+    throw new Error(describeServerError(accountError, "读取账户安全状态失败。"), { cause: accountError })
+  }
 
-    if (account?.must_change_password) {
-      throw new Error("请先修改临时密码后再继续。")
-    }
+  if (!options.allowInactiveSession && !account?.allow_multi_device_sessions) {
+    await assertServerActiveSession({
+      sessionId,
+      userId: data.user.id,
+    })
+  }
+
+  if (!options.allowPasswordChangeRequired && account?.must_change_password) {
+    throw new Error("请先修改临时密码后再继续。")
   }
 
   return {
     sessionId,
     token,
     userId: data.user.id,
+  }
+}
+
+async function assertServerActiveSession({ sessionId, userId }: { sessionId: string; userId: string }) {
+  const { data, error } = await getSupabaseServerClient()
+    .from("user_active_sessions")
+    .select("session_id, last_seen_at, revoked_at")
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(describeServerError(error, "读取登录设备状态失败。"), { cause: error })
+  }
+
+  const lastSeenAt = data?.last_seen_at ? new Date(data.last_seen_at).getTime() : 0
+  const stale = !lastSeenAt || Date.now() - lastSeenAt > 7 * 24 * 60 * 60 * 1000
+
+  if (!data || data.session_id !== sessionId || data.revoked_at || stale) {
+    throw new ServerResponseError("该账号已在其他设备登录或登录占用已失效，请重新登录。", 401)
+  }
+
+  const { error: updateError } = await getSupabaseServerClient()
+    .from("user_active_sessions")
+    .update({
+      last_seen_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("session_id", sessionId)
+    .is("revoked_at", null)
+
+  if (updateError) {
+    throw new Error(describeServerError(updateError, "刷新登录设备状态失败。"), { cause: updateError })
   }
 }
 

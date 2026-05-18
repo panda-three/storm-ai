@@ -17,6 +17,10 @@ import {
   refundGenerationCredits,
   deleteReferenceImageByPublicUrl,
 } from "@/lib/server-supabase"
+import {
+  buildGenerationFailureRefundReason,
+  buildGenerationPartialFailureRefundReason,
+} from "@/lib/generation-ledger"
 
 const baseRetryMs = 60 * 1000
 const maxRetryMs = 30 * 60 * 1000
@@ -89,7 +93,12 @@ export async function syncToapisGenerationJob(
     if (status === "failed" && lockedJob.status !== "failed") {
       const failedJob = await failGenerationJobWithRefund({
         jobId: lockedJob.id,
-        reason: taskError || `AI 生成失败退款 · ${lockedJob.model}`,
+        reason: buildGenerationFailureRefundReason({
+          error: taskError,
+          model: lockedJob.model,
+          provider: lockedJob.provider,
+          type: lockedJob.type,
+        }),
       })
       await cleanupReferenceUrls(lockedJob.storage_urls)
       logToapisSync("failed_refund", {
@@ -127,7 +136,13 @@ export async function syncToapisGenerationJob(
       await refundJobCredits({
         amount: calculatePartialRefundAmount(lockedJob.amount, resultUrls.length, expectedResultCount),
         job: lockedJob,
-        reason: `AI 生图部分失败退款 · ${lockedJob.model} · ${expectedResultCount - resultUrls.length}/${expectedResultCount} 张`,
+        reason: buildGenerationPartialFailureRefundReason({
+          expectedCount: expectedResultCount,
+          failedCount: expectedResultCount - resultUrls.length,
+          model: lockedJob.model,
+          provider: lockedJob.provider,
+          type: lockedJob.type,
+        }),
         reference: buildPartialRefundReference(lockedJob.reference, resultUrls.length, expectedResultCount),
       })
     }

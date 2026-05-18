@@ -18,6 +18,7 @@ import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 import { syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
 import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
 import { getServerErrorStatus, requireAuthenticatedUser } from "@/lib/server-supabase"
+import { buildGenerationFailureRefundReason } from "@/lib/generation-ledger"
 
 const videoMissingResultRetryMs = 90 * 1000
 
@@ -86,7 +87,12 @@ export async function GET(
       if (status === "failed") {
         const failedJob = await failGenerationJobWithRefund({
           jobId: recoveredJob.id,
-          reason: taskError || `AI 生成失败退款 · ${recoveredJob.model}`,
+          reason: buildGenerationFailureRefundReason({
+            error: taskError,
+            model: recoveredJob.model,
+            provider: recoveredJob.provider,
+            type: recoveredJob.type,
+          }),
         })
         return NextResponse.json(normalizeJobTaskStatus(failedJob))
       }

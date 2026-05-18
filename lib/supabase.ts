@@ -5,6 +5,7 @@ import { isDeletedProjectItem } from "@/lib/project-history"
 export type PackageType = "credits" | "membership"
 
 export interface SupabaseAccountRow {
+  allow_multi_device_sessions: boolean
   credit_balance: number
   ledger: LocalAccountData["ledger"]
   membership_expires_at: string | null
@@ -104,6 +105,7 @@ export interface AdminAccountSummary {
   active_session_last_seen_at: string | null
   active_session_revoked_at: string | null
   active_session_revoked_reason: string | null
+  allow_multi_device_sessions: boolean
   credit_balance: number
   email: string | null
   email_confirmed_at: string | null
@@ -121,6 +123,7 @@ export interface AdminAccountSummary {
 }
 
 export interface AdminAccountRow {
+  allow_multi_device_sessions: boolean
   credit_balance: number
   ledger: LocalAccountData["ledger"]
   membership_expires_at: string | null
@@ -218,6 +221,13 @@ export async function claimCurrentAuthSession(supabase = getSupabaseClient()) {
   if (error) throw error
 }
 
+export async function releaseCurrentAuthSession(supabase = getSupabaseClient()) {
+  if (!supabase) return
+
+  const { error } = await supabase.rpc("release_current_auth_session")
+  if (error) throw error
+}
+
 export async function signInAndClaimSession({
   email,
   password,
@@ -238,7 +248,12 @@ export async function signInAndClaimSession({
 
   if (error) throw error
 
-  await claimCurrentAuthSession(supabase)
+  try {
+    await claimCurrentAuthSession(supabase)
+  } catch (error) {
+    await clearSupabaseLocalSession(supabase)
+    throw error
+  }
 }
 
 export function getSupabaseErrorMessage(error: unknown, fallback: string) {
@@ -270,7 +285,7 @@ export async function loadSupabaseAccount(userId: string): Promise<SupabaseAccou
 
   const { data, error } = await supabase
     .from("user_accounts")
-    .select("user_id, username, credit_balance, projects, ledger, redeemed_codes, role, membership_tier, membership_expires_at, membership_free_image_qualities, must_change_password, temporary_password_set_at, temporary_password_set_by")
+    .select("user_id, username, credit_balance, projects, ledger, redeemed_codes, role, membership_tier, membership_expires_at, membership_free_image_qualities, must_change_password, temporary_password_set_at, temporary_password_set_by, allow_multi_device_sessions")
     .eq("user_id", userId)
     .maybeSingle()
 
