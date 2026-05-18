@@ -26,7 +26,7 @@ import {
 import { cn } from "@/lib/utils"
 
 interface AuthPanelProps {
-  onAuthed: () => void
+  onAuthed: () => Promise<void> | void
   variant?: "page" | "landing"
 }
 
@@ -356,7 +356,7 @@ export function AuthPanel({ onAuthed, variant = "page" }: AuthPanelProps) {
         })
       }
 
-      onAuthed()
+      await onAuthed()
     } catch (error) {
       setError(getSupabaseErrorMessage(error, "认证失败，请稍后重试。"))
     } finally {

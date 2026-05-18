@@ -270,6 +270,26 @@ export function useAccountSession() {
         return
       }
 
+      if (event === "SIGNED_IN") {
+        window.setTimeout(() => {
+          claimCurrentAuthSession(supabase).then(() => {
+            setUser((current) => {
+              const nextUser = session?.user ?? null
+
+              if (current?.id === nextUser?.id) {
+                return current
+              }
+
+              return nextUser
+            })
+            setAuthReady(true)
+          }).catch((error) => {
+            clearSession(getErrorMessage(error, "该账号已在其他设备登录，请先退出旧设备或联系管理员解除。"))
+          })
+        }, 0)
+        return
+      }
+
       setUser((current) => {
         const nextUser = session?.user ?? null
 
