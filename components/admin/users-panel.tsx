@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ChevronLeft, ChevronRight, Copy, KeyRound, Loader2, LogOut, Monitor, ShieldAlert, Smartphone } from "lucide-react"
 import { useAdmin } from "@/components/admin/admin-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -31,6 +32,7 @@ async function getAccessToken() {
 export function UsersPanel() {
   const {
     adminAccounts,
+    adminAccountsEmailSearch,
     adminAccountsLoading,
     adminAccountsPage,
     adminAccountsPageSize,
@@ -40,10 +42,26 @@ export function UsersPanel() {
     setFeedback,
   } = useAdmin()
   const [selectedAccount, setSelectedAccount] = useState<AdminAccountSummary | null>(null)
+  const [emailSearchInput, setEmailSearchInput] = useState(adminAccountsEmailSearch)
   const [temporaryPassword, setTemporaryPassword] = useState("")
   const [loadingUserId, setLoadingUserId] = useState("")
   const pageStart = adminAccountsTotal === 0 ? 0 : (adminAccountsPage - 1) * adminAccountsPageSize + 1
   const pageEnd = Math.min(adminAccountsPage * adminAccountsPageSize, adminAccountsTotal)
+  const hasEmailSearch = Boolean(adminAccountsEmailSearch)
+
+  useEffect(() => {
+    setEmailSearchInput(adminAccountsEmailSearch)
+  }, [adminAccountsEmailSearch])
+
+  const handleEmailSearch = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    await refreshAdminAccounts({ emailSearch: emailSearchInput.trim(), page: 1 })
+  }
+
+  const handleClearEmailSearch = async () => {
+    setEmailSearchInput("")
+    await refreshAdminAccounts({ emailSearch: "", page: 1 })
+  }
 
   const handleRevokeActiveSession = async (account: AdminAccountSummary) => {
     setLoadingUserId(account.user_id)
@@ -63,7 +81,7 @@ export function UsersPanel() {
       }
 
       setFeedback({ message: "登录占用已解除。", type: "success" })
-      await refreshAdminAccounts(adminAccountsPage)
+      await refreshAdminAccounts({ emailSearch: adminAccountsEmailSearch, page: adminAccountsPage })
     } catch (error) {
       setFeedback({
         message: error instanceof Error ? error.message : "解除登录占用失败。",
@@ -99,7 +117,7 @@ export function UsersPanel() {
         message: account.allow_multi_device_sessions ? "已恢复单设备登录限制。" : "已允许该账号多设备登录。",
         type: "success",
       })
-      await refreshAdminAccounts(adminAccountsPage)
+      await refreshAdminAccounts({ emailSearch: adminAccountsEmailSearch, page: adminAccountsPage })
     } catch (error) {
       setFeedback({
         message: error instanceof Error ? error.message : "更新登录策略失败。",
@@ -132,7 +150,7 @@ export function UsersPanel() {
 
       setTemporaryPassword(payload.temporaryPassword)
       setFeedback({ message: "临时密码已生成，只会显示一次。", type: "success" })
-      await refreshAdminAccounts(adminAccountsPage)
+      await refreshAdminAccounts({ emailSearch: adminAccountsEmailSearch, page: adminAccountsPage })
     } catch (error) {
       setFeedback({
         message: error instanceof Error ? error.message : "生成临时密码失败。",
@@ -168,6 +186,32 @@ export function UsersPanel() {
           {adminAccountsTotal > 0 ? `${pageStart}-${pageEnd} / ${adminAccountsTotal}` : "0 / 0"}
         </div>
       </div>
+      <form className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end" onSubmit={handleEmailSearch}>
+        <label className="grid flex-1 gap-1">
+          <span className="text-sm font-medium text-slate-700">按邮箱搜索</span>
+          <Input
+            className="h-10 bg-slate-50 focus-visible:ring-indigo-100"
+            onChange={(event) => setEmailSearchInput(event.target.value)}
+            placeholder="输入邮箱或邮箱片段"
+            type="search"
+            value={emailSearchInput}
+          />
+        </label>
+        <div className="flex gap-2">
+          <Button disabled={adminAccountsLoading} type="submit">
+            {adminAccountsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            搜索
+          </Button>
+          <Button disabled={adminAccountsLoading || (!emailSearchInput && !hasEmailSearch)} onClick={handleClearEmailSearch} type="button" variant="outline">
+            清除
+          </Button>
+        </div>
+      </form>
+      {hasEmailSearch && (
+        <div className="mt-2 text-xs text-slate-500">
+          当前搜索：{adminAccountsEmailSearch}
+        </div>
+      )}
       <div className="mt-4 grid gap-3">
         {adminAccountsLoading ? (
           <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
@@ -175,7 +219,9 @@ export function UsersPanel() {
             正在加载用户...
           </div>
         ) : adminAccounts.length === 0 ? (
-          <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">暂无用户账户。</div>
+          <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+            {hasEmailSearch ? "没有匹配该邮箱的用户。" : "暂无用户账户。"}
+          </div>
         ) : (
           adminAccounts.map((item) => (
             <div className="rounded-lg border border-slate-200 p-4" key={item.user_id}>
@@ -279,7 +325,7 @@ export function UsersPanel() {
         <div className="flex items-center gap-2">
           <Button
             disabled={adminAccountsLoading || adminAccountsPage <= 1}
-            onClick={() => refreshAdminAccounts(adminAccountsPage - 1)}
+            onClick={() => refreshAdminAccounts({ emailSearch: adminAccountsEmailSearch, page: adminAccountsPage - 1 })}
             type="button"
             variant="outline"
           >
@@ -288,7 +334,7 @@ export function UsersPanel() {
           </Button>
           <Button
             disabled={adminAccountsLoading || adminAccountsPage >= adminAccountsTotalPages}
-            onClick={() => refreshAdminAccounts(adminAccountsPage + 1)}
+            onClick={() => refreshAdminAccounts({ emailSearch: adminAccountsEmailSearch, page: adminAccountsPage + 1 })}
             type="button"
             variant="outline"
           >

@@ -25,6 +25,8 @@ import {
 
 const emptyAdminAccountsPage = {
   accounts: [],
+  emailSearch: "",
+  includeLedger: false,
   page: 1,
   pageSize: 10,
   total: 0,
@@ -41,6 +43,7 @@ type Feedback =
 interface AdminContextValue {
   adminAccounts: AdminAccountSummary[]
   adminAccountsLoading: boolean
+  adminAccountsEmailSearch: string
   adminAccountsPage: number
   adminAccountsPageSize: number
   adminAccountsTotal: number
@@ -52,8 +55,8 @@ interface AdminContextValue {
   modelPricing: ModelPricing[]
   modelConfigs: ModelConfig[]
   redeemCodes: RedeemCode[]
-  refreshAdminAccounts: (page?: number) => Promise<void>
-  refreshAdminConfig: (options?: { includeModelConfig?: boolean; accountsPage?: number }) => Promise<void>
+  refreshAdminAccounts: (options?: { emailSearch?: string; includeLedger?: boolean; page?: number }) => Promise<void>
+  refreshAdminConfig: (options?: { accountsEmailSearch?: string; accountsPage?: number; includeModelConfig?: boolean }) => Promise<void>
   saving: boolean
   setCreditPackages: (packages: CreditPackage[]) => void
   setCustomerService: (settings: CustomerServiceSettings) => void
@@ -93,6 +96,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   })
   const [creditPackages, setCreditPackages] = useState<CreditPackage[]>([])
   const [adminAccounts, setAdminAccounts] = useState<AdminAccountSummary[]>([])
+  const [adminAccountsEmailSearch, setAdminAccountsEmailSearch] = useState("")
   const [adminAccountsLoading, setAdminAccountsLoading] = useState(false)
   const [adminAccountsPage, setAdminAccountsPage] = useState(1)
   const [adminAccountsTotal, setAdminAccountsTotal] = useState(0)
@@ -107,6 +111,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   const accountUserId = account?.userId ?? ""
   const adminAccountsPageSize = 10
   const shouldLoadAdminAccounts = pathname === "/admin" || pathname === "/admin/users" || pathname === "/admin/ledger"
+  const shouldLoadAdminAccountLedger = pathname === "/admin/ledger"
 
   const refreshModelConfig = useCallback(async () => {
     setModelConfigLoading(true)
@@ -124,12 +129,13 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
 
   const resetAdminAccounts = useCallback(() => {
     setAdminAccounts([])
+    setAdminAccountsEmailSearch("")
     setAdminAccountsPage(1)
     setAdminAccountsTotal(0)
     setAdminAccountsTotalPages(1)
   }, [])
 
-  const refreshAdminAccounts = useCallback(async (page = adminAccountsPage) => {
+  const refreshAdminAccounts = useCallback(async ({ emailSearch = "", includeLedger = shouldLoadAdminAccountLedger, page = 1 }: { emailSearch?: string; includeLedger?: boolean; page?: number } = {}) => {
     if (!userId || accountStatus !== "ready" || accountUserId !== userId || !isAdmin) {
       resetAdminAccounts()
       return
@@ -137,17 +143,18 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
 
     setAdminAccountsLoading(true)
     try {
-      const accountsPage = await loadAdminAccounts({ page, pageSize: adminAccountsPageSize })
+      const accountsPage = await loadAdminAccounts({ emailSearch, includeLedger, page, pageSize: adminAccountsPageSize })
       setAdminAccounts(accountsPage.accounts)
+      setAdminAccountsEmailSearch(accountsPage.emailSearch)
       setAdminAccountsPage(accountsPage.page)
       setAdminAccountsTotal(accountsPage.total)
       setAdminAccountsTotalPages(accountsPage.totalPages)
     } finally {
       setAdminAccountsLoading(false)
     }
-  }, [accountStatus, accountUserId, adminAccountsPage, isAdmin, resetAdminAccounts, userId])
+  }, [accountStatus, accountUserId, isAdmin, resetAdminAccounts, shouldLoadAdminAccountLedger, userId])
 
-  const refreshAdminConfig = useCallback(async ({ includeModelConfig = true, accountsPage = adminAccountsPage } = {}) => {
+  const refreshAdminConfig = useCallback(async ({ accountsEmailSearch = "", accountsPage = 1, includeModelConfig = true } = {}) => {
     if (!userId || accountStatus !== "ready" || accountUserId !== userId || !isAdmin) {
       resetAdminAccounts()
       setRedeemCodes([])
@@ -164,7 +171,12 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
         ? refreshModelConfig()
         : Promise.resolve()
       const accountsPagePromise = shouldLoadAdminAccounts
-        ? loadAdminAccounts({ page: accountsPage, pageSize: adminAccountsPageSize })
+        ? loadAdminAccounts({
+          emailSearch: accountsEmailSearch,
+          includeLedger: shouldLoadAdminAccountLedger,
+          page: accountsPage,
+          pageSize: adminAccountsPageSize,
+        })
         : Promise.resolve(emptyAdminAccountsPage)
       const [settings, packages, codes, accountsPageData] = await Promise.all([
         loadCustomerServiceSettings(),
@@ -177,6 +189,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
       setCreditPackages(packages)
       setRedeemCodes(codes)
       setAdminAccounts(accountsPageData.accounts)
+      setAdminAccountsEmailSearch(accountsPageData.emailSearch)
       setAdminAccountsPage(accountsPageData.page)
       setAdminAccountsTotal(accountsPageData.total)
       setAdminAccountsTotalPages(accountsPageData.totalPages)
@@ -185,7 +198,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setAdminAccountsLoading(false)
     }
-  }, [accountStatus, accountUserId, adminAccountsPage, isAdmin, refreshModelConfig, resetAdminAccounts, setSyncError, shouldLoadAdminAccounts, userId])
+  }, [accountStatus, accountUserId, isAdmin, refreshModelConfig, resetAdminAccounts, setSyncError, shouldLoadAdminAccountLedger, shouldLoadAdminAccounts, userId])
 
   const refreshAllAdminData = useCallback(async () => {
     if (!userId || accountStatus !== "ready" || accountUserId !== userId || !isAdmin) {
@@ -214,6 +227,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       adminAccounts,
+      adminAccountsEmailSearch,
       adminAccountsLoading,
       adminAccountsPage,
       adminAccountsPageSize,
@@ -238,6 +252,7 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       adminAccounts,
+      adminAccountsEmailSearch,
       adminAccountsLoading,
       adminAccountsPage,
       adminAccountsTotal,

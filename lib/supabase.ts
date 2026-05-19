@@ -125,6 +125,8 @@ export interface AdminAccountSummary {
 
 export interface AdminAccountsPage {
   accounts: AdminAccountSummary[]
+  emailSearch: string
+  includeLedger: boolean
   page: number
   pageSize: number
   total: number
@@ -304,11 +306,13 @@ export async function loadSupabaseAccount(userId: string): Promise<SupabaseAccou
   return data as SupabaseAccountRow | null
 }
 
-export async function loadAdminAccounts({ page = 1, pageSize = 10 } = {}): Promise<AdminAccountsPage> {
+export async function loadAdminAccounts({ emailSearch = "", includeLedger = false, page = 1, pageSize = 10 } = {}): Promise<AdminAccountsPage> {
   const supabase = getSupabaseClient()
   if (!supabase) {
     return {
       accounts: [],
+      emailSearch,
+      includeLedger,
       page,
       pageSize,
       total: 0,
@@ -323,6 +327,8 @@ export async function loadAdminAccounts({ page = 1, pageSize = 10 } = {}): Promi
   if (!token) {
     return {
       accounts: [],
+      emailSearch,
+      includeLedger,
       page,
       pageSize,
       total: 0,
@@ -331,9 +337,13 @@ export async function loadAdminAccounts({ page = 1, pageSize = 10 } = {}): Promi
   }
 
   const searchParams = new URLSearchParams({
+    includeLedger: String(includeLedger),
     page: String(page),
     pageSize: String(pageSize),
   })
+  if (emailSearch.trim()) {
+    searchParams.set("email", emailSearch.trim())
+  }
   const response = await fetch(`/api/admin/users?${searchParams.toString()}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -347,6 +357,8 @@ export async function loadAdminAccounts({ page = 1, pageSize = 10 } = {}): Promi
 
   return {
     accounts: (Array.isArray(payload.accounts) ? payload.accounts : []) as AdminAccountSummary[],
+    emailSearch: typeof payload.emailSearch === "string" ? payload.emailSearch : emailSearch,
+    includeLedger: typeof payload.includeLedger === "boolean" ? payload.includeLedger : includeLedger,
     page: typeof payload.page === "number" ? payload.page : page,
     pageSize: typeof payload.pageSize === "number" ? payload.pageSize : pageSize,
     total: typeof payload.total === "number" ? payload.total : 0,
