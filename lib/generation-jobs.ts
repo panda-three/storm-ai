@@ -620,7 +620,7 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
       })
     }
 
-    const result = await getYunwuVideoTaskStatus(job.upstream_task_id)
+    const result = await getYunwuVideoTaskStatus(job.upstream_task_id, job.model)
     const resultUrls = result.videoUrl ? [result.videoUrl] : []
     const missingResultError =
       result.status === "completed" && resultUrls.length === 0 && shouldStopWaitingForVideoUrl(job)

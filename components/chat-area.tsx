@@ -18,6 +18,7 @@ import {
   isApimartImageModel,
   videoModelOptions,
   videoModelSettings,
+  yunwuSeedance15ProVideoModelName,
   yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 import {
@@ -686,7 +687,9 @@ function UploadColumn({
 }
 
 function getMaxVideoReferenceImages(model: string) {
-  return model === yunwuVeo31FastVideoModelName ? 3 : maxReferenceImages
+  if (model === yunwuVeo31FastVideoModelName) return 3
+  if (model === yunwuSeedance15ProVideoModelName) return 4
+  return maxReferenceImages
 }
 
 function PricingNotice({

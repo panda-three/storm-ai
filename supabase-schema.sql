@@ -673,7 +673,11 @@ values ('video', 'grok-video-3', 'Grok Video 3', true, false, 20)
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
-values ('video', 'grok-video-3-10s', 'Grok Video 3 10s', false, false, 30)
+values ('video', 'doubao-seedance-1-5-pro-251215', 'Seedance 1.5 Pro', true, false, 30)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+values ('video', 'grok-video-3-10s', 'Grok Video 3 10s', false, false, 40)
 on conflict (type, model) do nothing;
 
 create table if not exists public.generation_jobs (

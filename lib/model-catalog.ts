@@ -11,6 +11,7 @@ import {
   yunwuGeminiImageModelName,
   yunwuSeedream5ImageModelName,
   yunwuVeo31FastVideoModelName,
+  yunwuSeedance15ProVideoModelName,
 } from "@/lib/model-options"
 
 export type ModelKind = "image" | "video"
@@ -85,6 +86,13 @@ export const modelCatalog: ModelCatalogEntry[] = [
     apiModel: grokVideo310sModelName,
     defaultDisplayName: "Grok Video 3 10s",
     model: grokVideo310sModelName,
+    provider: "yunwu",
+    type: "video",
+  },
+  {
+    apiModel: yunwuSeedance15ProVideoModelName,
+    defaultDisplayName: "Seedance 1.5 Pro",
+    model: yunwuSeedance15ProVideoModelName,
     provider: "yunwu",
     type: "video",
   },

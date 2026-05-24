@@ -4,6 +4,7 @@ import {
   grokVideo3ModelName,
   yunwuGeminiImageModelName,
   yunwuSeedream5ImageModelName,
+  yunwuSeedance15ProVideoModelName,
   yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-types"
@@ -15,6 +16,7 @@ const yunwuGptImageTimeoutMs = 360_000
 const yunwuSeedreamImageTimeoutMs = 360_000
 const yunwuGrokImagineImageTimeoutMs = 360_000
 const yunwuVeo31FastApiModel = "veo3.1-fast"
+const yunwuSeedance15ProApiModel = yunwuSeedance15ProVideoModelName
 
 export interface YunwuReferenceImage {
   buffer: Buffer
@@ -63,6 +65,7 @@ export interface YunwuGrokImagineImageRequest {
 export interface YunwuVideoRequest {
   aspectRatio: string
   imageUrls: string[]
+  durationSeconds: number
   model: string
   prompt: string
   quality: string
@@ -351,6 +354,10 @@ async function createYunwuGptImageWithReferences(request: YunwuGptImageRequest, 
 }
 
 export async function createYunwuVideo(request: YunwuVideoRequest): Promise<GenerationResponse> {
+  if (isYunwuSeedance15ProVideoModel(request.model)) {
+    return createYunwuSeedanceVideo(request)
+  }
+
   const apiModel = getYunwuVideoApiModel(request.model)
   const payload = {
     model: apiModel,
@@ -394,28 +401,16 @@ export async function createYunwuVideo(request: YunwuVideoRequest): Promise<Gene
   return result
 }
 
-export async function getYunwuVideoTaskStatus(taskId: string): Promise<NormalizedTaskStatus> {
+export async function getYunwuVideoTaskStatus(taskId: string, model?: string): Promise<NormalizedTaskStatus> {
+  if (isYunwuSeedance15ProVideoModel(model ?? "")) {
+    return getYunwuSeedanceVideoTaskStatus(taskId)
+  }
+
   const data = await yunwuJsonRequest(`/v1/video/query?id=${encodeURIComponent(taskId)}`, {
     method: "GET",
   })
-  const status = normalizeYunwuTaskStatus(data)
-  const taskError = findYunwuTaskError(data, status)
-  const videoUrl =
-    findStringValue(data, ["upsample_video_url", "video_url", "videoUrl"]) ||
-    extractMediaUrls(data, ["video", "url", "output", "result"], ["mp4", "mov", "webm"])[0] ||
-    ""
 
-  return {
-    ok: true,
-    mode: "yunwu",
-    taskId,
-    status,
-    progress: status === "completed" || status === "failed" ? 100 : 0,
-    imageUrls: [],
-    videoUrl,
-    taskError,
-    raw: data,
-  }
+  return normalizeYunwuVideoTaskStatus(taskId, data)
 }
 
 export function isYunwuRateLimitError(message: string) {
@@ -432,6 +427,123 @@ function getYunwuVideoApiModel(model: string) {
 
 function isYunwuVeoComponentsModel(model: string) {
   return model === yunwuVeo31FastApiModel
+}
+
+function isYunwuSeedance15ProVideoModel(model: string) {
+  return model === yunwuSeedance15ProVideoModelName || model === yunwuSeedance15ProApiModel
+}
+
+async function createYunwuSeedanceVideo(request: YunwuVideoRequest): Promise<GenerationResponse> {
+  const payload = {
+    model: yunwuSeedance15ProApiModel,
+    content: buildSeedanceVideoContent(request),
+    generate_audio: true,
+  }
+
+  logYunwu("video create input", {
+    ...payload,
+    content: payload.content.length,
+    images: request.imageUrls.length,
+    model: request.model,
+  })
+
+  const data = await yunwuJsonRequest("/volc/v1/contents/generations/tasks", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+  const taskId = findStringValue(data, ["id", "task_id", "taskId"])
+  const status = normalizeYunwuStatus(findStringValue(data, ["status", "task_status"]) || "submitted")
+
+  if (!taskId) {
+    throw new Error("yw 视频接口未返回任务 ID。")
+  }
+
+  const result: GenerationResponse = {
+    ok: true,
+    mode: "yunwu",
+    taskId,
+    status,
+    type: "video",
+  }
+
+  logYunwu("video create output", result)
+  return result
+}
+
+async function getYunwuSeedanceVideoTaskStatus(taskId: string): Promise<NormalizedTaskStatus> {
+  const data = await yunwuJsonRequest(`/volc/v1/contents/generations/tasks/${encodeURIComponent(taskId)}`, {
+    method: "GET",
+  })
+
+  return normalizeYunwuVideoTaskStatus(taskId, data)
+}
+
+function normalizeYunwuVideoTaskStatus(taskId: string, data: unknown): NormalizedTaskStatus {
+  const status = normalizeYunwuTaskStatus(data)
+  const taskError = findYunwuTaskError(data, status)
+  const videoUrl =
+    findStringValue(data, ["upsample_video_url", "video_url", "videoUrl", "videoUrls", "video_urls"]) ||
+    extractMediaUrls(data, ["video", "video_url", "video_urls", "videos", "url", "urls", "output", "result", "content", "data"], [
+      "mp4",
+      "mov",
+      "webm",
+    ])[0] ||
+    ""
+
+  return {
+    ok: true,
+    mode: "yunwu",
+    taskId,
+    status,
+    progress: status === "completed" || status === "failed" ? 100 : 0,
+    imageUrls: [],
+    videoUrl,
+    taskError,
+    raw: data,
+  }
+}
+
+function buildSeedanceVideoContent(request: YunwuVideoRequest) {
+  const text = buildSeedanceVideoPrompt(request)
+  const content: Array<Record<string, unknown>> = [
+    {
+      text,
+      type: "text",
+    },
+  ]
+
+  for (const imageUrl of request.imageUrls) {
+    content.push({
+      image_url: {
+        url: imageUrl,
+      },
+      role: "reference_image",
+      type: "image_url",
+    })
+  }
+
+  return content
+}
+
+function buildSeedanceVideoPrompt(request: YunwuVideoRequest) {
+  return [
+    request.prompt.trim(),
+    `--resolution ${normalizeSeedanceResolution(request.quality)}`,
+    `--ratio ${request.aspectRatio.trim() || "16:9"}`,
+    `--duration ${normalizeSeedanceDuration(request.durationSeconds)}`,
+    "--watermark false",
+  ].join(" ")
+}
+
+function normalizeSeedanceResolution(quality: string) {
+  const normalized = quality.trim().toUpperCase()
+  return normalized === "720P" ? "720p" : "720p"
+}
+
+function normalizeSeedanceDuration(durationSeconds: number) {
+  if (!Number.isFinite(durationSeconds)) return 5
+  const value = Math.trunc(durationSeconds)
+  return Math.min(12, Math.max(4, value || 5))
 }
 
 function normalizeImageCount(value: number | undefined): number {
@@ -722,8 +834,16 @@ function hasYunwuFailureReason(data: unknown) {
 }
 
 function findYunwuTaskError(data: unknown, status: NormalizedTaskStatus["status"]) {
-  const failureReasons = collectStringValuesForKeys(data, ["failureReasons", "failure_reasons"])
-  const errorMessages = collectStringValuesForKeys(data, ["error_message", "reason", "fail_reason", "error"])
+  const failureReasons = collectStringValuesForKeys(data, ["failureReasons", "failure_reasons", "failure_reason"])
+  const errorMessages = collectStringValuesForKeys(data, [
+    "error_message",
+    "errorMessage",
+    "reason",
+    "fail_reason",
+    "failReason",
+    "error",
+    "message",
+  ])
   const messages = status === "failed" ? collectStringValuesForKeys(data, ["message"]) : []
   const allMessages = [...errorMessages, ...messages]
   const tokens = [...failureReasons, ...allMessages.flatMap(extractYunwuErrorTokens)]

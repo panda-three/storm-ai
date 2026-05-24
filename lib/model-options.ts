@@ -27,6 +27,7 @@ export const legacyApimartVeoVideoModelName = "Gemini Veo 3.1 Fast"
 export const grokImagineVideoModelName = "Grok Imagine Video"
 export const grokVideo3ModelName = "grok-video-3"
 export const grokVideo310sModelName = "grok-video-3-10s"
+export const yunwuSeedance15ProVideoModelName = "doubao-seedance-1-5-pro-251215"
 
 export const imageModelOptions = [
   yunwuGeminiImageModelName,
@@ -145,6 +146,7 @@ export const videoModelOptions = [
   yunwuVeo31FastVideoModelName,
   grokVideo3ModelName,
   grokVideo310sModelName,
+  yunwuSeedance15ProVideoModelName,
 ]
 export const adminVideoModelOptions = videoModelOptions
 
@@ -186,6 +188,11 @@ export const videoModelSettings: Record<
     durations: ["10 秒"],
     qualities: ["720P"],
   },
+  [yunwuSeedance15ProVideoModelName]: {
+    aspectRatios: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9"],
+    durations: ["5 秒", "4 秒", "6 秒", "7 秒", "8 秒", "9 秒", "10 秒", "11 秒", "12 秒"],
+    qualities: ["720P"],
+  },
 }
 
 export function isMengfactoryVeoVideoModel(model: string) {
@@ -193,7 +200,12 @@ export function isMengfactoryVeoVideoModel(model: string) {
 }
 
 export function isYunwuVideoModel(model: string) {
-  return model === yunwuVeo31FastVideoModelName || model === grokVideo3ModelName || model === grokVideo310sModelName
+  return (
+    model === yunwuVeo31FastVideoModelName ||
+    model === grokVideo3ModelName ||
+    model === grokVideo310sModelName ||
+    model === yunwuSeedance15ProVideoModelName
+  )
 }
 
 export function isSelectableImageModel(model: string) {

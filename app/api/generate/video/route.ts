@@ -13,7 +13,12 @@ import {
   requireAuthenticatedUser,
   uploadGeneratedImage,
 } from "@/lib/server-supabase"
-import { isSelectableVideoModel, videoModelSettings, yunwuVeo31FastVideoModelName } from "@/lib/model-options"
+import {
+  isSelectableVideoModel,
+  videoModelSettings,
+  yunwuSeedance15ProVideoModelName,
+  yunwuVeo31FastVideoModelName,
+} from "@/lib/model-options"
 import {
   getReferenceImageBucket,
   getReferenceImagePathPrefix,
@@ -58,17 +63,18 @@ export async function POST(request: Request) {
 
     const model = String(getValue("model") ?? yunwuVeo31FastVideoModelName)
     jobModel = model
-    const duration = String(getValue("duration") ?? "8 秒")
-    const quality = String(getValue("quality") ?? "720P")
-    const aspectRatio = String(getValue("aspectRatio") ?? "16:9")
-    clientRequestId = String(getValue("clientRequestId") ?? "").trim()
-    const referenceFiles = body instanceof FormData ? body.getAll("referenceImages").filter(isImageFile) : []
-    const storedReferenceImages = body instanceof FormData ? [] : parseStoredReferenceImages(getValue("referenceImages"))
     const modelSettings = videoModelSettings[model]
 
     if (!isSelectableVideoModel(model) || !modelSettings) {
       return NextResponse.json({ ok: false, error: "请选择有效视频模型。" }, { status: 400 })
     }
+
+    const duration = String(getValue("duration") ?? modelSettings.durations[0] ?? "8 秒")
+    const quality = String(getValue("quality") ?? modelSettings.qualities[0] ?? "720P")
+    const aspectRatio = String(getValue("aspectRatio") ?? modelSettings.aspectRatios[0] ?? "16:9")
+    clientRequestId = String(getValue("clientRequestId") ?? "").trim()
+    const referenceFiles = body instanceof FormData ? body.getAll("referenceImages").filter(isImageFile) : []
+    const storedReferenceImages = body instanceof FormData ? [] : parseStoredReferenceImages(getValue("referenceImages"))
 
     if (!modelSettings.qualities.includes(quality)) {
       return NextResponse.json({ ok: false, error: "请选择当前模型支持的视频清晰度。" }, { status: 400 })
@@ -172,6 +178,7 @@ export async function POST(request: Request) {
 
     const imageUrls = getPreparedReferencePublicUrls(preparedReferenceImages)
     const generationInput = {
+      durationSeconds: normalizeVideoDuration(duration),
       imageUrls,
       model,
       prompt,
@@ -277,7 +284,7 @@ async function recoverSubmittedVideoJob({
 
 function normalizeVideoDuration(duration: string) {
   const parsed = Number.parseInt(duration, 10)
-  return Number.isFinite(parsed) ? parsed : 6
+  return Number.isFinite(parsed) ? parsed : 5
 }
 
 async function loadVideoPricing({
@@ -326,6 +333,8 @@ function parseStoredReferenceImages(value: unknown): StoredReferenceImage[] {
 function getMaxVideoReferenceImages(model: string) {
   return model === yunwuVeo31FastVideoModelName
     ? maxYunwuVeoComponentsReferenceImages
+    : model === yunwuSeedance15ProVideoModelName
+      ? maxDefaultVideoReferenceImages
     : maxDefaultVideoReferenceImages
 }
 

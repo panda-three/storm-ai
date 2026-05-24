@@ -54,7 +54,7 @@ export async function GET(
     }
 
     if (recoveredJob.provider === "yunwu" && recoveredJob.type === "video") {
-      const result = await getYunwuVideoTaskStatus(recoveredJob.upstream_task_id).catch(async (error) => {
+      const result = await getYunwuVideoTaskStatus(recoveredJob.upstream_task_id, recoveredJob.model).catch(async (error) => {
         const message = error instanceof Error ? error.message : "任务状态查询失败。"
         return updateActiveGenerationJob(recoveredJob.id, {
           last_checked_at: new Date().toISOString(),

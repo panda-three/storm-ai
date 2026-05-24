@@ -22,6 +22,7 @@ const supported = new Set([
   "video:veo_3_1-fast",
   "video:grok-video-3",
   "video:grok-video-3-10s",
+  "video:doubao-seedance-1-5-pro-251215",
 ])
 
 const { data, error } = await client

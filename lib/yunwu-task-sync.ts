@@ -261,7 +261,7 @@ function getRemoteTaskStatus(job: GenerationJob) {
     throw new Error("当前仅支持 Yunwu 任务状态同步。")
   }
 
-  return getYunwuVideoTaskStatus(job.upstream_task_id)
+  return getYunwuVideoTaskStatus(job.upstream_task_id, job.model)
 }
 
 function isRemoteRateLimitError(provider: string, message: string) {
