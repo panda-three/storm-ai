@@ -9,6 +9,39 @@ import { Button } from "@/components/ui/button"
 import type { CreditPackage } from "@/lib/supabase"
 import { saveCreditPackage } from "@/lib/supabase"
 
+function getDefaultMembershipFreeImageQualities(tier: CreditPackage["membership_tier"]) {
+  return tier === "svip" ? ["1K", "2K", "3K", "4K"] : ["1K", "2K"]
+}
+
+function normalizeMembershipFreeImageQualities(
+  tier: CreditPackage["membership_tier"],
+  qualities: string[]
+) {
+  if (tier !== "svip" || qualities.includes("3K")) return qualities
+
+  const next = [...qualities]
+  const insertAt = next.indexOf("4K")
+  if (insertAt === -1) {
+    next.push("3K")
+  } else {
+    next.splice(insertAt, 0, "3K")
+  }
+
+  return next
+}
+
+function normalizePackageForm(pkg: CreditPackage) {
+  return pkg.package_type === "membership"
+    ? {
+        ...pkg,
+        membership_free_image_qualities: normalizeMembershipFreeImageQualities(
+          pkg.membership_tier,
+          pkg.membership_free_image_qualities
+        ),
+      }
+    : pkg
+}
+
 export function PackagesPanel() {
   const { creditPackages, refreshAdminConfig, saving, setCreditPackages, setFeedback, setSaving } = useAdmin()
   const [packageForm, setPackageForm] = useState<Omit<CreditPackage, "id"> & { id?: string }>(emptyPackageForm)
@@ -101,8 +134,8 @@ export function PackagesPanel() {
                   membership_free_image_qualities:
                     packageType === "membership"
                       ? current.membership_free_image_qualities.length > 0
-                        ? current.membership_free_image_qualities
-                        : ["1K", "2K"]
+                        ? normalizeMembershipFreeImageQualities(current.membership_tier, current.membership_free_image_qualities)
+                        : getDefaultMembershipFreeImageQualities(current.membership_tier)
                       : [],
                   membership_tier: packageType === "membership" ? current.membership_tier ?? "vip" : null,
                   package_type: packageType,
@@ -141,7 +174,8 @@ export function PackagesPanel() {
                     setPackageForm((current) => ({
                       ...current,
                       membership_tier: event.target.value as CreditPackage["membership_tier"],
-                      membership_free_image_qualities: event.target.value === "svip" ? ["1K", "2K", "4K"] : ["1K", "2K"],
+                      membership_free_image_qualities:
+                        getDefaultMembershipFreeImageQualities(event.target.value as CreditPackage["membership_tier"]),
                     }))
                   }
                   value={packageForm.membership_tier ?? "vip"}
@@ -158,7 +192,7 @@ export function PackagesPanel() {
               <div className="grid gap-2">
                 <span className="text-sm font-medium text-slate-700">免费生图清晰度</span>
                 <div className="flex flex-wrap gap-2">
-                  {["1K", "2K", "4K"].map((quality) => (
+                  {["1K", "2K", "3K", "4K"].map((quality) => (
                     <button
                       className={
                         packageForm.membership_free_image_qualities.includes(quality)
@@ -210,7 +244,7 @@ export function PackagesPanel() {
                     <div className="mt-1 text-xs text-slate-400">排序：{item.sort_order}</div>
                   </div>
                   <div className="flex gap-2">
-                    <Button onClick={() => setPackageForm(item)} size="sm" variant="outline">
+                    <Button onClick={() => setPackageForm(normalizePackageForm(item))} size="sm" variant="outline">
                       编辑
                     </Button>
                     <Button onClick={() => handleTogglePackage(item)} size="sm" variant={item.enabled ? "outline" : "default"}>

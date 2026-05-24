@@ -820,10 +820,25 @@ insert into public.credit_packages (
   membership_free_image_qualities,
   sort_order
 )
-select 'SVIP499', 'membership', 499.00, 0, 'svip', 365, '["1K", "2K", "4K"]'::jsonb, 50
+select 'SVIP499', 'membership', 499.00, 0, 'svip', 365, '["1K", "2K", "3K", "4K"]'::jsonb, 50
 where not exists (
   select 1 from public.credit_packages where name = 'SVIP499'
 );
+
+update public.credit_packages
+set membership_free_image_qualities = '["1K", "2K", "3K", "4K"]'::jsonb,
+    updated_at = now()
+where name = 'SVIP499'
+  and package_type = 'membership'
+  and membership_tier = 'svip'
+  and membership_free_image_qualities is distinct from '["1K", "2K", "3K", "4K"]'::jsonb;
+
+update public.user_accounts
+set membership_free_image_qualities = '["1K", "2K", "3K", "4K"]'::jsonb,
+    updated_at = now()
+where membership_tier = 'svip'
+  and membership_expires_at > now()
+  and membership_free_image_qualities is distinct from '["1K", "2K", "3K", "4K"]'::jsonb;
 
 insert into public.site_settings (key, value)
 values (
