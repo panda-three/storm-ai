@@ -12,7 +12,7 @@ import {
   type ModelPricingDraft,
 } from "@/lib/supabase"
 import { formatModelNameForDisplay } from "@/lib/model-display"
-import { getCatalogEntry } from "@/lib/model-catalog"
+import { getCatalogEntry, modelCatalog } from "@/lib/model-catalog"
 import { imageModelSettings, videoModelSettings } from "@/lib/model-options"
 import { cn } from "@/lib/utils"
 
@@ -25,6 +25,28 @@ function getPriceLabel(price: ModelPricingDraft) {
     return `${price.duration_seconds ?? 0} 秒 · ${price.quality ?? "未配置"}`
   }
   return price.quality ?? "未配置"
+}
+
+function mergeCatalogConfigs(configs: ModelConfig[]): ModelConfig[] {
+  const byKey = new Map(configs.map((config) => [`${config.type}:${config.model}`, config]))
+  const merged = [...configs]
+
+  for (const [index, entry] of modelCatalog.entries()) {
+    const key = `${entry.type}:${entry.model}`
+    if (byKey.has(key)) continue
+
+    merged.push({
+      display_name: entry.defaultDisplayName,
+      frontend_enabled: false,
+      id: `catalog:${key}`,
+      initial_selected: false,
+      model: entry.model,
+      sort_order: (index + 1) * 10,
+      type: entry.type,
+    })
+  }
+
+  return merged
 }
 
 function StatusPill({ enabled }: { enabled: boolean }) {
@@ -54,10 +76,10 @@ function ReadonlyField({ label, value }: { label: string; value: string }) {
 export function ModelConfigPanel() {
   const { modelConfigLoading, modelConfigs, modelPricing, refreshAdminConfig, saving, setFeedback, setSaving } = useAdmin()
   const [selectedKey, setSelectedKey] = useState("")
-  const [draftConfigs, setDraftConfigs] = useState<ModelConfig[]>(modelConfigs)
+  const [draftConfigs, setDraftConfigs] = useState<ModelConfig[]>(mergeCatalogConfigs(modelConfigs))
   const [draftPricing, setDraftPricing] = useState<ModelPricingDraft[]>(modelPricing)
 
-  useEffect(() => setDraftConfigs(modelConfigs), [modelConfigs])
+  useEffect(() => setDraftConfigs(mergeCatalogConfigs(modelConfigs)), [modelConfigs])
   useEffect(() => setDraftPricing(modelPricing), [modelPricing])
 
   const sortedConfigs = useMemo(
