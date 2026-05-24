@@ -27,6 +27,17 @@ curl -I https://www.zlaction.online
 
 ## 标准发布流程
 
+现在推荐直接执行：
+
+```bash
+cd /usr/storm-ai
+./scripts/deploy-production.sh
+```
+
+它会依次完成环境检查、构建、PM2 重启、保存进程列表和本机健康检查。
+
+如果你想手动拆开执行，旧流程仍然可用：
+
 ```bash
 cd /usr/storm-ai
 git pull origin main

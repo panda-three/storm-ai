@@ -58,6 +58,18 @@ git commit -m "你的提交说明"
 git push origin main
 ```
 
+也可以用仓库脚本一次完成同步检查、提交和推送：
+
+```bash
+pnpm commit:push -- "你的提交说明"
+```
+
+只提交指定文件时，把路径追加到提交说明后面：
+
+```bash
+pnpm commit:push -- "Add production deploy script" package.json scripts/deploy-production.sh docs/manual-release.md
+```
+
 如果服务器刚刚有修复已经推到 GitHub，`git commit` 会先被 hook 拦下。按提示执行：
 
 ```bash

@@ -30,6 +30,7 @@ backups/
 
 # Local screenshots/debug images kept at repo root
 /*.png
+tmp/
 
 # Local Codex conversation exports may contain secrets or browser session data
 docs/storm-ai-conversation-index.md
