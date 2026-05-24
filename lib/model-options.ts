@@ -191,7 +191,7 @@ export const videoModelSettings: Record<
   [yunwuSeedance15ProVideoModelName]: {
     aspectRatios: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9"],
     durations: ["5 秒", "4 秒", "6 秒", "7 秒", "8 秒", "9 秒", "10 秒", "11 秒", "12 秒"],
-    qualities: ["720P"],
+    qualities: ["720P", "480P", "1080P"],
   },
 }
 

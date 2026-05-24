@@ -512,12 +512,12 @@ function buildSeedanceVideoContent(request: YunwuVideoRequest) {
     },
   ]
 
-  for (const imageUrl of request.imageUrls) {
+  for (const [index, imageUrl] of request.imageUrls.slice(0, 2).entries()) {
     content.push({
       image_url: {
         url: imageUrl,
       },
-      role: "reference_image",
+      role: index === 0 ? "first_frame" : "last_frame",
       type: "image_url",
     })
   }
@@ -531,13 +531,16 @@ function buildSeedanceVideoPrompt(request: YunwuVideoRequest) {
     `--resolution ${normalizeSeedanceResolution(request.quality)}`,
     `--ratio ${request.aspectRatio.trim() || "16:9"}`,
     `--duration ${normalizeSeedanceDuration(request.durationSeconds)}`,
+    "--camera_fixed false",
     "--watermark false",
   ].join(" ")
 }
 
 function normalizeSeedanceResolution(quality: string) {
   const normalized = quality.trim().toUpperCase()
-  return normalized === "720P" ? "720p" : "720p"
+  if (normalized === "480P") return "480p"
+  if (normalized === "1080P") return "1080p"
+  return "720p"
 }
 
 function normalizeSeedanceDuration(durationSeconds: number) {

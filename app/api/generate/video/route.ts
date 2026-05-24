@@ -28,6 +28,7 @@ import {
 import { buildGenerationSubmitFailureRefundReason } from "@/lib/generation-ledger"
 
 const maxDefaultVideoReferenceImages = 4
+const maxYunwuSeedance15ProReferenceImages = 2
 const maxYunwuVeoComponentsReferenceImages = 3
 
 interface PreparedVideoReferenceImage {
@@ -334,7 +335,7 @@ function getMaxVideoReferenceImages(model: string) {
   return model === yunwuVeo31FastVideoModelName
     ? maxYunwuVeoComponentsReferenceImages
     : model === yunwuSeedance15ProVideoModelName
-      ? maxDefaultVideoReferenceImages
+      ? maxYunwuSeedance15ProReferenceImages
     : maxDefaultVideoReferenceImages
 }
 

@@ -638,6 +638,7 @@ function ReferenceUploadCard({
 
 function UploadColumn({
   disabled,
+  helperText,
   isActive,
   isGenerating,
   label,
@@ -647,6 +648,7 @@ function UploadColumn({
   referenceImages,
 }: {
   disabled?: boolean
+  helperText?: string
   isActive?: boolean
   isGenerating: boolean
   label: string
@@ -682,14 +684,24 @@ function UploadColumn({
       <div className="hidden max-w-24 text-center text-[11px] leading-4 text-slate-400 sm:block">
         {referenceImages.length}/{maxReferenceImages} 张
       </div>
+      {helperText && (
+        <div className="max-w-28 text-center text-[11px] leading-4 text-slate-500">
+          {helperText}
+        </div>
+      )}
     </div>
   )
 }
 
 function getMaxVideoReferenceImages(model: string) {
   if (model === yunwuVeo31FastVideoModelName) return 3
-  if (model === yunwuSeedance15ProVideoModelName) return 4
+  if (model === yunwuSeedance15ProVideoModelName) return 2
   return maxReferenceImages
+}
+
+function getVideoReferenceHelperText(model: string) {
+  if (model === yunwuSeedance15ProVideoModelName) return "0张文生；1张首帧；2张首尾帧"
+  return ""
 }
 
 function PricingNotice({
@@ -1737,6 +1749,7 @@ function VideoWorkspace({
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const videoObjectUrlsRef = useRef<Set<string>>(new Set())
   const maxVideoReferenceImages = getMaxVideoReferenceImages(model)
+  const videoReferenceHelperText = getVideoReferenceHelperText(model)
   const currentPricing = findModelPricing(modelPricing, {
     aspectRatio,
     duration,
@@ -2076,8 +2089,9 @@ function VideoWorkspace({
               />
               <UploadColumn
                 disabled={isGenerating || referenceImages.length >= maxVideoReferenceImages}
+                helperText={videoReferenceHelperText}
                 isActive={isReferenceDragActive}
-                label="添加参考图"
+                label={model === yunwuSeedance15ProVideoModelName ? "添加帧图" : "添加参考图"}
                 maxReferenceImages={maxVideoReferenceImages}
                 onClick={() => referenceInputRef.current?.click()}
                 referenceImages={referenceImages}
