@@ -16,7 +16,7 @@
 
 ## 当前生产环境一句话说明
 
-当前网站 `https://www.zlaction.online` 跑在服务器 `107.173.25.225` 上，项目目录是 `/usr/storm-ai`，由 PM2 管理 Next.js 服务，Nginx 负责 HTTPS 入口。
+当前网站 `https://www.zlaction.online` 跑在服务器 `107.173.25.225` 上，源码目录是 `/usr/storm-ai`，PM2 从 `/var/www/storm-ai` 当前 release symlink 启动 Next.js 服务，Nginx 负责 HTTPS 入口，`/_next/static` 资源归档在 `/var/www/storm-ai-static`。
 
 生成任务依赖：
 
@@ -36,11 +36,7 @@
 
 ```bash
 cd /usr/storm-ai
-git pull origin main
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm install --frozen-lockfile --store-dir /usr/storm-ai/.pnpm-store
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
-pm2 restart storm-ai --update-env
-pm2 save
+./scripts/deploy-production.sh
 ```
 
 ## 出问题时最短排查流程

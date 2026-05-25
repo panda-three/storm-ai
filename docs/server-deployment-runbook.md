@@ -6,8 +6,10 @@
 
 - 网站域名：`https://www.zlaction.online`
 - 服务器 IP：`107.173.25.225`
-- 项目目录：`/usr/storm-ai`
-- PM2 工作目录别名：`/var/www/storm-ai -> /usr/storm-ai`
+- 源码目录：`/usr/storm-ai`
+- Release 目录：`/var/www/storm-ai-releases/<version>`
+- PM2 工作目录：`/var/www/storm-ai`，指向当前 release 的 symlink
+- 静态资源归档：`/var/www/storm-ai-static`
 - 应用端口：`3000`
 - Nginx 端口：`80`、`443`
 - PM2 应用名：`storm-ai`
@@ -57,11 +59,7 @@ node scripts/check-production-env.mjs && next start
 
 ```bash
 cd /usr/storm-ai
-git pull origin main
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm install --frozen-lockfile --store-dir /usr/storm-ai/.pnpm-store
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
-pm2 restart storm-ai --update-env
-pm2 save
+./scripts/deploy-production.sh
 ```
 
 发布后检查：
@@ -70,7 +68,10 @@ pm2 save
 pm2 status
 curl -I http://127.0.0.1:3000
 curl -I https://www.zlaction.online
+node /usr/storm-ai/scripts/verify-production-assets.mjs
 ```
+
+不要在生产服务目录原地执行 `pnpm build` 后手动重启。发布脚本会创建独立 release、安装依赖、隔离构建、同步 `/_next/static` 归档、原子切换 `/var/www/storm-ai`、设置 `DEPLOYMENT_VERSION`，并在资源错配时自动失败。
 
 ## Nginx 配置
 
@@ -132,12 +133,17 @@ curl -I https://www.zlaction.online
 awk -F= '/^(APIMART|TOAPIS|YUNWU|NEXT_PUBLIC_SUPABASE|SUPABASE|CRON_SECRET)/ {print $1"=<set>"}' /usr/storm-ai/.env.production
 ```
 
-如果 `.env.production` 变了，需要：
+如果 `.env.production` 变了，需要走标准发布脚本：
 
 ```bash
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
-pm2 restart storm-ai --update-env
-pm2 save
+cd /usr/storm-ai
+./scripts/deploy-production.sh
+```
+
+`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 是必需项，用于让 Server Functions 加密 key 跨构建保持一致。生成方式：
+
+```bash
+openssl rand -base64 32
 ```
 
 ## 生成任务同步 cron

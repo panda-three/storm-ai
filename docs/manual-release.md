@@ -1,10 +1,8 @@
 # 手动发布指南
 
-这份文档用于“代码已经提交到 GitHub，需要把生产环境更新到最新版”的场景。当前生产项目目录是 `/usr/storm-ai`。
+这份文档用于把 `origin/main` 发布到生产环境。生产源码目录是 `/usr/storm-ai`，每次发布会生成 `/var/www/storm-ai-releases/<version>`，PM2 从 `/var/www/storm-ai` 这个 release symlink 启动，静态资源归档在 `/var/www/storm-ai-static`。
 
 ## 发布前检查
-
-登录服务器后先执行：
 
 ```bash
 cd /usr/storm-ai
@@ -17,37 +15,34 @@ curl -I https://www.zlaction.online
 继续发布前要确认：
 
 - 当前分支是 `main`。
-- `git status --short` 没有你看不懂的本地改动。
-- PM2 里 `storm-ai` 当前是 `online`，除非你正在修故障。
-- 网站 HTTPS 至少能正常响应。
+- `git status --short` 为空。
+- 本机 `main` 已同步到 `origin/main`。
+- `.env.production` 存在且权限为 `600`。
+- `.env.production` 包含 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`。生成方式：`openssl rand -base64 32`。
 
-如果服务器上有意外本地改动，不要直接 `git pull`。先找开发人员确认这些改动是否要提交、保留或丢弃。
-
-如果这次是你刚刚在服务器上直接修过代码，先按 [git-sync-workflow.md](git-sync-workflow.md) 把修复提交并推送到 GitHub，再继续发布。
+如果服务器上有意外本地改动，不要直接发布。先按 [git-sync-workflow.md](git-sync-workflow.md) 处理提交、保留或放弃。
 
 ## 标准发布流程
 
-现在推荐直接执行：
+只使用发布脚本：
 
 ```bash
 cd /usr/storm-ai
 ./scripts/deploy-production.sh
 ```
 
-它会依次完成环境检查、构建、PM2 重启、保存进程列表和本机健康检查。
+脚本会完成：
 
-如果你想手动拆开执行，旧流程仍然可用：
+- 加部署锁，防止并发发布。
+- 校验 `main`、干净工作区、`HEAD == origin/main`。
+- 在隔离 release 目录安装依赖并构建，不在正在服务的目录上原地构建。
+- 为本次发布设置 `DEPLOYMENT_VERSION`。
+- 同步 `.next/static` 到 `/var/www/storm-ai-static/_next/static`，保留旧 chunk 给旧浏览器页面使用。
+- 原子切换 `/var/www/storm-ai` 到新 release、重启 PM2、保存进程列表。
+- 校验首页和主要页面引用的 `/_next/static` 资源都能从本机 Next、本机 Nginx、公网 HTTPS 访问。
+- 校验首页响应包含 `Cache-Control: no-store`。
 
-```bash
-cd /usr/storm-ai
-git pull origin main
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm install --frozen-lockfile --store-dir /usr/storm-ai/.pnpm-store
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
-pm2 restart storm-ai --update-env
-pm2 save
-```
-
-如果 `pnpm build` 失败，停止发布，不要执行 PM2 重启。
+不要再手动拆开执行 `pnpm build` + `pm2 restart`。这种原地构建流程会重新引入 HTML 和 chunk 错配风险。
 
 ## 发布后检查
 
@@ -56,53 +51,58 @@ pm2 status
 curl -I http://127.0.0.1:3000
 curl -I -H "Host: www.zlaction.online" http://127.0.0.1
 curl -I https://www.zlaction.online
+node /usr/storm-ai/scripts/verify-production-assets.mjs
 nginx -t
 ```
 
 健康结果：
 
 - PM2 里 `storm-ai` 是 `online`。
-- `http://127.0.0.1:3000` 返回 `200 OK`。
-- 本机 Nginx 代理返回 `200 OK` 或符合预期的跳转。
-- `https://www.zlaction.online` 返回 `200 OK`。
-- `nginx -t` 显示配置正确。
+- 本机 3000、本机 Nginx、公网 HTTPS 都返回 `200 OK`。
+- 首页 `Cache-Control` 包含 `no-store`。
+- 资源校验脚本通过。
+- 浏览器控制台没有 chunk 404 或 “Failed to find Server Action” 新错误。
 
-## 环境变量变更时
+## 环境变量变更
 
-如果 `.env.local` 的内容要同步成生产配置：
+如果 `.env.production` 变了，仍然走标准发布脚本。`NEXT_PUBLIC_*`、`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 和 `DEPLOYMENT_VERSION` 都会影响构建或运行时行为，不能只重启 PM2。
+
+生产环境通常应清空 `APIMART_PROXY_URL`，不要指向 `127.0.0.1` 或 `localhost`。
+
+## Nginx 变更
+
+项目模板在：
+
+```bash
+/usr/storm-ai/deploy/nginx/storm-ai.conf
+```
+
+上线模板后执行：
+
+```bash
+cp /usr/storm-ai/deploy/nginx/storm-ai.conf /etc/nginx/sites-available/storm-ai
+nginx -t
+systemctl reload nginx
+```
+
+模板里 `/_next/static/` 会先从 `/var/www/storm-ai-static` 读旧、新静态资源；其他页面走 Next，并强制 HTML no-store。
+
+## 回滚
+
+如果发布脚本在切换 `/var/www/storm-ai` 后发现健康检查失败，会自动恢复上一份 release symlink 并重启 PM2。
+
+如果需要代码级回滚：
 
 ```bash
 cd /usr/storm-ai
-cp .env.local .env.production
-perl -0pi -e 's/^APIMART_PROXY_URL=.*$/APIMART_PROXY_URL=/m' .env.production
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
-pm2 restart storm-ai --update-env
-pm2 save
+git revert <BAD_COMMIT_SHA>
+git push origin main
+./scripts/deploy-production.sh
 ```
 
-注意：
-
-- `.env.production` 不能提交到 Git。
-- `NEXT_PUBLIC_*` 变量会进入浏览器包，改了以后必须重新 build。
-- 生产环境通常不要设置本地代理地址，例如 `127.0.0.1:7890`。
-
-## 数据库结构变更时
-
-如果本次发布改了 `supabase-schema.sql`，尤其是表、索引、RLS、RPC 函数：
-
-1. 先备份或确认可回滚。
-2. 在生产 Supabase 执行对应 SQL。
-3. 确认 SQL 没有报错。
-4. 再执行标准发布流程。
-5. 发布后测试登录、后台、点数、生成任务、历史项目。
-
-不要先部署会调用新 RPC 的代码，再补数据库函数。这样线上请求会直接报错。
-
-如果只是新增或重建索引，一般不会影响数据，但仍建议在访问低峰执行。
+不要用 `git checkout <old-sha>` 在生产上长期运行脱离 `main` 的代码。
 
 ## 生成任务同步检查
-
-改动过生图、视频、APIMart、ToAPIs、云雾、Supabase 服务端逻辑后，手动检查 cron 路由：
 
 ```bash
 secret=$(grep -E '^CRON_SECRET=' /usr/storm-ai/.env.production | sed 's/^CRON_SECRET=//')
@@ -117,52 +117,3 @@ curl -fsS -X POST \
 ```json
 {"ok":true}
 ```
-
-返回 `401` 表示 `CRON_SECRET` 不匹配。返回 `500` 就看 PM2 日志。
-
-## 回滚流程
-
-先查看最近提交：
-
-```bash
-cd /usr/storm-ai
-git log --oneline -5
-```
-
-临时回滚到某个已知可用版本：
-
-```bash
-git checkout <GOOD_COMMIT_SHA>
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm install --frozen-lockfile --store-dir /usr/storm-ai/.pnpm-store
-XDG_DATA_HOME=/usr/storm-ai/.pnpm-data corepack pnpm build
-pm2 restart storm-ai --update-env
-pm2 save
-```
-
-回滚后检查：
-
-```bash
-pm2 status
-curl -I https://www.zlaction.online
-pm2 logs storm-ai --lines 100
-```
-
-问题修好后回到主分支：
-
-```bash
-git checkout main
-git pull origin main
-```
-
-注意：如果本次发布包含数据库结构变更，代码回滚不一定等于数据库回滚。数据库回滚要单独评估。
-
-## 常用排查命令
-
-```bash
-pm2 logs storm-ai --lines 100
-tail -n 100 /var/log/nginx/error.log
-nginx -t
-systemctl status nginx --no-pager
-```
-
-完整日志说明见 [logging.md](logging.md)。

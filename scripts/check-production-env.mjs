@@ -13,6 +13,7 @@ const required = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_GENERATED_IMAGES_BUCKET",
   "CRON_SECRET",
+  "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
 ]
 
 const placeholderPatterns = [
@@ -39,6 +40,20 @@ for (const key of required) {
 const cronSecret = process.env.CRON_SECRET?.trim() ?? ""
 if (cronSecret && cronSecret.length < 32) {
   errors.push("CRON_SECRET must be at least 32 characters.")
+}
+
+const serverActionsEncryptionKey = process.env.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY?.trim() ?? ""
+if (serverActionsEncryptionKey) {
+  let decodedLength
+  try {
+    decodedLength = Buffer.from(serverActionsEncryptionKey, "base64").length
+  } catch {
+    decodedLength = 0
+  }
+
+  if (![16, 24, 32].includes(decodedLength)) {
+    errors.push("NEXT_SERVER_ACTIONS_ENCRYPTION_KEY must be base64-encoded and decode to 16, 24, or 32 bytes.")
+  }
 }
 
 const apimartProxyUrl = process.env.APIMART_PROXY_URL?.trim() ?? ""
