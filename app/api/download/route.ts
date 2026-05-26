@@ -53,7 +53,7 @@ export async function GET(request: Request) {
 
   const headers = new Headers({
     "Cache-Control": "no-store",
-    "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeRFC5987ValueChars(filename)}`,
+    "Content-Disposition": `attachment; filename="${toAsciiFallbackFilename(filename)}"; filename*=UTF-8''${encodeRFC5987ValueChars(filename)}`,
     "Content-Type": response.headers.get("content-type") ?? "application/octet-stream",
   })
 
@@ -90,6 +90,12 @@ function sanitizeFilename(filename: string) {
   const normalized = filename.replace(/[\\/:*?"<>|\r\n]+/g, "-").trim()
 
   return normalized || fallbackFilename
+}
+
+function toAsciiFallbackFilename(filename: string) {
+  const ascii = filename.replace(/[^\x20-\x7e]+/g, "-").replace(/["\\]/g, "-").trim()
+
+  return ascii || fallbackFilename
 }
 
 function encodeRFC5987ValueChars(value: string) {
