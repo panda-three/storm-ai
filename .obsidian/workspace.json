@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "docs/logging.md",
+                "file": "docs/无限画布_develop.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "logging"
+              "title": "无限画布_develop"
             }
           }
         ]
@@ -183,9 +183,18 @@
   },
   "active": "ea90ea45f167b345",
   "lastOpenFiles": [
+    "app/api/canvas-documents/[id]/thumbnail/route.ts",
+    "app/api/canvas-documents/[id]/thumbnail",
+    "docs/logging.md",
+    "app/canvas-lab/page.tsx",
+    "app/canvas-lab/layout.tsx",
+    "app/canvas-lab",
+    "components/canvas-lab/canvas-lab-shell.tsx",
+    "components/canvas-lab",
+    "lib/canvas-lab.ts",
+    "node_modules/@excalidraw",
+    "scripts/verify-production-assets.mjs",
     "app/api/admin/users/[userId]/session-policy/route.ts",
-    "app/api/admin/users/[userId]/session-policy",
-    "lib/generation-ledger.ts",
     "docs/manual-release.md",
     "docs/linux-deployment.md",
     "docs/self-hosted-supabase.md",
@@ -196,19 +205,10 @@
     "docs/README.md",
     "docs/generation-queue-and-task-flow-research.md",
     "docs/git-sync-workflow.md",
-    "hooks/use-toast.ts",
-    "hooks/use-mobile.ts",
-    "hooks/use-account-session.ts",
     "problem/slow-query.md",
     "problem/slow-query~.md",
     "problem/需求文档.md",
-    "problem",
-    "未命名文件夹",
-    "scripts/install-git-hooks.sh",
-    "supabase-schema.sql",
     "release-checklist.md",
-    "scripts/audit-production-model-config.mjs",
-    "docs/logging.md",
     "docs/storm-ai-conversation-index.md",
     "docs/storm-ai-conversations.md",
     "develop1.md",

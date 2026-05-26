@@ -30,6 +30,11 @@ export interface CanvasAssetBindingInput {
   width?: number
 }
 
+export interface CanvasThumbnailUploadInput {
+  size: number
+  type: string
+}
+
 interface CanvasDocumentRow {
   app_state: CanvasDocumentUpdateInput["appState"] | null
   created_at: string
@@ -45,10 +50,12 @@ interface CanvasDocumentRow {
 
 const maxCanvasPayloadBytes = 4 * 1024 * 1024
 const maxCanvasUploadBytes = 12 * 1024 * 1024
+const maxCanvasThumbnailBytes = 1024 * 1024
 const maxCanvasDocumentsPerUser = 20
 const maxCanvasAssetsPerDocument = 120
 const maxCanvasVersionsPerDocument = 20
 const allowedCanvasUploadTypes = new Set(["image/png", "image/jpeg", "image/webp"])
+const allowedCanvasThumbnailTypes = new Set(["image/webp", "image/png", "image/jpeg"])
 
 export async function listCanvasDocumentsForUser(userId: string) {
   const { data, error } = await getSupabaseServerClient()
@@ -247,6 +254,42 @@ export async function createCanvasAssetUploadForUser({
     bucket,
     path,
     publicUrl: publicUrl.publicUrl,
+    token: signedUpload.token,
+  }
+}
+
+export async function createCanvasThumbnailUploadForUser({
+  canvasId,
+  input,
+  userId,
+}: {
+  canvasId: string
+  input: CanvasThumbnailUploadInput
+  userId: string
+}) {
+  validateCanvasThumbnailInput(input)
+  await getCanvasDocumentForUser({ id: canvasId, userId })
+
+  const bucket = process.env.SUPABASE_CANVAS_THUMBNAILS_BUCKET ?? "canvas-thumbnails"
+  const extension = getCanvasThumbnailExtension(input.type)
+  const path = `users/${userId}/canvases/${canvasId}/thumbnail.${extension}`
+  const supabase = getSupabaseServerClient()
+  const { data: signedUpload, error: signedUploadError } = await supabase.storage
+    .from(bucket)
+    .createSignedUploadUrl(path, {
+      upsert: true,
+    })
+
+  if (signedUploadError) {
+    throw new Error(describeServerError(signedUploadError, "创建画布缩略图上传地址失败。"), { cause: signedUploadError })
+  }
+
+  const { data: publicUrl } = supabase.storage.from(bucket).getPublicUrl(path)
+
+  return {
+    bucket,
+    path,
+    publicUrl: `${publicUrl.publicUrl}?v=${Date.now().toString(36)}`,
     token: signedUpload.token,
   }
 }
@@ -559,10 +602,26 @@ function validateCanvasUploadInput(input: CanvasAssetUploadInput) {
   }
 }
 
+function validateCanvasThumbnailInput(input: CanvasThumbnailUploadInput) {
+  if (!allowedCanvasThumbnailTypes.has(input.type)) {
+    throw new ServerResponseError("画布缩略图格式不支持。", 400)
+  }
+
+  if (!Number.isFinite(input.size) || input.size <= 0 || input.size > maxCanvasThumbnailBytes) {
+    throw new ServerResponseError("画布缩略图不能超过 1MB。", 400)
+  }
+}
+
 function getCanvasUploadExtension(type: string) {
   if (type === "image/webp") return "webp"
   if (type === "image/jpeg") return "jpg"
   return "png"
+}
+
+function getCanvasThumbnailExtension(type: string) {
+  if (type === "image/png") return "png"
+  if (type === "image/jpeg") return "jpg"
+  return "webp"
 }
 
 function normalizeUploadName(value: unknown) {

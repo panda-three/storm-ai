@@ -34,6 +34,13 @@ export interface CanvasLabAssetUpload {
   token: string
 }
 
+export interface CanvasLabThumbnailUpload {
+  bucket: string
+  path: string
+  publicUrl: string
+  token: string
+}
+
 export interface CanvasLabVersionSummary {
   createdAt: string
   id: string
@@ -126,6 +133,35 @@ export async function uploadCanvasLabAssetFile(upload: CanvasLabAssetUpload, fil
   if (error) throw error
 }
 
+export async function createCanvasLabThumbnailUpload({
+  canvasId,
+  thumbnail,
+}: {
+  canvasId: string
+  thumbnail: Blob
+}) {
+  return requestCanvasLabApi<{ upload: CanvasLabThumbnailUpload }>(`/api/canvas-documents/${encodeURIComponent(canvasId)}/thumbnail`, {
+    body: JSON.stringify({
+      size: thumbnail.size,
+      type: thumbnail.type,
+    }),
+    method: "POST",
+  }).then((payload) => payload.upload)
+}
+
+export async function uploadCanvasLabThumbnail(upload: CanvasLabThumbnailUpload, thumbnail: Blob) {
+  const supabase = getSupabaseClient()
+  if (!supabase) {
+    throw new Error("Supabase 未配置，无法上传画布缩略图。")
+  }
+
+  const { error } = await supabase.storage.from(upload.bucket).uploadToSignedUrl(upload.path, upload.token, thumbnail, {
+    contentType: thumbnail.type,
+  })
+
+  if (error) throw error
+}
+
 export async function createCanvasLabAssetBinding(canvasId: string, payload: CanvasLabAssetBindingPayload) {
   return requestCanvasLabApi<{ asset: unknown }>(`/api/canvas-documents/${encodeURIComponent(canvasId)}/assets`, {
     body: JSON.stringify(payload),
@@ -162,6 +198,7 @@ export async function createCanvasImageGenerationTask(formData: FormData) {
 
 export async function getCanvasGenerationTaskStatus(taskId: string) {
   const payload = await requestCanvasLabApi<{
+    error?: string
     imageUrls: string[]
     ok: true
     progress: number

@@ -176,6 +176,26 @@ set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'canvas-thumbnails',
+  'canvas-thumbnails',
+  true,
+  1048576,
+  array['image/webp', 'image/png', 'image/jpeg']
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
 create or replace function public.current_auth_session_id()
 returns text
 language sql
@@ -969,6 +989,88 @@ alter table public.model_configs enable row level security;
 alter table public.generation_jobs enable row level security;
 alter table public.site_settings enable row level security;
 alter table public.user_active_sessions enable row level security;
+alter table public.canvas_documents enable row level security;
+alter table public.canvas_assets enable row level security;
+alter table public.canvas_versions enable row level security;
+
+drop policy if exists "Users can read own canvas documents" on public.canvas_documents;
+create policy "Users can read own canvas documents"
+on public.canvas_documents
+for select
+to authenticated
+using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can insert own canvas documents" on public.canvas_documents;
+create policy "Users can insert own canvas documents"
+on public.canvas_documents
+for insert
+to authenticated
+with check (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can update own canvas documents" on public.canvas_documents;
+create policy "Users can update own canvas documents"
+on public.canvas_documents
+for update
+to authenticated
+using (auth.uid() = user_id or public.is_admin())
+with check (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can delete own canvas documents" on public.canvas_documents;
+create policy "Users can delete own canvas documents"
+on public.canvas_documents
+for delete
+to authenticated
+using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can read own canvas assets" on public.canvas_assets;
+create policy "Users can read own canvas assets"
+on public.canvas_assets
+for select
+to authenticated
+using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can insert own canvas assets" on public.canvas_assets;
+create policy "Users can insert own canvas assets"
+on public.canvas_assets
+for insert
+to authenticated
+with check (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can update own canvas assets" on public.canvas_assets;
+create policy "Users can update own canvas assets"
+on public.canvas_assets
+for update
+to authenticated
+using (auth.uid() = user_id or public.is_admin())
+with check (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can delete own canvas assets" on public.canvas_assets;
+create policy "Users can delete own canvas assets"
+on public.canvas_assets
+for delete
+to authenticated
+using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can read own canvas versions" on public.canvas_versions;
+create policy "Users can read own canvas versions"
+on public.canvas_versions
+for select
+to authenticated
+using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can insert own canvas versions" on public.canvas_versions;
+create policy "Users can insert own canvas versions"
+on public.canvas_versions
+for insert
+to authenticated
+with check (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Users can delete own canvas versions" on public.canvas_versions;
+create policy "Users can delete own canvas versions"
+on public.canvas_versions
+for delete
+to authenticated
+using (auth.uid() = user_id or public.is_admin());
 
 drop policy if exists "Users can read own active session" on public.user_active_sessions;
 create policy "Users can read own active session"

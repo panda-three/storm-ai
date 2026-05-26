@@ -8,13 +8,20 @@ Usage:
   bash scripts/commit-and-push.sh "Commit message" [path ...]
 
 If no paths are provided, the script stages all tracked and untracked changes
-that are not ignored by .gitignore.
+that are not ignored by .gitignore. The script syncs main with origin/main,
+runs lint and build, commits, then pushes to GitHub.
+
+Set SKIP_VERIFY=1 to skip lint and build for urgent commits.
 EOF
 }
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   usage
   exit 0
+fi
+
+if [ "${1:-}" = "--" ]; then
+  shift
 fi
 
 if [ "$#" -lt 1 ]; then
@@ -34,7 +41,7 @@ if [ "$branch" != "main" ]; then
   exit 1
 fi
 
-echo "[1/4] Fetching origin/main"
+echo "[1/6] Fetching origin/main"
 git fetch origin main
 
 local_head="$(git rev-parse main)"
@@ -42,8 +49,11 @@ remote_head="$(git rev-parse origin/main)"
 merge_base="$(git merge-base main origin/main)"
 
 if [ "$local_head" != "$remote_head" ] && [ "$local_head" = "$merge_base" ]; then
-  echo "Local main is behind origin/main. Run: git pull --rebase origin main" >&2
-  exit 1
+  echo "Local main is behind origin/main. Rebasing with autostash."
+  git pull --rebase --autostash origin main
+  local_head="$(git rev-parse main)"
+  remote_head="$(git rev-parse origin/main)"
+  merge_base="$(git merge-base main origin/main)"
 fi
 
 if [ "$local_head" != "$remote_head" ] && [ "$remote_head" != "$merge_base" ]; then
@@ -51,7 +61,7 @@ if [ "$local_head" != "$remote_head" ] && [ "$remote_head" != "$merge_base" ]; t
   exit 1
 fi
 
-echo "[2/4] Staging changes"
+echo "[2/6] Staging changes"
 if [ "$#" -gt 0 ]; then
   git add "$@"
 else
@@ -63,8 +73,19 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
-echo "[3/4] Committing"
+if [ "${SKIP_VERIFY:-}" != "1" ]; then
+  echo "[3/6] Running lint"
+  pnpm lint
+
+  echo "[4/6] Running build"
+  pnpm build
+else
+  echo "[3/6] Skipping lint"
+  echo "[4/6] Skipping build"
+fi
+
+echo "[5/6] Committing"
 git commit -m "$message"
 
-echo "[4/4] Pushing to origin/main"
+echo "[6/6] Pushing to origin/main"
 git push origin main

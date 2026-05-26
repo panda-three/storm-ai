@@ -18,6 +18,18 @@ export function getProjectSourceKey(project: ProjectItem) {
   return project.taskId || project.clientRequestId || project.upstreamTaskId || project.id
 }
 
+export function getProjectImageSourceKey(project: ProjectItem, index: number) {
+  return `project:${getProjectSourceKey(project)}:${index}`
+}
+
+export function getProjectStatusSourceKey(project: ProjectItem) {
+  return `status:${getProjectSourceKey(project)}`
+}
+
+export function getProjectVideoSourceKey(project: ProjectItem) {
+  return `video:${getProjectSourceKey(project)}`
+}
+
 export function getProjectPreviewUrl(project: ProjectItem) {
   return project.previewUrl || project.imageUrls?.[0] || ""
 }
@@ -209,7 +221,14 @@ export function createProjectElements(
   if (storageUrl) {
     source.storageUrl = storageUrl
   }
-  const sourceKey = variantKey ? `${getProjectSourceKey(project)}:${variantKey}` : getProjectSourceKey(project)
+  const sourceKey = variantKey === "video"
+    ? getProjectVideoSourceKey(project)
+    : variantKey === "status"
+      ? getProjectStatusSourceKey(project)
+      : variantKey
+        ? getProjectImageSourceKey(project, Number.parseInt(variantKey, 10) || 0)
+        : `project:${getProjectSourceKey(project)}`
+  source.sourceKey = sourceKey
   const x = 80 + (existingElementCount % 6) * 36
   const y = 80 + (existingElementCount % 5) * 32
   const cardWidth = 380
@@ -359,12 +378,16 @@ export function createCanvasUploadElements({
 export function createCanvasTaskPlaceholderElements({
   canvasId,
   existingElementCount,
+  error,
   prompt,
+  status = "生成中",
   taskId,
 }: {
   canvasId: string
   existingElementCount: number
+  error?: string
   prompt: string
+  status?: string
   taskId: string
 }) {
   const source: CanvasLabSourceData = {
@@ -397,7 +420,7 @@ export function createCanvasTaskPlaceholderElements({
       height: 28,
       id: createCanvasLabId("task-title", taskId),
       strokeColor: "#e0f2fe",
-      text: "生成中",
+      text: status,
       type: "text",
       width: cardWidth - 48,
       x: x + 24,
@@ -409,7 +432,7 @@ export function createCanvasTaskPlaceholderElements({
       height: 72,
       id: createCanvasLabId("task-meta", taskId),
       strokeColor: "#bae6fd",
-      text: [`任务：${taskId}`, prompt].filter(Boolean).join("\n").slice(0, 240),
+      text: [`任务：${taskId}`, prompt, error ? `说明：${error}` : ""].filter(Boolean).join("\n").slice(0, 300),
       type: "text",
       width: cardWidth - 48,
       x: x + 24,
@@ -433,6 +456,7 @@ function buildProjectCardDescription(project: ProjectItem) {
     project.ratio,
     project.quality,
     project.prompt,
+    project.type === "视频" && project.taskId ? `结果页：/results/${project.taskId}` : "",
   ].filter(Boolean)
 
   return parts.join(" · ").slice(0, 220) || "无项目详情"

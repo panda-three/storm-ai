@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import {
+  type CanvasDocumentUpdateInput,
   getCanvasDocumentForUser,
   softDeleteCanvasDocumentForUser,
   updateCanvasDocumentForUser,
@@ -41,15 +42,17 @@ export async function PATCH(request: Request, context: RouteContext) {
     const auth = await requireAuthenticatedUser(request)
     const { id } = await context.params
     const body = await request.json().catch(() => ({}))
+    const input: CanvasDocumentUpdateInput = {}
+
+    if (hasOwn(body, "appState")) input.appState = body.appState
+    if (hasOwn(body, "elements")) input.elements = body.elements
+    if (hasOwn(body, "files")) input.files = body.files
+    if (hasOwn(body, "thumbnailUrl")) input.thumbnailUrl = body.thumbnailUrl
+    if (hasOwn(body, "title")) input.title = body.title
+
     const document = await updateCanvasDocumentForUser({
       id,
-      input: {
-        appState: body?.appState,
-        elements: body?.elements,
-        files: body?.files,
-        thumbnailUrl: body?.thumbnailUrl,
-        title: body?.title,
-      },
+      input,
       userId: auth.userId,
     })
 
@@ -66,6 +69,10 @@ export async function PATCH(request: Request, context: RouteContext) {
       { status: getServerErrorStatus(error, 400) }
     )
   }
+}
+
+function hasOwn(value: unknown, key: string) {
+  return typeof value === "object" && value !== null && Object.prototype.hasOwnProperty.call(value, key)
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
