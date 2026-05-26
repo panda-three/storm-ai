@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "docs/无限画布_develop.md",
+                "file": "docs/scripts-manual.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "无限画布_develop"
+              "title": "scripts-manual"
             }
           }
         ]
@@ -183,6 +183,8 @@
   },
   "active": "ea90ea45f167b345",
   "lastOpenFiles": [
+    "docs/无限画布_develop.md",
+    "docs/scripts-manual.md",
     "app/api/canvas-documents/[id]/thumbnail/route.ts",
     "app/api/canvas-documents/[id]/thumbnail",
     "docs/logging.md",
@@ -194,7 +196,6 @@
     "lib/canvas-lab.ts",
     "node_modules/@excalidraw",
     "scripts/verify-production-assets.mjs",
-    "app/api/admin/users/[userId]/session-policy/route.ts",
     "docs/manual-release.md",
     "docs/linux-deployment.md",
     "docs/self-hosted-supabase.md",

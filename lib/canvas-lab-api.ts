@@ -196,6 +196,32 @@ export async function createCanvasImageGenerationTask(formData: FormData) {
   }
 }
 
+export async function createCanvasVideoGenerationTask(formData: FormData) {
+  const token = await getCurrentAccessToken()
+  const response = await fetch("/api/generate/video", {
+    body: formData,
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    method: "POST",
+  })
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(getApiErrorMessage(payload, `创建视频任务失败：HTTP ${response.status}。`))
+  }
+
+  return payload as {
+    clientRequestId?: string
+    ok: true
+    status: string
+    taskError?: string
+    taskId: string
+    type: "video"
+    upstreamTaskId?: string
+  }
+}
+
 export async function getCanvasGenerationTaskStatus(taskId: string) {
   const payload = await requestCanvasLabApi<{
     error?: string

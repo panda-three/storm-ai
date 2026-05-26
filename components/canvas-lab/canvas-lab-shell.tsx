@@ -23,6 +23,7 @@ import {
   Box,
   ChevronDown,
   Download,
+  Film,
   FilePlus2,
   History,
   ImageIcon,
@@ -61,7 +62,10 @@ import { useAccountSession, getErrorMessage } from "@/hooks/use-account-session"
 import {
   imageModelOptions,
   imageModelSettings,
+  videoModelOptions,
+  videoModelSettings,
   yunwuGeminiImageModelName,
+  yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 import { modelCatalog } from "@/lib/model-catalog"
 import {
@@ -71,9 +75,11 @@ import {
   createCanvasImageGenerationTask,
   createCanvasLabAssetBinding,
   createCanvasLabThumbnailUpload,
+  createCanvasVideoGenerationTask,
   createCanvasUploadElements,
   createCanvasLabVersion,
   buildSceneSignature,
+  canvasLabSourceCustomDataKey,
   createProjectElements,
   deleteCanvasLabDocument,
   deleteCanvasLabCloudDocument,
@@ -106,6 +112,7 @@ import {
   uploadCanvasLabThumbnail,
   type CanvasLabCloudDocument,
   type CanvasLabPrefs,
+  type CanvasLabSourceData,
 } from "@/lib/canvas-lab"
 import type { ProjectItem, ProjectStatus } from "@/lib/project-history"
 import { cn } from "@/lib/utils"
@@ -137,12 +144,25 @@ type CanvasStudioReference = {
 }
 
 type CanvasStudioGenerationOptions = {
+  duration: string
   imageCount: string
+  mode: "image" | "video"
   model: string
   prompt: string
   quality: string
   ratio: string
   referenceElementIds: string[]
+}
+
+type FloatingReferenceAction = {
+  left: number
+  top: number
+}
+
+type PersistedNativeImage = {
+  assetId: string
+  elementId: string
+  storageUrl: string
 }
 
 const emptyInitialData: ExcalidrawInitialDataState = {
@@ -272,6 +292,7 @@ function CanvasLabWorkspace({
   const [studioStatus, setStudioStatus] = useState("")
   const [studioGenerating, setStudioGenerating] = useState(false)
   const [selectedCanvasReferences, setSelectedCanvasReferences] = useState<CanvasStudioReference[]>([])
+  const [floatingReferenceAction, setFloatingReferenceAction] = useState<FloatingReferenceAction | null>(null)
   const [pendingCanvasTaskIds, setPendingCanvasTaskIds] = useState<string[]>([])
   const saveTimerRef = useRef<number | null>(null)
   const skipNextSaveRef = useRef(true)
@@ -280,6 +301,7 @@ function CanvasLabWorkspace({
   const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const lastVersionSnapshotRef = useRef(0)
   const lastThumbnailSnapshotRef = useRef(0)
+  const nativeImageUploadKeysRef = useRef(new Set<string>())
 
   useEffect(() => {
     let active = true
@@ -523,6 +545,108 @@ function CanvasLabWorkspace({
       .catch(() => undefined)
   }, [])
 
+  const persistNativeImageUploads = useCallback((
+    elements: readonly OrderedExcalidrawElement[],
+    files: BinaryFiles
+  ) => {
+    if (!api || activeDocument?.source !== "cloud") return false
+
+    const candidates = elements.filter((element) => {
+      if (element.type !== "image" || !("fileId" in element) || !element.fileId) return false
+      if (getCanvasLabSourceData(element)?.storageUrl) return false
+
+      const file = files[element.fileId]
+      return Boolean(file?.dataURL)
+    })
+
+    const pendingCandidates = candidates.filter((element) => {
+      const fileId = "fileId" in element ? element.fileId : null
+      if (!fileId) return false
+
+      const uploadKey = `${activeDocument.id}:${element.id}:${fileId}`
+      if (nativeImageUploadKeysRef.current.has(uploadKey)) return false
+
+      nativeImageUploadKeysRef.current.add(uploadKey)
+      return true
+    })
+
+    if (pendingCandidates.length === 0) return false
+
+    setStorageStatus({ tone: "busy", text: "正在保存插入图片..." })
+
+    Promise.allSettled(
+      pendingCandidates.map(async (element) => {
+        const fileId = "fileId" in element ? element.fileId : null
+        const file = fileId ? files[fileId] : null
+        if (!fileId || !file?.dataURL) return null
+
+        const blob = await dataUrlToBlob(String(file.dataURL), file.mimeType || "image/png")
+        const uploadFile = new File([blob], `canvas-${fileId}.${getImageFileExtension(blob.type)}`, {
+          type: blob.type || "image/png",
+        })
+        const upload = await createCanvasLabAssetUpload({
+          canvasId: activeDocument.id,
+          file: uploadFile,
+          height: Math.round(element.height),
+          width: Math.round(element.width),
+        })
+
+        await uploadCanvasLabAssetFile(upload, uploadFile)
+
+        return {
+          assetId: upload.asset.id,
+          elementId: element.id,
+          storageUrl: upload.publicUrl,
+        } satisfies PersistedNativeImage
+      })
+    ).then((results) => {
+      if (!api) return
+
+      const persisted = results
+        .filter((result): result is PromiseFulfilledResult<PersistedNativeImage> => result.status === "fulfilled" && Boolean(result.value))
+        .map((result) => result.value)
+
+      if (persisted.length === 0) {
+        setStorageStatus({ tone: "error", text: "插入图片保存失败，请稍后再试。" })
+        return
+      }
+
+      const persistedByElementId = new Map(persisted.map((item) => [item.elementId, item]))
+      const nextElements = api.getSceneElements().map((element) => {
+        const persistedImage = persistedByElementId.get(element.id)
+        if (!persistedImage || element.type !== "image") return element
+
+        const source: CanvasLabSourceData = {
+          assetId: persistedImage.assetId,
+          importedAt: new Date().toISOString(),
+          projectId: persistedImage.assetId,
+          sourceKey: `upload:${persistedImage.assetId}`,
+          storageUrl: persistedImage.storageUrl,
+          type: "upload",
+        }
+
+        return {
+          ...element,
+          customData: {
+            ...element.customData,
+            [canvasLabSourceCustomDataKey]: source,
+          },
+          status: "saved",
+        }
+      }) as readonly OrderedExcalidrawElement[]
+
+      api.updateScene({
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+        elements: nextElements,
+      })
+      setStorageStatus({ tone: "ok", text: "插入图片已保存" })
+    }).catch(() => {
+      setStorageStatus({ tone: "error", text: "插入图片保存失败，请稍后再试。" })
+    })
+
+    return true
+  }, [activeDocument, api])
+
   const saveCurrentScene = useCallback((elements: readonly OrderedExcalidrawElement[], appState: AppState, files: BinaryFiles) => {
     if (!hydratedRef.current) return
 
@@ -530,6 +654,7 @@ function CanvasLabWorkspace({
     setSelectedCanvasReferences((currentReferences) =>
       areCanvasStudioReferencesEqual(currentReferences, nextSelectedReferences) ? currentReferences : nextSelectedReferences
     )
+    setFloatingReferenceAction(nextSelectedReferences.length > 0 ? getFloatingReferenceAction(elements, appState) : null)
 
     const sanitizedAppState = sanitizeCanvasLabAppState(appState)
     const signature = buildSceneSignature(elements, sanitizedAppState, files)
@@ -542,6 +667,10 @@ function CanvasLabWorkspace({
 
     if (lastSignatureRef.current === signature) return
     lastSignatureRef.current = signature
+
+    if (persistNativeImageUploads(elements, files)) {
+      return
+    }
 
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current)
@@ -591,7 +720,7 @@ function CanvasLabWorkspace({
           setStorageStatus({ tone: "error", text: getErrorMessage(error, "云端保存失败，已保留本地缓存。") })
         })
     }, 700)
-  }, [activeDocument, maybeCreateAutomaticVersion, maybeUpdateCanvasThumbnail])
+  }, [activeDocument, maybeCreateAutomaticVersion, maybeUpdateCanvasThumbnail, persistNativeImageUploads])
 
   const handleReset = useCallback(async () => {
     if (!api) return
@@ -833,7 +962,9 @@ function CanvasLabWorkspace({
   }, [getCanvasGenerationContext])
 
   const handleGenerateFromCanvas = useCallback(async ({
+    duration,
     imageCount,
+    mode,
     model,
     prompt,
     quality,
@@ -859,8 +990,13 @@ function CanvasLabWorkspace({
       formData.set("prompt", trimmedPrompt)
       formData.set("model", model)
       formData.set("quality", quality)
-      formData.set("ratio", ratio)
-      formData.set("imageCount", imageCount)
+      if (mode === "image") {
+        formData.set("imageCount", imageCount)
+        formData.set("ratio", ratio)
+      } else {
+        formData.set("duration", duration)
+        formData.set("aspectRatio", ratio)
+      }
       formData.set("clientRequestId", clientRequestId)
       formData.set("sourceCanvasId", activeDocument?.id ?? "")
       formData.set("sourceElementIds", JSON.stringify(referenceElementIds))
@@ -880,9 +1016,11 @@ function CanvasLabWorkspace({
         formData.append("referenceImages", file)
       })
 
-      const result = await createCanvasImageGenerationTask(formData)
+      const result = mode === "image"
+        ? await createCanvasImageGenerationTask(formData)
+        : await createCanvasVideoGenerationTask(formData)
       setPendingCanvasTaskIds((currentTaskIds) => Array.from(new Set([...currentTaskIds, result.taskId])))
-      setStorageStatus({ tone: "ok", text: "生成任务已创建" })
+      setStorageStatus({ tone: "ok", text: mode === "image" ? "生图任务已创建" : "视频任务已创建" })
       setStudioStatus(`任务已创建：${result.taskId}`)
       onRefreshAccount()
     } catch (error) {
@@ -950,6 +1088,38 @@ function CanvasLabWorkspace({
         }) as readonly OrderedExcalidrawElement[]
 
         if (status.status !== "completed" && status.status !== "partial_completed") continue
+
+        if (status.videoUrl) {
+          const videoSourceKey = getProjectVideoSourceKey({
+            id: taskId,
+            status: "已完成",
+            title: `视频结果 ${taskId.slice(0, 8)}`,
+            type: "视频",
+          } as ProjectItem)
+          const alreadyInserted = [...sceneElements, ...appendedElements].some(
+            (element) => getCanvasLabSourceData(element)?.sourceKey === videoSourceKey
+          )
+          if (!alreadyInserted) {
+            const elements = createProjectElements(
+              {
+                createdAt: "刚刚",
+                id: taskId,
+                previewLabel: "画布生成视频",
+                previewUrl: status.videoUrl,
+                prompt: "从画布创建的视频任务",
+                status: "已完成",
+                taskId,
+                title: "视频结果",
+                type: "视频",
+              } as ProjectItem,
+              null,
+              sceneElements.length + appendedElements.length,
+              "video",
+              status.videoUrl
+            )
+            appendedElements.push(...elements)
+          }
+        }
 
         for (const [index, imageUrl] of status.imageUrls.entries()) {
           const resultSourceKey = `upload:result:${taskId}:${index}`
@@ -1325,9 +1495,13 @@ function CanvasLabWorkspace({
           </Excalidraw>
         </section>
 
-        {selectedCanvasReferences.length > 0 && (
+        {selectedCanvasReferences.length > 0 && floatingReferenceAction && (
           <button
             className="fixed left-5 top-20 z-30 inline-flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-950 shadow-lg hover:bg-slate-50"
+            style={{
+              left: floatingReferenceAction.left,
+              top: floatingReferenceAction.top,
+            }}
             onClick={addSelectedImagesToStudio}
             type="button"
           >
@@ -1406,11 +1580,15 @@ function CanvasStudioPanel({
   status: string
 }) {
   const [prompt, setPrompt] = useState(initialPrompt)
+  const [mode, setMode] = useState<"image" | "video">("image")
   const [model, setModel] = useState(yunwuGeminiImageModelName)
   const [quality, setQuality] = useState("2K")
   const [ratio, setRatio] = useState("默认")
+  const [duration, setDuration] = useState("8 秒")
   const [imageCount, setImageCount] = useState("3")
-  const settings = imageModelSettings[model] ?? imageModelSettings[yunwuGeminiImageModelName]
+  const imageSettings = imageModelSettings[model] ?? imageModelSettings[yunwuGeminiImageModelName]
+  const videoSettings = videoModelSettings[model] ?? videoModelSettings[yunwuVeo31FastVideoModelName]
+  const settings = mode === "image" ? imageSettings : videoSettings
   const referenceElementIds = references.map((reference) => reference.elementId)
 
   useEffect(() => {
@@ -1421,10 +1599,48 @@ function CanvasStudioPanel({
     if (!settings.qualities.includes(quality)) {
       setQuality(settings.qualities[0])
     }
-    if (!settings.ratios.includes(ratio)) {
-      setRatio(settings.ratios[0])
+    if (mode === "image" && !imageSettings.ratios.includes(ratio)) {
+      setRatio(imageSettings.ratios[0])
     }
-  }, [quality, ratio, settings])
+    if (mode === "video" && !videoSettings.aspectRatios.includes(ratio)) {
+      setRatio(videoSettings.aspectRatios[0])
+    }
+    if (mode === "video" && !videoSettings.durations.includes(duration)) {
+      setDuration(videoSettings.durations[0])
+    }
+  }, [duration, imageSettings.ratios, mode, quality, ratio, settings.qualities, videoSettings.aspectRatios, videoSettings.durations])
+
+  const handleModeChange = (nextMode: "image" | "video") => {
+    setMode(nextMode)
+    if (nextMode === "image") {
+      const nextSettings = imageModelSettings[yunwuGeminiImageModelName]
+      setModel(yunwuGeminiImageModelName)
+      setQuality(nextSettings.qualities[1] ?? nextSettings.qualities[0])
+      setRatio(nextSettings.ratios[0])
+      return
+    }
+
+    const nextSettings = videoModelSettings[yunwuVeo31FastVideoModelName]
+    setModel(yunwuVeo31FastVideoModelName)
+    setQuality(nextSettings.qualities[0])
+    setRatio(nextSettings.aspectRatios[0])
+    setDuration(nextSettings.durations[0])
+  }
+
+  const handleModelChange = (value: string) => {
+    setModel(value)
+    if (mode === "image") {
+      const nextSettings = imageModelSettings[value] ?? imageModelSettings[yunwuGeminiImageModelName]
+      setQuality(nextSettings.qualities[1] ?? nextSettings.qualities[0])
+      setRatio(nextSettings.ratios[0])
+      return
+    }
+
+    const nextSettings = videoModelSettings[value] ?? videoModelSettings[yunwuVeo31FastVideoModelName]
+    setQuality(nextSettings.qualities[0])
+    setRatio(nextSettings.aspectRatios[0])
+    setDuration(nextSettings.durations[0])
+  }
 
   return (
     <aside className="fixed inset-0 z-40 flex flex-col bg-white text-slate-950 shadow-2xl lg:bottom-5 lg:left-auto lg:right-5 lg:top-20 lg:w-[520px] lg:rounded-lg lg:border lg:border-slate-200">
@@ -1446,6 +1662,18 @@ function CanvasStudioPanel({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="grid gap-5 p-5">
+          {references.length > 0 && (
+            <div className="grid grid-cols-4 gap-1 overflow-hidden rounded-md bg-slate-100 p-1">
+              {references.map((reference) => (
+                <img
+                  alt="画布参考图"
+                  className="aspect-square min-w-0 rounded object-cover"
+                  key={`${reference.elementId}-${reference.id}`}
+                  src={reference.previewUrl}
+                />
+              ))}
+            </div>
+          )}
           <div>
             <textarea
               className="min-h-40 w-full resize-none rounded-lg border border-slate-200 bg-white p-4 text-lg leading-8 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-cyan-300 focus:ring-2 focus:ring-cyan-100"
@@ -1471,10 +1699,20 @@ function CanvasStudioPanel({
       <div className="shrink-0 border-t border-slate-100 p-4">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <CanvasStudioSelect
+            icon={mode === "image" ? ImageIcon : Film}
+            label={mode === "image" ? "图片生成" : "视频生成"}
+            onChange={(value) => handleModeChange(value as "image" | "video")}
+            options={[
+              { label: "图片生成", value: "image" },
+              { label: "视频生成", value: "video" },
+            ]}
+            value={mode}
+          />
+          <CanvasStudioSelect
             icon={Box}
-            label="生图模型"
-            onChange={(value) => setModel(value)}
-            options={imageModelOptions.map((option) => ({
+            label={mode === "image" ? "生图模型" : "视频模型"}
+            onChange={handleModelChange}
+            options={(mode === "image" ? imageModelOptions : videoModelOptions).map((option) => ({
               label: getCanvasStudioModelLabel(option),
               value: option,
             }))}
@@ -1482,34 +1720,44 @@ function CanvasStudioPanel({
           />
           <CanvasStudioSelect
             icon={Sparkles}
-            label="图片清晰度"
+            label={mode === "image" ? "图片清晰度" : "视频清晰度"}
             onChange={setQuality}
             options={settings.qualities.map((option) => ({ label: option, value: option }))}
             value={quality}
           />
           <CanvasStudioSelect
             icon={RectangleHorizontal}
-            label="图片比例"
+            label={mode === "image" ? "图片比例" : "视频比例"}
             onChange={setRatio}
-            options={settings.ratios.map((option) => ({ label: option, value: option }))}
+            options={(mode === "image" ? imageSettings.ratios : videoSettings.aspectRatios).map((option) => ({ label: option, value: option }))}
             value={ratio}
           />
-          <CanvasStudioSelect
-            icon={ImageIcon}
-            label="生成张数"
-            onChange={setImageCount}
-            options={["1", "2", "3", "4"].map((option) => ({ label: `${option} 张`, value: option }))}
-            value={imageCount}
-          />
+          {mode === "image" ? (
+            <CanvasStudioSelect
+              icon={ImageIcon}
+              label="生成张数"
+              onChange={setImageCount}
+              options={["1", "2", "3", "4"].map((option) => ({ label: `${option} 张`, value: option }))}
+              value={imageCount}
+            />
+          ) : (
+            <CanvasStudioSelect
+              icon={Film}
+              label="视频时长"
+              onChange={setDuration}
+              options={videoSettings.durations.map((option) => ({ label: option, value: option }))}
+              value={duration}
+            />
+          )}
         </div>
         <Button
           className="h-12 w-full rounded-full bg-slate-950 text-base font-semibold text-white hover:bg-slate-800"
           disabled={generating}
-          onClick={() => onGenerate({ imageCount, model, prompt, quality, ratio, referenceElementIds })}
+          onClick={() => onGenerate({ duration, imageCount, mode, model, prompt, quality, ratio, referenceElementIds })}
           type="button"
         >
           {generating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-          {generating ? "生成中..." : "生成图片"}
+          {generating ? "生成中..." : `生成${mode === "image" ? "图片" : "视频"}`}
         </Button>
       </div>
     </aside>
@@ -1585,6 +1833,33 @@ function getReferencesFromElements(elements: readonly OrderedExcalidrawElement[]
 
 function areCanvasStudioReferencesEqual(a: CanvasStudioReference[], b: CanvasStudioReference[]) {
   return a.length === b.length && a.every((item, index) => item.elementId === b[index]?.elementId && item.id === b[index]?.id)
+}
+
+function getFloatingReferenceAction(elements: readonly OrderedExcalidrawElement[], appState: AppState): FloatingReferenceAction | null {
+  const selectedElementIds = appState.selectedElementIds ?? {}
+  const selectedImageElements = elements.filter((element) => selectedElementIds[element.id] && element.type === "image")
+  if (selectedImageElements.length === 0) return null
+
+  const bounds = selectedImageElements.reduce(
+    (acc, element) => ({
+      maxX: Math.max(acc.maxX, element.x + element.width),
+      minX: Math.min(acc.minX, element.x),
+      minY: Math.min(acc.minY, element.y),
+    }),
+    {
+      maxX: Number.NEGATIVE_INFINITY,
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+    }
+  )
+  const zoom = appState.zoom?.value ?? 1
+  const left = bounds.minX * zoom + appState.scrollX
+  const top = bounds.minY * zoom + appState.scrollY
+
+  return {
+    left: Math.max(16, Math.min(window.innerWidth - 220, left)),
+    top: Math.max(72, Math.min(window.innerHeight - 64, top - 58)),
+  }
 }
 
 function getProjectImportSourceKeys(project: ProjectItem, imageIndex?: number) {
@@ -1827,6 +2102,22 @@ function dataUrlToFile(dataUrl: string, filename: string, mimeType: string) {
   }
 
   return new File([bytes], filename, { type: mimeType || "image/png" })
+}
+
+async function dataUrlToBlob(dataUrl: string, mimeType: string) {
+  const response = await fetch(dataUrl)
+  const blob = await response.blob()
+
+  return blob.type ? blob : new Blob([await blob.arrayBuffer()], { type: mimeType || "image/png" })
+}
+
+function getImageFileExtension(mimeType: string) {
+  if (mimeType === "image/webp") return "webp"
+  if (mimeType === "image/jpeg") return "jpg"
+  if (mimeType === "image/gif") return "gif"
+  if (mimeType === "image/avif") return "avif"
+
+  return "png"
 }
 
 async function hydrateCanvasLabFiles(elements: readonly ExcalidrawElement[], files: BinaryFiles) {
