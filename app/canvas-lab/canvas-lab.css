@@ -1,0 +1,4 @@
+.canvas-lab-page .excalidraw .default-sidebar-trigger,
+.canvas-lab-page .excalidraw .library-menu-browse-button {
+  display: none !important;
+}

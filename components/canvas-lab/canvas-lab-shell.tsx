@@ -44,6 +44,7 @@ import {
   deleteCanvasLabDocument,
   getCanvasLabProjects,
   getElementSourceData,
+  getProjectDownloadUrl,
   getProjectImportFilename,
   getProjectPreviewUrl,
   getProjectSourceData,
@@ -325,7 +326,7 @@ function CanvasLabWorkspace({
   }
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-slate-950 text-slate-100">
+    <div className="canvas-lab-page flex h-screen min-h-0 flex-col bg-slate-950 text-slate-100">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/95 px-3 sm:px-4">
         <div className="flex min-w-0 items-center gap-2">
           <Button asChild className="h-9 w-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white" size="icon" variant="ghost">
@@ -543,13 +544,13 @@ function formatShortTime(value: string) {
 }
 
 async function downloadProjectFile(project: ProjectItem) {
-  const previewUrl = getProjectPreviewUrl(project)
-  if (!previewUrl) return null
+  const downloadUrl = getProjectDownloadUrl(project)
+  if (!downloadUrl) return null
 
-  const response = await fetch(`/api/download?url=${encodeURIComponent(previewUrl)}&filename=${encodeURIComponent(getProjectImportFilename(project))}`)
+  const response = await fetch(`/api/download?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(getProjectImportFilename(project))}`)
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(getErrorMessage(payload, "图片下载失败。"))
+    throw new Error(getPayloadErrorMessage(payload, "图片下载失败。"))
   }
 
   const blob = await response.blob()
@@ -573,6 +574,15 @@ async function downloadProjectFile(project: ProjectItem) {
     height: size.height,
     width: size.width,
   }
+}
+
+function getPayloadErrorMessage(payload: unknown, fallback: string) {
+  if (typeof payload === "object" && payload !== null && "error" in payload) {
+    const error = (payload as { error?: unknown }).error
+    if (typeof error === "string" && error) return error
+  }
+
+  return getErrorMessage(payload, fallback)
 }
 
 function blobToDataURL(blob: Blob) {

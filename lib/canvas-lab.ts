@@ -6,6 +6,10 @@ const canvasLabDbName = "storm-canvas-lab-v1"
 const canvasLabStoreName = "documents"
 const canvasLabDocumentId = "main"
 const canvasLabPrefsKey = "storm-canvas-lab-prefs-v1"
+const generatedImagePathPrefixes = [
+  "/supabase/storage/v1/object/public/generated-images/",
+  "/storage/v1/object/public/generated-images/",
+]
 
 export const canvasLabSourceCustomDataKey = "stormCanvasSource"
 
@@ -170,6 +174,21 @@ export function getProjectPreviewUrl(project: ProjectItem) {
   return project.previewUrl || project.imageUrls?.[0] || ""
 }
 
+export function getProjectDownloadUrl(project: ProjectItem) {
+  const previewUrl = getProjectPreviewUrl(project)
+  if (!previewUrl) return ""
+
+  if (isGeneratedImageStoragePath(previewUrl)) {
+    return new URL(previewUrl, getConfiguredSupabaseUrl()).toString()
+  }
+
+  try {
+    return new URL(previewUrl, getCurrentOrigin()).toString()
+  } catch {
+    return previewUrl
+  }
+}
+
 export function getCanvasLabProjects(projects: ProjectItem[]) {
   return sortProjectHistory(projects)
     .filter((project) => !isDeletedProjectItem(project))
@@ -202,4 +221,17 @@ export function getElementSourceData(element: ExcalidrawElement) {
   if (source.type !== "project" || typeof source.sourceKey !== "string") return null
 
   return source as CanvasLabSourceData
+}
+
+function isGeneratedImageStoragePath(value: string) {
+  return generatedImagePathPrefixes.some((prefix) => value.startsWith(prefix))
+}
+
+function getConfiguredSupabaseUrl() {
+  return process.env.NEXT_PUBLIC_SUPABASE_URL || getCurrentOrigin()
+}
+
+function getCurrentOrigin() {
+  if (typeof window === "undefined") return "https://www.zlaction.online"
+  return window.location.origin
 }
