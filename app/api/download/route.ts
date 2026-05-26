@@ -21,14 +21,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "下载地址无效。" }, { status: 400 })
   }
 
-  const response = await fetchSafeRemoteResource(
-    parsedUrl,
-    { cache: "no-store" },
-    { allowHttp: process.env.NODE_ENV !== "production" }
-  )
+  let response: Response
+  try {
+    response = await fetchSafeRemoteResource(
+      parsedUrl,
+      { cache: "no-store" },
+      { allowHttp: process.env.NODE_ENV !== "production" }
+    )
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: `下载资源获取失败：${describeDownloadError(error, "远程图片不可访问。")}` },
+      { status: 502 }
+    )
+  }
 
   if (!response.ok || !response.body) {
-    return NextResponse.json({ ok: false, error: "下载资源获取失败。" }, { status: 502 })
+    return NextResponse.json({ ok: false, error: `下载资源获取失败：HTTP ${response.status}。` }, { status: 502 })
   }
 
   const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? ""
@@ -86,4 +94,13 @@ function sanitizeFilename(filename: string) {
 
 function encodeRFC5987ValueChars(value: string) {
   return encodeURIComponent(value).replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
+function describeDownloadError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === "string" && message) return message
+  }
+  return fallback
 }

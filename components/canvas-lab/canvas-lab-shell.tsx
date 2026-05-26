@@ -550,7 +550,7 @@ async function downloadProjectFile(project: ProjectItem) {
   const response = await fetch(`/api/download?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(getProjectImportFilename(project))}`)
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(getPayloadErrorMessage(payload, "图片下载失败。"))
+    throw new Error(getPayloadErrorMessage(payload, `图片下载失败：HTTP ${response.status}。`))
   }
 
   const blob = await response.blob()
