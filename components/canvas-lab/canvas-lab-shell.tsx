@@ -1,34 +1,38 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react"
 import Link from "next/link"
 import {
   CaptureUpdateAction,
   Excalidraw,
   THEME,
-  convertToExcalidrawElements,
   serializeAsJSON,
 } from "@excalidraw/excalidraw"
 import type {
   AppState,
-  BinaryFileData,
   BinaryFiles,
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types"
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types"
-import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/transform"
 import {
   AlertCircle,
   ArrowLeft,
+  ChevronDown,
   Download,
+  FilePlus2,
+  History,
   ImageIcon,
   Loader2,
   Maximize2,
+  PencilLine,
   PanelRightClose,
   PanelRightOpen,
   RefreshCcw,
   RotateCcw,
+  Search,
+  Sparkles,
+  Trash2,
   UploadCloud,
 } from "lucide-react"
 import { AuthPanel } from "@/components/auth-panel"
@@ -36,26 +40,53 @@ import { ForcedPasswordChange } from "@/components/forced-password-change"
 import { GeneratedImage } from "@/components/generated-image"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useAccountSession, getErrorMessage } from "@/hooks/use-account-session"
 import {
-  canvasLabSourceCustomDataKey,
-  createCanvasLabId,
+  createCanvasLabCloudDocument,
+  createCanvasLabAssetUpload,
+  createCanvasBinaryImageFile,
+  createCanvasImageGenerationTask,
+  createCanvasLabAssetBinding,
+  createCanvasTaskPlaceholderElements,
+  createCanvasUploadElements,
+  createCanvasLabVersion,
+  buildSceneSignature,
+  createProjectElements,
   deleteCanvasLabDocument,
+  deleteCanvasLabCloudDocument,
+  downloadCanvasImageUrl,
+  downloadProjectImage,
+  getCanvasGenerationTaskStatus,
   getCanvasLabProjects,
+  getCanvasLabCloudDocument,
+  getCanvasLabSourceData,
+  getCanvasLabTaskSourceData,
   getElementSourceData,
-  getProjectDownloadUrl,
-  getProjectImportFilename,
+  getProjectImageUrls,
   getProjectPreviewUrl,
-  getProjectSourceData,
   getProjectSourceKey,
+  listCanvasLabCloudDocuments,
+  listCanvasLabVersions,
   loadCanvasLabDocument,
   loadCanvasLabPrefs,
   sanitizeCanvasLabAppState,
+  saveCanvasLabCloudDocument,
   saveCanvasLabDocument,
   saveCanvasLabPrefs,
+  restoreCanvasLabVersion,
+  uploadCanvasLabAssetFile,
+  type CanvasLabCloudDocument,
   type CanvasLabPrefs,
-  type CanvasLabSourceData,
 } from "@/lib/canvas-lab"
 import type { ProjectItem, ProjectStatus } from "@/lib/project-history"
 import { cn } from "@/lib/utils"
@@ -63,6 +94,21 @@ import { cn } from "@/lib/utils"
 type StorageStatus = {
   tone: "idle" | "ok" | "error" | "busy"
   text: string
+}
+
+type ActiveCanvasDocument = {
+  id: string
+  source: "cloud" | "local"
+  title: string
+  updatedAt: string
+}
+
+type CanvasDocumentSummary = {
+  assetCount: number
+  id: string
+  thumbnailUrl: string | null
+  title: string
+  updatedAt: string
 }
 
 const emptyInitialData: ExcalidrawInitialDataState = {
@@ -80,7 +126,23 @@ const emptyInitialData: ExcalidrawInitialDataState = {
 const importableStatuses = new Set<ProjectStatus>(["已完成", "部分完成"])
 
 function canImportProjectImage(project: ProjectItem) {
-  return project.type === "生图" && importableStatuses.has(project.status) && Boolean(getProjectPreviewUrl(project))
+  return project.type === "生图" && importableStatuses.has(project.status) && getProjectImageUrls(project).length > 0
+}
+
+function canImportProjectVideo(project: ProjectItem) {
+  return project.type === "视频" && Boolean(getProjectPreviewUrl(project))
+}
+
+function getProjectImportMode(project: ProjectItem) {
+  if (canImportProjectImage(project)) {
+    return getProjectImageUrls(project).length > 1 ? "bulk-image" : "single-image"
+  }
+
+  if (canImportProjectVideo(project)) {
+    return "video"
+  }
+
+  return "status"
 }
 
 export function CanvasLabShell() {
@@ -163,21 +225,29 @@ function CanvasLabWorkspace({
     tone: "busy",
     text: "正在加载画布...",
   })
+  const [activeDocument, setActiveDocument] = useState<ActiveCanvasDocument | null>(null)
+  const [canvasDocuments, setCanvasDocuments] = useState<CanvasDocumentSummary[]>([])
+  const [canvasSearch, setCanvasSearch] = useState("")
+  const [assetSearch, setAssetSearch] = useState("")
+  const [assetTypeFilter, setAssetTypeFilter] = useState<"all" | "image" | "video" | "status">("all")
   const [importingKey, setImportingKey] = useState("")
   const saveTimerRef = useRef<number | null>(null)
   const skipNextSaveRef = useRef(true)
   const lastSignatureRef = useRef("")
   const hydratedRef = useRef(false)
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     let active = true
 
-    loadCanvasLabDocument()
-      .then((document) => {
+    loadInitialCanvasDocument()
+      .then((result) => {
         if (!active) return
 
+        const document = result.document
         skipNextSaveRef.current = true
         hydratedRef.current = true
+        setActiveDocument(result.activeDocument)
         setInitialData(
           document
             ? {
@@ -188,9 +258,23 @@ function CanvasLabWorkspace({
             : emptyInitialData
         )
         setStorageStatus({
-          tone: document ? "ok" : "idle",
-          text: document ? `已恢复画布 · ${formatShortTime(document.updatedAt)}` : "本地新画布",
+          tone: "ok",
+          text: `${result.activeDocument.source === "cloud" ? "已同步云端" : "已恢复本地缓存"} · ${formatShortTime(document.updatedAt)}`,
         })
+        listCanvasLabCloudDocuments()
+          .then((documents) => {
+            if (!active) return
+            setCanvasDocuments(
+              documents.map((document) => ({
+                id: document.id,
+                assetCount: document.assetCount,
+                thumbnailUrl: document.thumbnailUrl,
+                title: document.title,
+                updatedAt: document.updatedAt,
+              }))
+            )
+          })
+          .catch(() => undefined)
       })
       .catch((error) => {
         if (!active) return
@@ -215,6 +299,139 @@ function CanvasLabWorkspace({
     saveCanvasLabPrefs(nextPrefs)
   }, [])
 
+  const refreshCanvasDocuments = useCallback(async () => {
+    try {
+      const documents = await listCanvasLabCloudDocuments()
+      setCanvasDocuments(
+        documents.map((document) => ({
+          id: document.id,
+          assetCount: document.assetCount,
+          thumbnailUrl: document.thumbnailUrl,
+          title: document.title,
+          updatedAt: document.updatedAt,
+        }))
+      )
+    } catch {
+      setCanvasDocuments([])
+    }
+  }, [])
+
+  const hydrateCanvasDocument = useCallback(
+    async (documentId: string) => {
+      const document = await getCanvasLabCloudDocument(documentId)
+
+      await saveCanvasLabDocument(
+        {
+          appState: document.appState,
+          elements: document.elements,
+          files: document.files,
+          title: document.title,
+        },
+        document.id
+      ).catch(() => undefined)
+
+      return {
+        activeDocument: {
+          id: document.id,
+          source: "cloud" as const,
+          title: document.title,
+          updatedAt: document.updatedAt,
+        },
+        document,
+      }
+    },
+    []
+  )
+
+  const openCanvasDocument = useCallback(
+    async (documentId: string) => {
+      setStorageStatus({ tone: "busy", text: "正在切换画布..." })
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
+      skipNextSaveRef.current = true
+      lastSignatureRef.current = ""
+
+      try {
+        const result = await hydrateCanvasDocument(documentId)
+        setActiveDocument(result.activeDocument)
+        setInitialData({
+          appState: result.document.appState,
+          elements: result.document.elements,
+          files: result.document.files,
+        })
+        setStorageStatus({
+          tone: "ok",
+          text: `已打开画布 · ${formatShortTime(result.document.updatedAt)}`,
+        })
+      } catch (error) {
+        setStorageStatus({ tone: "error", text: getErrorMessage(error, "打开画布失败。") })
+      }
+    },
+    [hydrateCanvasDocument]
+  )
+
+  const createCanvasDocument = useCallback(async () => {
+    setStorageStatus({ tone: "busy", text: "正在创建画布..." })
+
+    try {
+      const document = await createCanvasLabCloudDocument("未命名画布")
+      await refreshCanvasDocuments()
+      await openCanvasDocument(document.id)
+    } catch (error) {
+      setStorageStatus({ tone: "error", text: getErrorMessage(error, "创建画布失败。") })
+    }
+  }, [openCanvasDocument, refreshCanvasDocuments])
+
+  const renameCanvasDocument = useCallback(
+    async (documentId: string) => {
+      const current = canvasDocuments.find((document) => document.id === documentId)
+      const nextTitle = window.prompt("输入画布名称", current?.title ?? activeDocument?.title ?? "未命名画布")?.trim()
+      if (!nextTitle) return
+
+      try {
+        const document = await saveCanvasLabCloudDocument(documentId, {
+          title: nextTitle,
+        })
+        setCanvasDocuments((currentDocuments) =>
+          currentDocuments.map((item) => (item.id === documentId ? { ...item, title: document.title, updatedAt: document.updatedAt } : item))
+        )
+        if (activeDocument?.id === documentId) {
+          setActiveDocument({
+            id: document.id,
+            source: "cloud",
+            title: document.title,
+            updatedAt: document.updatedAt,
+          })
+        }
+        setStorageStatus({ tone: "ok", text: "画布已重命名" })
+      } catch (error) {
+        setStorageStatus({ tone: "error", text: getErrorMessage(error, "重命名画布失败。") })
+      }
+    },
+    [activeDocument, canvasDocuments]
+  )
+
+  const deleteCanvasDocument = useCallback(
+    async (documentId: string) => {
+      if (!window.confirm("删除这个画布？历史生成项目不会被删除。")) return
+
+      try {
+        await deleteCanvasLabCloudDocument(documentId)
+        await refreshCanvasDocuments()
+
+        const remaining = canvasDocuments.filter((document) => document.id !== documentId)
+        if (remaining.length > 0) {
+          await openCanvasDocument(remaining[0].id)
+        } else {
+          await createCanvasDocument()
+        }
+        setStorageStatus({ tone: "ok", text: "画布已删除" })
+      } catch (error) {
+        setStorageStatus({ tone: "error", text: getErrorMessage(error, "删除画布失败。") })
+      }
+    },
+    [canvasDocuments, createCanvasDocument, openCanvasDocument, refreshCanvasDocuments]
+  )
+
   const saveCurrentScene = useCallback((elements: readonly OrderedExcalidrawElement[], appState: AppState, files: BinaryFiles) => {
     if (!hydratedRef.current) return
 
@@ -236,33 +453,73 @@ function CanvasLabWorkspace({
 
     setStorageStatus({ tone: "busy", text: "正在保存..." })
     saveTimerRef.current = window.setTimeout(() => {
-      saveCanvasLabDocument({
+      const localPayload = {
         appState: sanitizedAppState,
         elements,
         files,
-      })
+        title: activeDocument?.title,
+      }
+
+      const saveOperation = activeDocument?.source === "cloud"
+        ? saveCanvasLabCloudDocument(activeDocument.id, localPayload)
+            .then((document) =>
+              saveCanvasLabDocument(
+                {
+                  appState: document.appState,
+                  elements: document.elements,
+                  files: document.files,
+                  title: document.title,
+                },
+                document.id
+              ).then(() => document)
+            )
+        : saveCanvasLabDocument(localPayload)
+
+      saveOperation
         .then((document) => {
+          if (activeDocument?.source === "cloud") {
+            setActiveDocument({
+              id: document.id,
+              source: "cloud",
+              title: document.title ?? activeDocument.title,
+              updatedAt: document.updatedAt,
+            })
+          }
           setStorageStatus({ tone: "ok", text: `已保存 · ${formatShortTime(document.updatedAt)}` })
         })
         .catch((error) => {
-          setStorageStatus({ tone: "error", text: getErrorMessage(error, "画布保存失败。") })
+          saveCanvasLabDocument(localPayload, activeDocument?.id).catch(() => undefined)
+          setStorageStatus({ tone: "error", text: getErrorMessage(error, "云端保存失败，已保留本地缓存。") })
         })
     }, 700)
-  }, [])
+  }, [activeDocument])
 
   const handleReset = useCallback(async () => {
     if (!api) return
     if (!window.confirm("清空当前本地画布？此操作不会删除历史项目。")) return
 
-    await deleteCanvasLabDocument().catch((error) => {
-      setStorageStatus({ tone: "error", text: getErrorMessage(error, "清空本地画布失败。") })
+    const documentId = activeDocument?.id
+    const title = activeDocument?.title
+
+    await deleteCanvasLabDocument(documentId).catch((error) => {
+      setStorageStatus({ tone: "error", text: getErrorMessage(error, "清空本地缓存失败。") })
     })
+    if (activeDocument?.source === "cloud") {
+      await saveCanvasLabCloudDocument(activeDocument.id, {
+        appState: {},
+        elements: [],
+        files: {},
+        title,
+      }).catch((error) => {
+        setStorageStatus({ tone: "error", text: getErrorMessage(error, "清空云端画布失败。") })
+      })
+    }
     skipNextSaveRef.current = true
     lastSignatureRef.current = ""
     api.resetScene()
     api.history.clear()
-    setStorageStatus({ tone: "idle", text: "本地画布已清空" })
-  }, [api])
+    setStorageStatus({ tone: "idle", text: activeDocument?.source === "cloud" ? "云端画布已清空" : "本地画布已清空" })
+  }, [activeDocument, api])
 
   const handleExportJson = useCallback(() => {
     if (!api) return
@@ -279,8 +536,311 @@ function CanvasLabWorkspace({
     URL.revokeObjectURL(url)
   }, [api])
 
+  const handleCanvasVersions = useCallback(async () => {
+    if (activeDocument?.source !== "cloud") {
+      setStorageStatus({ tone: "error", text: "本地画布暂不支持版本恢复。" })
+      return
+    }
+
+    try {
+      const versions = await listCanvasLabVersions(activeDocument.id)
+      if (versions.length === 0) {
+        await createCanvasLabVersion(activeDocument.id, "manual")
+        setStorageStatus({ tone: "ok", text: "已保存当前版本" })
+        return
+      }
+
+      const message = [
+        "输入要恢复的版本序号；留空则保存当前版本。",
+        ...versions.slice(0, 8).map((version, index) => `${index + 1}. ${formatShortTime(version.createdAt)} · ${version.reason}`),
+      ].join("\n")
+      const choice = window.prompt(message)?.trim()
+
+      if (!choice) {
+        await createCanvasLabVersion(activeDocument.id, "manual")
+        setStorageStatus({ tone: "ok", text: "已保存当前版本" })
+        return
+      }
+
+      const selectedVersion = versions[Number.parseInt(choice, 10) - 1]
+      if (!selectedVersion) {
+        setStorageStatus({ tone: "error", text: "未找到对应版本。" })
+        return
+      }
+
+      if (!window.confirm("恢复该版本？恢复前会自动保存当前画布版本。")) return
+
+      const document = await restoreCanvasLabVersion(activeDocument.id, selectedVersion.id)
+      await saveCanvasLabDocument(
+        {
+          appState: document.appState,
+          elements: document.elements,
+          files: document.files,
+          title: document.title,
+        },
+        document.id
+      ).catch(() => undefined)
+      skipNextSaveRef.current = true
+      lastSignatureRef.current = ""
+      setActiveDocument({
+        id: document.id,
+        source: "cloud",
+        title: document.title,
+        updatedAt: document.updatedAt,
+      })
+      setInitialData({
+        appState: document.appState,
+        elements: document.elements,
+        files: document.files,
+      })
+      setStorageStatus({ tone: "ok", text: "已恢复历史版本" })
+    } catch (error) {
+      setStorageStatus({ tone: "error", text: getErrorMessage(error, "处理画布版本失败。") })
+    }
+  }, [activeDocument])
+
+  const handleUploadFile = useCallback(
+    async (file: File) => {
+      if (!api) return
+      if (activeDocument?.source !== "cloud") {
+        setStorageStatus({ tone: "error", text: "请先打开云端画布后再上传素材。" })
+        return
+      }
+
+      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+        setStorageStatus({ tone: "error", text: "画布只支持上传 PNG、JPG、WEBP 图片。" })
+        return
+      }
+
+      if (file.size > 12 * 1024 * 1024) {
+        setStorageStatus({ tone: "error", text: "图片大小不能超过 12MB。" })
+        return
+      }
+
+      setStorageStatus({ tone: "busy", text: "正在上传素材..." })
+
+      try {
+        const filePayload = await createCanvasBinaryImageFile(file, `upload:${file.name}:${file.lastModified}`)
+        const upload = await createCanvasLabAssetUpload({
+          canvasId: activeDocument.id,
+          file,
+          height: filePayload.height,
+          width: filePayload.width,
+        })
+
+        await uploadCanvasLabAssetFile(upload, file)
+
+        const elements = createCanvasUploadElements({
+          assetId: upload.asset.id,
+          existingElementCount: api.getSceneElements().length,
+          filePayload,
+          storageUrl: upload.publicUrl,
+          title: file.name,
+        })
+        api.addFiles([filePayload.file])
+        api.updateScene({
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+          elements: [...api.getSceneElements(), ...elements],
+        })
+        window.requestAnimationFrame(() => {
+          api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
+        })
+        setStorageStatus({ tone: "ok", text: "素材已上传并导入画布" })
+      } catch (error) {
+        setStorageStatus({ tone: "error", text: getErrorMessage(error, "上传素材失败。") })
+      }
+    },
+    [activeDocument, api]
+  )
+
+  const handleUploadInputChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? [])
+      event.target.value = ""
+      for (const file of files) {
+        await handleUploadFile(file)
+      }
+    },
+    [handleUploadFile]
+  )
+
+  const handleCanvasDrop = useCallback(
+    async (event: DragEvent<HTMLElement>) => {
+      const files = Array.from(event.dataTransfer.files ?? []).filter((file) => file.type.startsWith("image/"))
+      if (files.length === 0) return
+
+      event.preventDefault()
+      for (const file of files) {
+        await handleUploadFile(file)
+      }
+    },
+    [handleUploadFile]
+  )
+
+  const handleGenerateFromCanvas = useCallback(async () => {
+    if (!api) return
+
+    const selectedElementIds = api.getAppState().selectedElementIds ?? {}
+    const selectedElements = api.getSceneElements().filter((element) => selectedElementIds[element.id])
+    const selectedPrompt = selectedElements
+      .filter((element) => element.type === "text")
+      .map((element) => ("text" in element ? String(element.text ?? "") : ""))
+      .filter(Boolean)
+      .join("\n")
+    const prompt = window.prompt("输入生图提示词", selectedPrompt)?.trim()
+    if (!prompt) return
+
+    setStorageStatus({ tone: "busy", text: "正在创建生成任务..." })
+
+    try {
+      const formData = new FormData()
+      const clientRequestId = `canvas-${activeDocument?.id ?? "local"}-${Date.now()}`
+      formData.set("prompt", prompt)
+      formData.set("imageCount", "1")
+      formData.set("clientRequestId", clientRequestId)
+      formData.set("sourceCanvasId", activeDocument?.id ?? "")
+      formData.set("sourceElementIds", JSON.stringify(selectedElements.map((element) => element.id)))
+
+      const files = api.getFiles()
+      const selectedImageElements = selectedElements
+        .filter((element) => element.type === "image" && "fileId" in element && element.fileId)
+        .slice(0, 4)
+
+      selectedImageElements.forEach((element, index) => {
+        const fileId = "fileId" in element ? element.fileId : null
+        const fileData = fileId ? files[fileId] : null
+        if (!fileData?.dataURL) return
+
+        const file = dataUrlToFile(String(fileData.dataURL), `canvas-reference-${index + 1}.png`, String(fileData.mimeType || "image/png"))
+        formData.append("referenceImages", file)
+      })
+
+      const result = await createCanvasImageGenerationTask(formData)
+      const elements = createCanvasTaskPlaceholderElements({
+        canvasId: activeDocument?.id ?? "local",
+        existingElementCount: api.getSceneElements().length,
+        prompt,
+        taskId: result.taskId,
+      })
+
+      api.updateScene({
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+        elements: [...api.getSceneElements(), ...elements],
+      })
+      window.requestAnimationFrame(() => {
+        api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.62 })
+      })
+      setStorageStatus({ tone: "ok", text: "生成任务已创建" })
+    } catch (error) {
+      setStorageStatus({ tone: "error", text: getErrorMessage(error, "从画布创建生成任务失败。") })
+    }
+  }, [activeDocument, api])
+
+  const syncCanvasTasks = useCallback(async (silent = false) => {
+    if (!api) return
+
+    const currentElements = api.getSceneElements()
+    const taskIds = Array.from(
+      new Set(currentElements.map((element) => getCanvasLabTaskSourceData(element)?.taskId).filter((taskId): taskId is string => Boolean(taskId)))
+    )
+    if (taskIds.length === 0) return
+
+    if (!silent) {
+      setStorageStatus({ tone: "busy", text: "正在刷新任务状态..." })
+    }
+
+    try {
+      let sceneElements: readonly OrderedExcalidrawElement[] = currentElements
+      const appendedElements: OrderedExcalidrawElement[] = []
+      const appendedFiles: Parameters<NonNullable<typeof api>["addFiles"]>[0] = []
+
+      for (const taskId of taskIds) {
+        const status = await getCanvasGenerationTaskStatus(taskId)
+        const statusText = status.status === "failed" ? "生成失败" : status.status === "completed" || status.status === "partial_completed" ? "已完成" : "生成中"
+
+        sceneElements = sceneElements.map((element) => {
+          const source = getCanvasLabTaskSourceData(element)
+          if (source?.taskId !== taskId || element.type !== "text" || !("text" in element) || element.text === statusText) {
+            return element
+          }
+
+          return {
+            ...element,
+            text: statusText,
+          }
+        }) as readonly OrderedExcalidrawElement[]
+
+        if (status.status !== "completed" && status.status !== "partial_completed") continue
+
+        for (const [index, imageUrl] of status.imageUrls.entries()) {
+          const resultSourceKey = `upload:result:${taskId}:${index}`
+          const alreadyInserted = [...sceneElements, ...appendedElements].some(
+            (element) => getCanvasLabSourceData(element)?.sourceKey === resultSourceKey
+          )
+          if (alreadyInserted) continue
+
+          const filePayload = await downloadCanvasImageUrl(imageUrl, `result:${taskId}:${index}`, `canvas-result-${index + 1}.png`)
+          if (activeDocument?.source === "cloud") {
+            await createCanvasLabAssetBinding(activeDocument.id, {
+              externalUrl: imageUrl,
+              height: filePayload.height,
+              mimeType: filePayload.file.mimeType,
+              sourceKey: `result:${taskId}:${index}`,
+              sourceTaskId: taskId,
+              sourceType: "generation-result",
+              storageUrl: imageUrl,
+              width: filePayload.width,
+            }).catch(() => undefined)
+          }
+          const elements = createCanvasUploadElements({
+            assetId: `result:${taskId}:${index}`,
+            existingElementCount: sceneElements.length + appendedElements.length,
+            filePayload,
+            storageUrl: imageUrl,
+            title: `生成结果 ${index + 1}`,
+          })
+          appendedFiles.push(filePayload.file)
+          appendedElements.push(...elements)
+        }
+      }
+
+      if (appendedFiles.length > 0) {
+        api.addFiles(appendedFiles)
+      }
+
+      api.updateScene({
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+        elements: [...sceneElements, ...appendedElements],
+      })
+
+      if (appendedElements.length > 0) {
+        window.requestAnimationFrame(() => {
+          api.scrollToContent(appendedElements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.58 })
+        })
+      }
+
+      if (!silent || appendedElements.length > 0) {
+        setStorageStatus({ tone: "ok", text: appendedElements.length > 0 ? "生成结果已回填画布" : "任务状态已刷新" })
+      }
+    } catch (error) {
+      if (!silent) {
+        setStorageStatus({ tone: "error", text: getErrorMessage(error, "刷新任务状态失败。") })
+      }
+    }
+  }, [activeDocument, api])
+
+  useEffect(() => {
+    if (!api) return
+
+    const timer = window.setInterval(() => {
+      syncCanvasTasks(true).catch(() => undefined)
+    }, 15000)
+
+    return () => window.clearInterval(timer)
+  }, [api, syncCanvasTasks])
+
   const handleImportProject = useCallback(
-    async (project: ProjectItem) => {
+    async (project: ProjectItem, imageIndex?: number) => {
       if (!api || importingKey) return
 
       const sourceKey = getProjectSourceKey(project)
@@ -295,31 +855,115 @@ function CanvasLabWorkspace({
       setStorageStatus({ tone: "busy", text: "正在导入素材..." })
 
       try {
-        const filePayload = canImportProjectImage(project) ? await downloadProjectFile(project) : null
-        const elements = createProjectElements(project, filePayload, api.getSceneElements().length)
+        if (canImportProjectImage(project)) {
+          const imageUrls = typeof imageIndex === "number" ? [getProjectImageUrls(project)[imageIndex]].filter(Boolean) : getProjectImageUrls(project)
+          const filePayloads = await Promise.all(
+            imageUrls.map((imageUrl, index) => downloadProjectImage(project, imageUrl, index))
+          )
+          if (activeDocument?.source === "cloud") {
+            await Promise.allSettled(
+              imageUrls.map((imageUrl, index) =>
+                createCanvasLabAssetBinding(activeDocument.id, {
+                  externalUrl: imageUrl,
+                  height: filePayloads[index]?.height,
+                  mimeType: filePayloads[index]?.file.mimeType,
+                  sourceKey: `project:${getProjectSourceKey(project)}:${index}`,
+                  sourceProjectId: project.id,
+                  sourceTaskId: project.taskId,
+                  sourceType: "project",
+                  storageUrl: imageUrl,
+                  width: filePayloads[index]?.width,
+                })
+              )
+            )
+          }
+          const nextElements = filePayloads.flatMap((payload, index) =>
+            createProjectElements(project, payload, api.getSceneElements().length + index * 4, String(index))
+          )
 
-        if (filePayload) {
-          api.addFiles([filePayload.file])
+          api.addFiles(filePayloads.map((payload) => payload.file))
+          api.updateScene({
+            captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+            elements: [...api.getSceneElements(), ...nextElements],
+          })
+          window.requestAnimationFrame(() => {
+            api.scrollToContent(nextElements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
+          })
+          setStorageStatus({ tone: "ok", text: imageUrls.length > 1 ? "已批量导入画布" : "已导入画布" })
+        } else if (canImportProjectVideo(project)) {
+          if (activeDocument?.source === "cloud") {
+            await createCanvasLabAssetBinding(activeDocument.id, {
+              externalUrl: getProjectPreviewUrl(project),
+              sourceKey: `video:${getProjectSourceKey(project)}`,
+              sourceProjectId: project.id,
+              sourceTaskId: project.taskId,
+              sourceType: "video",
+              storageUrl: getProjectPreviewUrl(project),
+            }).catch(() => undefined)
+          }
+          const elements = createProjectElements(project, null, api.getSceneElements().length, "video")
+          api.updateScene({
+            captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+            elements: [...api.getSceneElements(), ...elements],
+          })
+          window.requestAnimationFrame(() => {
+            api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
+          })
+          setStorageStatus({ tone: "ok", text: "已导入视频状态卡" })
+        } else {
+          if (activeDocument?.source === "cloud") {
+            await createCanvasLabAssetBinding(activeDocument.id, {
+              sourceKey: `status:${getProjectSourceKey(project)}`,
+              sourceProjectId: project.id,
+              sourceTaskId: project.taskId,
+              sourceType: "status",
+            }).catch(() => undefined)
+          }
+          const elements = createProjectElements(project, null, api.getSceneElements().length, "status")
+          api.updateScene({
+            captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+            elements: [...api.getSceneElements(), ...elements],
+          })
+          window.requestAnimationFrame(() => {
+            api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
+          })
+          setStorageStatus({ tone: "ok", text: "已导入状态卡" })
         }
-
-        api.updateScene({
-          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-          elements: [...api.getSceneElements(), ...elements],
-        })
-        window.requestAnimationFrame(() => {
-          api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
-        })
-        setStorageStatus({ tone: "ok", text: "已导入画布" })
       } catch (error) {
         setStorageStatus({ tone: "error", text: getErrorMessage(error, "导入素材失败。") })
       } finally {
         setImportingKey("")
       }
     },
-    [api, importingKey]
+    [activeDocument, api, importingKey]
   )
 
   const importableCount = useMemo(() => projects.filter(canImportProjectImage).length, [projects])
+  const visibleProjects = useMemo(() => {
+    const keyword = canvasSearch.trim().toLowerCase()
+    return projects.filter((project) => {
+      const haystack = [project.title, project.prompt, project.previewLabel, project.status, project.type]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+      return !keyword || haystack.includes(keyword)
+    })
+  }, [canvasSearch, projects])
+
+  const filteredProjects = useMemo(() => {
+    const keyword = assetSearch.trim().toLowerCase()
+    return visibleProjects.filter((project) => {
+      if (assetTypeFilter === "image" && !canImportProjectImage(project)) return false
+      if (assetTypeFilter === "video" && !canImportProjectVideo(project)) return false
+      if (assetTypeFilter === "status" && canImportProjectImage(project)) return false
+
+      const haystack = [project.title, project.prompt, project.previewLabel, project.status, project.type]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+      return !keyword || haystack.includes(keyword)
+    })
+  }, [assetSearch, assetTypeFilter, visibleProjects])
 
   if (!initialData) {
     return <CanvasLabLoading text="正在初始化画布..." />
@@ -334,17 +978,93 @@ function CanvasLabWorkspace({
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">无限画布实验页</div>
-            <div className="truncate text-[11px] text-slate-500">{email}</div>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left hover:bg-slate-900" type="button">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">{activeDocument?.title ?? "无限画布"}</div>
+                  <div className="truncate text-[11px] text-slate-500">{email}</div>
+                </div>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72 border-slate-800 bg-slate-950 text-slate-100">
+              <DropdownMenuLabel>画布列表</DropdownMenuLabel>
+              <DropdownMenuSeparator className="bg-slate-800" />
+              <div className="px-2 pb-2">
+                <Input
+                  className="h-8 border-slate-800 bg-slate-900 text-xs text-slate-100 placeholder:text-slate-500"
+                  onChange={(event) => setCanvasSearch(event.target.value)}
+                  placeholder="搜索画布"
+                  value={canvasSearch}
+                />
+              </div>
+              <DropdownMenuSeparator className="bg-slate-800" />
+              <DropdownMenuItem onClick={createCanvasDocument}>
+                <FilePlus2 className="mr-2 h-4 w-4" />
+                新建画布
+              </DropdownMenuItem>
+              {canvasDocuments
+                .filter((document) => {
+                  const keyword = canvasSearch.trim().toLowerCase()
+                  if (!keyword) return true
+                  return `${document.title} ${document.updatedAt}`.toLowerCase().includes(keyword)
+                })
+                .slice(0, 8)
+                .map((document) => (
+                  <DropdownMenuItem key={document.id} onClick={() => openCanvasDocument(document.id)}>
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <div className="flex h-8 w-10 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-800 bg-slate-900">
+                        {document.thumbnailUrl ? (
+                          <img alt="" className="h-full w-full object-cover" src={document.thumbnailUrl} />
+                        ) : (
+                          <span className="text-[10px] text-slate-500">{document.assetCount}</span>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">{document.title}</div>
+                        <div className="text-[11px] text-slate-500">{formatShortTime(document.updatedAt)} · {document.assetCount} 素材</div>
+                      </div>
+                    </div>
+                    <div className="ml-2 flex items-center gap-1">
+                      <button className="rounded p-1 hover:bg-slate-800" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void renameCanvasDocument(document.id) }} type="button">
+                        <PencilLine className="h-3.5 w-3.5" />
+                      </button>
+                      <button className="rounded p-1 hover:bg-slate-800" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteCanvasDocument(document.id) }} type="button">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Badge className="hidden border-cyan-400/25 bg-cyan-400/10 text-cyan-200 sm:inline-flex" variant="outline">
             Excalidraw
           </Badge>
         </div>
 
         <div className="flex items-center gap-1.5">
+          <input
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            multiple
+            onChange={handleUploadInputChange}
+            ref={uploadInputRef}
+            type="file"
+          />
           <CanvasSaveStatus status={storageStatus} />
+          <Button className="h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white" onClick={() => uploadInputRef.current?.click()} type="button" variant="ghost">
+            <UploadCloud className="h-4 w-4" />
+            <span className="hidden sm:inline">上传</span>
+          </Button>
+          <Button className="h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white" onClick={handleGenerateFromCanvas} type="button" variant="ghost">
+            <Sparkles className="h-4 w-4" />
+            <span className="hidden sm:inline">生成</span>
+          </Button>
+          <Button className="hidden h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white sm:inline-flex" onClick={() => syncCanvasTasks(false)} type="button" variant="ghost">
+            <RefreshCcw className="h-4 w-4" />
+            刷新任务
+          </Button>
           <Button className="hidden h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white sm:inline-flex" onClick={onRefreshAccount} type="button" variant="ghost">
             <RefreshCcw className="h-4 w-4" />
             同步历史
@@ -356,6 +1076,10 @@ function CanvasLabWorkspace({
           <Button className="hidden h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white sm:inline-flex" onClick={handleExportJson} type="button" variant="ghost">
             <Download className="h-4 w-4" />
             导出
+          </Button>
+          <Button className="hidden h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white sm:inline-flex" onClick={handleCanvasVersions} type="button" variant="ghost">
+            <History className="h-4 w-4" />
+            版本
           </Button>
           <Button className="hidden h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white sm:inline-flex" onClick={handleReset} type="button" variant="ghost">
             <RotateCcw className="h-4 w-4" />
@@ -375,8 +1099,9 @@ function CanvasLabWorkspace({
       )}
 
       <main className="flex min-h-0 flex-1">
-        <section className="min-w-0 flex-1">
+        <section className="min-w-0 flex-1" onDragOver={(event) => event.preventDefault()} onDrop={handleCanvasDrop}>
           <Excalidraw
+            key={activeDocument?.id ?? "canvas-local"}
             UIOptions={{
               canvasActions: {
                 loadScene: false,
@@ -399,9 +1124,13 @@ function CanvasLabWorkspace({
 
         {prefs.assetRailOpen && (
           <ProjectAssetRail
+            assetSearch={assetSearch}
+            assetTypeFilter={assetTypeFilter}
             importingKey={importingKey}
             importableCount={importableCount}
-            projects={projects}
+            projects={filteredProjects}
+            onAssetSearchChange={setAssetSearch}
+            onAssetTypeFilterChange={setAssetTypeFilter}
             onImportProject={handleImportProject}
           />
         )}
@@ -427,18 +1156,26 @@ function CanvasSaveStatus({ status }: { status: StorageStatus }) {
 }
 
 function ProjectAssetRail({
+  assetSearch,
+  assetTypeFilter,
   importableCount,
   importingKey,
   onImportProject,
+  onAssetSearchChange,
+  onAssetTypeFilterChange,
   projects,
 }: {
+  assetSearch: string
+  assetTypeFilter: "all" | "image" | "video" | "status"
   importableCount: number
   importingKey: string
-  onImportProject: (project: ProjectItem) => void
+  onAssetSearchChange: (value: string) => void
+  onAssetTypeFilterChange: (value: "all" | "image" | "video" | "status") => void
+  onImportProject: (project: ProjectItem, imageIndex?: number) => void
   projects: ProjectItem[]
 }) {
   return (
-    <aside className="hidden w-[340px] shrink-0 border-l border-slate-800 bg-slate-950 xl:flex xl:flex-col">
+    <aside className="fixed bottom-0 right-0 top-14 z-30 flex w-[min(92vw,340px)] shrink-0 flex-col border-l border-slate-800 bg-slate-950 shadow-2xl xl:static xl:w-[340px] xl:shadow-none">
       <div className="border-b border-slate-800 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -446,6 +1183,38 @@ function ProjectAssetRail({
             <p className="mt-1 text-xs text-slate-500">{importableCount} 个可导入结果</p>
           </div>
           <UploadCloud className="h-4 w-4 text-cyan-300" />
+        </div>
+        <div className="mt-3 grid gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
+            <Input
+              className="h-8 border-slate-800 bg-slate-900 pl-8 text-xs text-slate-100 placeholder:text-slate-500"
+              onChange={(event) => onAssetSearchChange(event.target.value)}
+              placeholder="搜索项目或提示词"
+              value={assetSearch}
+            />
+          </div>
+          <div className="grid grid-cols-4 gap-1">
+            {[
+              ["all", "全部"],
+              ["image", "图片"],
+              ["video", "视频"],
+              ["status", "状态"],
+            ].map(([value, label]) => (
+              <Button
+                className={cn(
+                  "h-7 rounded-md border-slate-800 px-2 text-[11px]",
+                  assetTypeFilter === value ? "bg-cyan-500 text-slate-950 hover:bg-cyan-400" : "bg-slate-900 text-slate-300 hover:bg-slate-800"
+                )}
+                key={value}
+                onClick={() => onAssetTypeFilterChange(value as "all" | "image" | "video" | "status")}
+                type="button"
+                variant="outline"
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -461,7 +1230,7 @@ function ProjectAssetRail({
                 importing={importingKey === getProjectSourceKey(project)}
                 key={getProjectSourceKey(project)}
                 project={project}
-                onImport={() => onImportProject(project)}
+                onImport={(imageIndex) => onImportProject(project, imageIndex)}
               />
             ))
           )}
@@ -477,11 +1246,12 @@ function ProjectAssetCard({
   project,
 }: {
   importing: boolean
-  onImport: () => void
+  onImport: (imageIndex?: number) => void
   project: ProjectItem
 }) {
   const previewUrl = getProjectPreviewUrl(project)
-  const canImportImage = canImportProjectImage(project)
+  const imageUrls = getProjectImageUrls(project)
+  const importMode = getProjectImportMode(project)
 
   return (
     <article className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900/55">
@@ -501,36 +1271,77 @@ function ProjectAssetCard({
         <Badge className="absolute left-2 top-2 border-slate-700 bg-slate-950/80 text-slate-200" variant="outline">
           {project.status}
         </Badge>
-      </div>
+        </div>
 
       <div className="grid gap-2 p-3">
         <div>
           <h3 className="line-clamp-1 text-sm font-semibold text-slate-100">{project.title || "未命名项目"}</h3>
           <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{project.prompt || project.previewLabel || "无提示词记录"}</p>
         </div>
-        <Button
-          className="h-8 rounded-md border-slate-700 bg-slate-950 text-xs text-slate-200 hover:bg-cyan-500 hover:text-slate-950"
-          disabled={importing}
-          onClick={onImport}
-          type="button"
-          variant="outline"
-        >
-          {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
-          {canImportImage ? "导入图片" : "导入状态卡"}
-        </Button>
+        {importMode === "single-image" ? (
+          <Button
+            className="h-8 rounded-md border-slate-700 bg-slate-950 text-xs text-slate-200 hover:bg-cyan-500 hover:text-slate-950"
+            disabled={importing}
+            onClick={() => onImport()}
+            type="button"
+            variant="outline"
+          >
+            {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
+            导入图片
+          </Button>
+        ) : importMode === "bulk-image" ? (
+          <div className="grid gap-2">
+            <Button
+              className="h-8 rounded-md border-slate-700 bg-slate-950 text-xs text-slate-200 hover:bg-cyan-500 hover:text-slate-950"
+              disabled={importing}
+              onClick={() => onImport()}
+              type="button"
+              variant="outline"
+            >
+              {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
+              导入全部
+            </Button>
+            <div className="grid grid-cols-2 gap-1">
+              {imageUrls.slice(0, 4).map((url, index) => (
+              <Button
+                className="h-7 rounded-md border-slate-800 bg-slate-950 text-[11px] text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+                disabled={importing}
+                key={`${project.id}-${index}`}
+                onClick={() => onImport(index)}
+                type="button"
+                variant="outline"
+              >
+                图 {index + 1}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : importMode === "video" ? (
+          <Button
+            className="h-8 rounded-md border-slate-700 bg-slate-950 text-xs text-slate-200 hover:bg-cyan-500 hover:text-slate-950"
+            disabled={importing}
+            onClick={() => onImport()}
+            type="button"
+            variant="outline"
+          >
+            {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
+            导入视频状态卡
+          </Button>
+        ) : (
+          <Button
+            className="h-8 rounded-md border-slate-700 bg-slate-950 text-xs text-slate-200 hover:bg-cyan-500 hover:text-slate-950"
+            disabled={importing}
+            onClick={() => onImport()}
+            type="button"
+            variant="outline"
+          >
+            {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
+            导入状态卡
+          </Button>
+        )}
       </div>
     </article>
   )
-}
-
-function buildSceneSignature(elements: readonly OrderedExcalidrawElement[], appState: Record<string, unknown>, files: BinaryFiles) {
-  return JSON.stringify({
-    appState,
-    elements: elements.map((element) => [element.id, element.version, element.versionNonce, element.isDeleted]),
-    files: Object.keys(files)
-      .sort()
-      .map((id) => [id, files[id]?.version ?? 0]),
-  })
 }
 
 function formatShortTime(value: string) {
@@ -543,160 +1354,85 @@ function formatShortTime(value: string) {
   })
 }
 
-async function downloadProjectFile(project: ProjectItem) {
-  const downloadUrl = getProjectDownloadUrl(project)
-  if (!downloadUrl) return null
+function dataUrlToFile(dataUrl: string, filename: string, mimeType: string) {
+  const [header, content] = dataUrl.split(",")
+  const isBase64 = header?.includes(";base64")
+  const byteString = isBase64 ? window.atob(content ?? "") : decodeURIComponent(content ?? "")
+  const bytes = new Uint8Array(byteString.length)
 
-  const response = await fetch(`/api/download?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(getProjectImportFilename(project))}`)
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}))
-    throw new Error(getPayloadErrorMessage(payload, `图片下载失败：HTTP ${response.status}。`))
+  for (let index = 0; index < byteString.length; index += 1) {
+    bytes[index] = byteString.charCodeAt(index)
   }
 
-  const blob = await response.blob()
-  if (!blob.type.startsWith("image/")) {
-    throw new Error("画布仅支持导入图片资源。")
-  }
-
-  const dataURL = await blobToDataURL(blob)
-  const size = await getImageSize(blob).catch(() => ({ width: 320, height: 220 }))
-  const sourceKey = getProjectSourceKey(project)
-  const file: BinaryFileData = {
-    created: Date.now(),
-    dataURL: dataURL as BinaryFileData["dataURL"],
-    id: createCanvasLabId("file", sourceKey) as BinaryFileData["id"],
-    lastRetrieved: Date.now(),
-    mimeType: blob.type as BinaryFileData["mimeType"],
-  }
-
-  return {
-    file,
-    height: size.height,
-    width: size.width,
-  }
+  return new File([bytes], filename, { type: mimeType || "image/png" })
 }
 
-function getPayloadErrorMessage(payload: unknown, fallback: string) {
-  if (typeof payload === "object" && payload !== null && "error" in payload) {
-    const error = (payload as { error?: unknown }).error
-    if (typeof error === "string" && error) return error
-  }
+async function loadInitialCanvasDocument(): Promise<{
+  activeDocument: ActiveCanvasDocument
+  document: Pick<CanvasLabCloudDocument, "appState" | "elements" | "files" | "id" | "title" | "updatedAt">
+}> {
+  try {
+    const documents = await listCanvasLabCloudDocuments()
+    const cloudDocument = documents[0]
+      ? await getCanvasLabCloudDocument(documents[0].id)
+      : await createCanvasLabCloudDocument("未命名画布")
 
-  return getErrorMessage(payload, fallback)
-}
+    await saveCanvasLabDocument(
+      {
+        appState: cloudDocument.appState,
+        elements: cloudDocument.elements,
+        files: cloudDocument.files,
+        title: cloudDocument.title,
+      },
+      cloudDocument.id
+    ).catch(() => undefined)
 
-function blobToDataURL(blob: Blob) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(reader.error ?? new Error("图片读取失败。"))
-    reader.onload = () => resolve(String(reader.result))
-    reader.readAsDataURL(blob)
-  })
-}
-
-function getImageSize(blob: Blob) {
-  return new Promise<{ height: number; width: number }>((resolve, reject) => {
-    const url = URL.createObjectURL(blob)
-    const image = new Image()
-
-    image.onload = () => {
-      URL.revokeObjectURL(url)
-      resolve({ height: image.naturalHeight || 220, width: image.naturalWidth || 320 })
+    return {
+      activeDocument: {
+        id: cloudDocument.id,
+        source: "cloud",
+        title: cloudDocument.title,
+        updatedAt: cloudDocument.updatedAt,
+      },
+      document: cloudDocument,
     }
-    image.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error("图片尺寸读取失败。"))
+  } catch {
+    const localDocument = await loadCanvasLabDocument()
+    if (localDocument) {
+      return {
+        activeDocument: {
+          id: localDocument.id,
+          source: "local",
+          title: localDocument.title || "本地画布",
+          updatedAt: localDocument.updatedAt,
+        },
+        document: {
+          appState: localDocument.appState,
+          elements: localDocument.elements,
+          files: localDocument.files,
+          id: localDocument.id,
+          title: localDocument.title || "本地画布",
+          updatedAt: localDocument.updatedAt,
+        },
+      }
     }
-    image.src = url
-  })
-}
 
-function createProjectElements(
-  project: ProjectItem,
-  filePayload: Awaited<ReturnType<typeof downloadProjectFile>>,
-  existingElementCount: number
-) {
-  const source = getProjectSourceData(project)
-  const sourceKey = getProjectSourceKey(project)
-  const x = 80 + (existingElementCount % 6) * 36
-  const y = 80 + (existingElementCount % 5) * 32
-  const cardWidth = 380
-  const imageWidth = filePayload ? Math.min(330, Math.max(220, filePayload.width)) : 0
-  const imageHeight = filePayload ? Math.min(260, Math.max(160, Math.round((imageWidth / filePayload.width) * filePayload.height))) : 0
-  const cardHeight = filePayload ? imageHeight + 112 : 210
-  const skeletons: ExcalidrawElementSkeleton[] = [
-    {
-      backgroundColor: "#0f172a",
-      customData: buildElementCustomData(source),
-      fillStyle: "solid",
-      height: cardHeight,
-      id: createCanvasLabId("card", sourceKey),
-      roughness: 0,
-      strokeColor: "#334155",
-      type: "rectangle",
-      width: cardWidth,
-      x,
-      y,
-    },
-  ]
-
-  if (filePayload) {
-    skeletons.push({
-      customData: buildElementCustomData(source),
-      fileId: filePayload.file.id,
-      height: imageHeight,
-      id: createCanvasLabId("image", sourceKey),
-      type: "image",
-      width: imageWidth,
-      x: x + 24,
-      y: y + 24,
-    })
-  }
-
-  skeletons.push(
-    {
-      customData: buildElementCustomData(source),
-      fontSize: 20,
-      height: 28,
-      id: createCanvasLabId("title", sourceKey),
-      strokeColor: "#f8fafc",
-      text: project.title || (project.type === "视频" ? "视频项目" : "图片项目"),
-      type: "text",
-      width: cardWidth - 48,
-      x: x + 24,
-      y: y + (filePayload ? imageHeight + 40 : 28),
-    },
-    {
-      customData: buildElementCustomData(source),
-      fontSize: 14,
-      height: 48,
-      id: createCanvasLabId("meta", sourceKey),
-      strokeColor: "#94a3b8",
-      text: buildProjectCardDescription(project),
-      type: "text",
-      width: cardWidth - 48,
-      x: x + 24,
-      y: y + (filePayload ? imageHeight + 74 : 68),
+    const updatedAt = new Date().toISOString()
+    return {
+      activeDocument: {
+        id: "main",
+        source: "local",
+        title: "本地新画布",
+        updatedAt,
+      },
+      document: {
+        appState: emptyInitialData.appState ?? {},
+        elements: [],
+        files: {},
+        id: "main",
+        title: "本地新画布",
+        updatedAt,
+      },
     }
-  )
-
-  return convertToExcalidrawElements(skeletons, { regenerateIds: false }) as OrderedExcalidrawElement[]
-}
-
-function buildElementCustomData(source: CanvasLabSourceData) {
-  return {
-    [canvasLabSourceCustomDataKey]: source,
   }
-}
-
-function buildProjectCardDescription(project: ProjectItem) {
-  const parts = [
-    project.status,
-    project.model,
-    project.ratio,
-    project.quality,
-    project.prompt,
-  ].filter(Boolean)
-
-  return parts.join(" · ").slice(0, 220) || "无项目详情"
 }

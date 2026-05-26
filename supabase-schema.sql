@@ -71,6 +71,111 @@ alter table public.user_active_sessions add column if not exists updated_at time
 
 create index if not exists user_active_sessions_session_id_idx on public.user_active_sessions (session_id);
 
+create table if not exists public.canvas_documents (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null default '未命名画布',
+  scene jsonb not null default '{}'::jsonb,
+  app_state jsonb not null default '{}'::jsonb,
+  files jsonb not null default '{}'::jsonb,
+  thumbnail_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+alter table public.canvas_documents add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.canvas_documents add column if not exists title text not null default '未命名画布';
+alter table public.canvas_documents add column if not exists scene jsonb not null default '{}'::jsonb;
+alter table public.canvas_documents add column if not exists app_state jsonb not null default '{}'::jsonb;
+alter table public.canvas_documents add column if not exists files jsonb not null default '{}'::jsonb;
+alter table public.canvas_documents add column if not exists thumbnail_url text;
+alter table public.canvas_documents add column if not exists created_at timestamptz not null default now();
+alter table public.canvas_documents add column if not exists updated_at timestamptz not null default now();
+alter table public.canvas_documents add column if not exists deleted_at timestamptz;
+
+create index if not exists canvas_documents_user_updated_idx on public.canvas_documents (user_id, updated_at desc) where deleted_at is null;
+create index if not exists canvas_documents_user_deleted_idx on public.canvas_documents (user_id, deleted_at);
+
+create table if not exists public.canvas_assets (
+  id uuid primary key default gen_random_uuid(),
+  canvas_id uuid not null references public.canvas_documents(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  source_type text not null,
+  source_project_id text,
+  source_task_id text,
+  source_key text,
+  storage_url text,
+  external_url text,
+  mime_type text,
+  width integer,
+  height integer,
+  file_size integer,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+alter table public.canvas_assets add column if not exists canvas_id uuid references public.canvas_documents(id) on delete cascade;
+alter table public.canvas_assets add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.canvas_assets add column if not exists source_type text not null default 'upload';
+alter table public.canvas_assets add column if not exists source_project_id text;
+alter table public.canvas_assets add column if not exists source_task_id text;
+alter table public.canvas_assets add column if not exists source_key text;
+alter table public.canvas_assets add column if not exists storage_url text;
+alter table public.canvas_assets add column if not exists external_url text;
+alter table public.canvas_assets add column if not exists mime_type text;
+alter table public.canvas_assets add column if not exists width integer;
+alter table public.canvas_assets add column if not exists height integer;
+alter table public.canvas_assets add column if not exists file_size integer;
+alter table public.canvas_assets add column if not exists metadata jsonb not null default '{}'::jsonb;
+alter table public.canvas_assets add column if not exists created_at timestamptz not null default now();
+
+create index if not exists canvas_assets_canvas_created_idx on public.canvas_assets (canvas_id, created_at desc);
+create index if not exists canvas_assets_user_created_idx on public.canvas_assets (user_id, created_at desc);
+create unique index if not exists canvas_assets_canvas_source_key_idx on public.canvas_assets (canvas_id, source_key) where source_key is not null;
+
+create table if not exists public.canvas_versions (
+  id uuid primary key default gen_random_uuid(),
+  canvas_id uuid not null references public.canvas_documents(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  scene jsonb not null,
+  app_state jsonb not null default '{}'::jsonb,
+  files jsonb not null default '{}'::jsonb,
+  reason text not null default 'manual',
+  created_at timestamptz not null default now()
+);
+
+alter table public.canvas_versions add column if not exists canvas_id uuid references public.canvas_documents(id) on delete cascade;
+alter table public.canvas_versions add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.canvas_versions add column if not exists scene jsonb not null default '{}'::jsonb;
+alter table public.canvas_versions add column if not exists app_state jsonb not null default '{}'::jsonb;
+alter table public.canvas_versions add column if not exists files jsonb not null default '{}'::jsonb;
+alter table public.canvas_versions add column if not exists reason text not null default 'manual';
+alter table public.canvas_versions add column if not exists created_at timestamptz not null default now();
+
+create index if not exists canvas_versions_canvas_created_idx on public.canvas_versions (canvas_id, created_at desc);
+create index if not exists canvas_versions_user_created_idx on public.canvas_versions (user_id, created_at desc);
+
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'canvas-assets',
+  'canvas-assets',
+  true,
+  12582912,
+  array['image/png', 'image/jpeg', 'image/webp']
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
 create or replace function public.current_auth_session_id()
 returns text
 language sql
