@@ -202,9 +202,13 @@ export function createProjectElements(
   project: ProjectItem,
   filePayload: Awaited<ReturnType<typeof downloadProjectFile>>,
   existingElementCount: number,
-  variantKey = ""
+  variantKey = "",
+  storageUrl = ""
 ) {
   const source = getProjectSourceData(project)
+  if (storageUrl) {
+    source.storageUrl = storageUrl
+  }
   const sourceKey = variantKey ? `${getProjectSourceKey(project)}:${variantKey}` : getProjectSourceKey(project)
   const x = 80 + (existingElementCount % 6) * 36
   const y = 80 + (existingElementCount % 5) * 32

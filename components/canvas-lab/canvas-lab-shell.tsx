@@ -14,10 +14,11 @@ import type {
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types"
-import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types"
+import type { ExcalidrawElement, OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types"
 import {
   AlertCircle,
   ArrowLeft,
+  Box,
   ChevronDown,
   Download,
   FilePlus2,
@@ -25,15 +26,19 @@ import {
   ImageIcon,
   Loader2,
   Maximize2,
+  MessageSquare,
   PencilLine,
   PanelRightClose,
   PanelRightOpen,
   RefreshCcw,
+  RectangleHorizontal,
   RotateCcw,
   Search,
+  Send,
   Sparkles,
   Trash2,
   UploadCloud,
+  X,
 } from "lucide-react"
 import { AuthPanel } from "@/components/auth-panel"
 import { ForcedPasswordChange } from "@/components/forced-password-change"
@@ -52,6 +57,12 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAccountSession, getErrorMessage } from "@/hooks/use-account-session"
 import {
+  imageModelOptions,
+  imageModelSettings,
+  yunwuGeminiImageModelName,
+} from "@/lib/model-options"
+import { modelCatalog } from "@/lib/model-catalog"
+import {
   createCanvasLabCloudDocument,
   createCanvasLabAssetUpload,
   createCanvasBinaryImageFile,
@@ -64,6 +75,7 @@ import {
   createProjectElements,
   deleteCanvasLabDocument,
   deleteCanvasLabCloudDocument,
+  downloadCanvasLabImageAsDataUrl,
   downloadCanvasImageUrl,
   downloadProjectImage,
   getCanvasGenerationTaskStatus,
@@ -84,6 +96,7 @@ import {
   saveCanvasLabDocument,
   saveCanvasLabPrefs,
   restoreCanvasLabVersion,
+  stripCanvasLabFileData,
   uploadCanvasLabAssetFile,
   type CanvasLabCloudDocument,
   type CanvasLabPrefs,
@@ -109,6 +122,21 @@ type CanvasDocumentSummary = {
   thumbnailUrl: string | null
   title: string
   updatedAt: string
+}
+
+type CanvasStudioReference = {
+  elementId: string
+  id: string
+  previewUrl: string
+}
+
+type CanvasStudioGenerationOptions = {
+  imageCount: string
+  model: string
+  prompt: string
+  quality: string
+  ratio: string
+  referenceElementIds: string[]
 }
 
 const emptyInitialData: ExcalidrawInitialDataState = {
@@ -231,6 +259,12 @@ function CanvasLabWorkspace({
   const [assetSearch, setAssetSearch] = useState("")
   const [assetTypeFilter, setAssetTypeFilter] = useState<"all" | "image" | "video" | "status">("all")
   const [importingKey, setImportingKey] = useState("")
+  const [studioOpen, setStudioOpen] = useState(false)
+  const [studioPrompt, setStudioPrompt] = useState("")
+  const [studioReferences, setStudioReferences] = useState<CanvasStudioReference[]>([])
+  const [studioError, setStudioError] = useState("")
+  const [studioStatus, setStudioStatus] = useState("")
+  const [studioGenerating, setStudioGenerating] = useState(false)
   const saveTimerRef = useRef<number | null>(null)
   const skipNextSaveRef = useRef(true)
   const lastSignatureRef = useRef("")
@@ -319,12 +353,13 @@ function CanvasLabWorkspace({
   const hydrateCanvasDocument = useCallback(
     async (documentId: string) => {
       const document = await getCanvasLabCloudDocument(documentId)
+      const files = await hydrateCanvasLabFiles(document.elements, document.files)
 
       await saveCanvasLabDocument(
         {
           appState: document.appState,
           elements: document.elements,
-          files: document.files,
+          files,
           title: document.title,
         },
         document.id
@@ -337,7 +372,10 @@ function CanvasLabWorkspace({
           title: document.title,
           updatedAt: document.updatedAt,
         },
-        document,
+        document: {
+          ...document,
+          files,
+        },
       }
     },
     []
@@ -459,17 +497,16 @@ function CanvasLabWorkspace({
         files,
         title: activeDocument?.title,
       }
+      const cloudPayload = {
+        ...localPayload,
+        files: stripCanvasLabFileData(files),
+      }
 
       const saveOperation = activeDocument?.source === "cloud"
-        ? saveCanvasLabCloudDocument(activeDocument.id, localPayload)
+        ? saveCanvasLabCloudDocument(activeDocument.id, cloudPayload)
             .then((document) =>
               saveCanvasLabDocument(
-                {
-                  appState: document.appState,
-                  elements: document.elements,
-                  files: document.files,
-                  title: document.title,
-                },
+                localPayload,
                 document.id
               ).then(() => document)
             )
@@ -571,11 +608,12 @@ function CanvasLabWorkspace({
       if (!window.confirm("恢复该版本？恢复前会自动保存当前画布版本。")) return
 
       const document = await restoreCanvasLabVersion(activeDocument.id, selectedVersion.id)
+      const files = await hydrateCanvasLabFiles(document.elements, document.files)
       await saveCanvasLabDocument(
         {
           appState: document.appState,
           elements: document.elements,
-          files: document.files,
+          files,
           title: document.title,
         },
         document.id
@@ -591,7 +629,7 @@ function CanvasLabWorkspace({
       setInitialData({
         appState: document.appState,
         elements: document.elements,
-        files: document.files,
+        files,
       })
       setStorageStatus({ tone: "ok", text: "已恢复历史版本" })
     } catch (error) {
@@ -677,9 +715,14 @@ function CanvasLabWorkspace({
     [handleUploadFile]
   )
 
-  const handleGenerateFromCanvas = useCallback(async () => {
-    if (!api) return
-
+  const getCanvasGenerationContext = useCallback(() => {
+    if (!api) {
+      return {
+        prompt: "",
+        references: [] as CanvasStudioReference[],
+        selectedElements: [] as readonly OrderedExcalidrawElement[],
+      }
+    }
     const selectedElementIds = api.getAppState().selectedElementIds ?? {}
     const selectedElements = api.getSceneElements().filter((element) => selectedElementIds[element.id])
     const selectedPrompt = selectedElements
@@ -687,22 +730,75 @@ function CanvasLabWorkspace({
       .map((element) => ("text" in element ? String(element.text ?? "") : ""))
       .filter(Boolean)
       .join("\n")
-    const prompt = window.prompt("输入生图提示词", selectedPrompt)?.trim()
-    if (!prompt) return
+    const files = api.getFiles()
+    const references = selectedElements
+      .filter((element) => element.type === "image" && "fileId" in element && element.fileId)
+      .slice(0, 4)
+      .map((element) => {
+        const fileId = "fileId" in element ? element.fileId : null
+        const fileData = fileId ? files[fileId] : null
+        if (!fileId || !fileData?.dataURL) return null
+
+        return {
+          elementId: element.id,
+          id: String(fileId),
+          previewUrl: String(fileData.dataURL),
+        }
+      })
+      .filter((item): item is CanvasStudioReference => item !== null)
+
+    return {
+      prompt: selectedPrompt,
+      references,
+      selectedElements,
+    }
+  }, [api])
+
+  const openCanvasStudio = useCallback(() => {
+    const context = getCanvasGenerationContext()
+    setStudioPrompt((current) => current || context.prompt)
+    setStudioReferences(context.references)
+    setStudioError("")
+    setStudioStatus(context.references.length > 0 ? `已读取 ${context.references.length} 张选中参考图` : "")
+    setStudioOpen(true)
+  }, [getCanvasGenerationContext])
+
+  const handleGenerateFromCanvas = useCallback(async ({
+    imageCount,
+    model,
+    prompt,
+    quality,
+    ratio,
+    referenceElementIds,
+  }: CanvasStudioGenerationOptions) => {
+    if (!api) return
+
+    const trimmedPrompt = prompt.trim()
+    if (!trimmedPrompt) {
+      setStudioError("请先描述你想生成的图片。")
+      return
+    }
 
     setStorageStatus({ tone: "busy", text: "正在创建生成任务..." })
+    setStudioError("")
+    setStudioStatus("正在提交生成任务...")
+    setStudioGenerating(true)
 
     try {
       const formData = new FormData()
       const clientRequestId = `canvas-${activeDocument?.id ?? "local"}-${Date.now()}`
-      formData.set("prompt", prompt)
-      formData.set("imageCount", "1")
+      formData.set("prompt", trimmedPrompt)
+      formData.set("model", model)
+      formData.set("quality", quality)
+      formData.set("ratio", ratio)
+      formData.set("imageCount", imageCount)
       formData.set("clientRequestId", clientRequestId)
       formData.set("sourceCanvasId", activeDocument?.id ?? "")
-      formData.set("sourceElementIds", JSON.stringify(selectedElements.map((element) => element.id)))
+      formData.set("sourceElementIds", JSON.stringify(referenceElementIds))
 
       const files = api.getFiles()
-      const selectedImageElements = selectedElements
+      const selectedImageElements = api.getSceneElements()
+        .filter((element) => referenceElementIds.includes(element.id))
         .filter((element) => element.type === "image" && "fileId" in element && element.fileId)
         .slice(0, 4)
 
@@ -719,7 +815,7 @@ function CanvasLabWorkspace({
       const elements = createCanvasTaskPlaceholderElements({
         canvasId: activeDocument?.id ?? "local",
         existingElementCount: api.getSceneElements().length,
-        prompt,
+        prompt: trimmedPrompt,
         taskId: result.taskId,
       })
 
@@ -731,10 +827,16 @@ function CanvasLabWorkspace({
         api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.62 })
       })
       setStorageStatus({ tone: "ok", text: "生成任务已创建" })
+      setStudioStatus(`任务已创建：${result.taskId}`)
+      onRefreshAccount()
     } catch (error) {
-      setStorageStatus({ tone: "error", text: getErrorMessage(error, "从画布创建生成任务失败。") })
+      const message = getErrorMessage(error, "从画布创建生成任务失败。")
+      setStorageStatus({ tone: "error", text: message })
+      setStudioError(message)
+    } finally {
+      setStudioGenerating(false)
     }
-  }, [activeDocument, api])
+  }, [activeDocument, api, onRefreshAccount])
 
   const syncCanvasTasks = useCallback(async (silent = false) => {
     if (!api) return
@@ -878,7 +980,7 @@ function CanvasLabWorkspace({
             )
           }
           const nextElements = filePayloads.flatMap((payload, index) =>
-            createProjectElements(project, payload, api.getSceneElements().length + index * 4, String(index))
+            createProjectElements(project, payload, api.getSceneElements().length + index * 4, String(index), imageUrls[index])
           )
 
           api.addFiles(filePayloads.map((payload) => payload.file))
@@ -1057,9 +1159,17 @@ function CanvasLabWorkspace({
             <UploadCloud className="h-4 w-4" />
             <span className="hidden sm:inline">上传</span>
           </Button>
-          <Button className="h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white" onClick={handleGenerateFromCanvas} type="button" variant="ghost">
-            <Sparkles className="h-4 w-4" />
-            <span className="hidden sm:inline">生成</span>
+          <Button
+            className={cn(
+              "h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white",
+              studioOpen && "bg-slate-900 text-white"
+            )}
+            onClick={openCanvasStudio}
+            type="button"
+            variant="ghost"
+          >
+            <MessageSquare className="h-4 w-4" />
+            <span className="hidden sm:inline">对话</span>
           </Button>
           <Button className="hidden h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white sm:inline-flex" onClick={() => syncCanvasTasks(false)} type="button" variant="ghost">
             <RefreshCcw className="h-4 w-4" />
@@ -1134,6 +1244,26 @@ function CanvasLabWorkspace({
             onImportProject={handleImportProject}
           />
         )}
+        {studioOpen && (
+          <CanvasStudioPanel
+            error={studioError}
+            generating={studioGenerating}
+            initialPrompt={studioPrompt}
+            references={studioReferences}
+            status={studioStatus}
+            onClose={() => setStudioOpen(false)}
+            onGenerate={(options) => {
+              setStudioPrompt(options.prompt)
+              void handleGenerateFromCanvas(options)
+            }}
+            onRefreshSelection={() => {
+              const context = getCanvasGenerationContext()
+              setStudioReferences(context.references)
+              if (context.prompt) setStudioPrompt(context.prompt)
+              setStudioStatus(context.references.length > 0 ? `已读取 ${context.references.length} 张选中参考图` : "当前没有选中参考图")
+            }}
+          />
+        )}
       </main>
     </div>
   )
@@ -1153,6 +1283,195 @@ function CanvasSaveStatus({ status }: { status: StorageStatus }) {
       {status.text}
     </span>
   )
+}
+
+function CanvasStudioPanel({
+  error,
+  generating,
+  initialPrompt,
+  onClose,
+  onGenerate,
+  onRefreshSelection,
+  references,
+  status,
+}: {
+  error: string
+  generating: boolean
+  initialPrompt: string
+  onClose: () => void
+  onGenerate: (options: CanvasStudioGenerationOptions) => void
+  onRefreshSelection: () => void
+  references: CanvasStudioReference[]
+  status: string
+}) {
+  const [prompt, setPrompt] = useState(initialPrompt)
+  const [model, setModel] = useState(yunwuGeminiImageModelName)
+  const [quality, setQuality] = useState("2K")
+  const [ratio, setRatio] = useState("默认")
+  const [imageCount, setImageCount] = useState("3")
+  const settings = imageModelSettings[model] ?? imageModelSettings[yunwuGeminiImageModelName]
+  const referenceElementIds = references.map((reference) => reference.elementId)
+
+  useEffect(() => {
+    setPrompt(initialPrompt)
+  }, [initialPrompt])
+
+  useEffect(() => {
+    if (!settings.qualities.includes(quality)) {
+      setQuality(settings.qualities[0])
+    }
+    if (!settings.ratios.includes(ratio)) {
+      setRatio(settings.ratios[0])
+    }
+  }, [quality, ratio, settings])
+
+  return (
+    <aside className="fixed inset-0 z-40 flex flex-col bg-white text-slate-950 shadow-2xl lg:bottom-5 lg:left-auto lg:right-5 lg:top-20 lg:w-[520px] lg:rounded-lg lg:border lg:border-slate-200">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-5">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold">创作台</h2>
+          <p className="text-xs text-slate-500">基于当前画布继续生成</p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button className="h-9 rounded-full text-slate-600 hover:bg-slate-100" onClick={onRefreshSelection} type="button" variant="ghost">
+            <RefreshCcw className="h-4 w-4" />
+            <span className="hidden sm:inline">读取选区</span>
+          </Button>
+          <Button className="h-9 w-9 rounded-full text-slate-600 hover:bg-slate-100" onClick={onClose} size="icon" type="button" variant="ghost">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="grid gap-5 p-5">
+          {references.length > 0 ? (
+            <div className="grid grid-cols-4 gap-1 overflow-hidden rounded-md bg-slate-100 p-1">
+              {references.map((reference) => (
+                <img
+                  alt="画布参考图"
+                  className="aspect-square min-w-0 rounded object-cover"
+                  key={`${reference.elementId}-${reference.id}`}
+                  src={reference.previewUrl}
+                />
+              ))}
+            </div>
+          ) : (
+            <button
+              className="flex h-28 items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500"
+              onClick={onRefreshSelection}
+              type="button"
+            >
+              <ImageIcon className="mr-2 h-4 w-4" />
+              选中画布图片后读取为参考图
+            </button>
+          )}
+
+          <div>
+            <textarea
+              className="min-h-40 w-full resize-none rounded-lg border border-slate-200 bg-white p-4 text-lg leading-8 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-cyan-300 focus:ring-2 focus:ring-cyan-100"
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder="描述你想生成的图片，例如：现代极简客餐厅，浅木色地板，隐藏灯带，适合小户型。"
+              value={prompt}
+            />
+            {error && (
+              <div className="mt-3 flex items-center gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                <AlertCircle className="h-4 w-4" />
+                {error}
+              </div>
+            )}
+            {status && !error && (
+              <div className="mt-3 rounded-md border border-cyan-100 bg-cyan-50 px-3 py-2 text-sm text-cyan-800">
+                {status}
+              </div>
+            )}
+          </div>
+        </div>
+      </ScrollArea>
+
+      <div className="shrink-0 border-t border-slate-100 p-4">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <CanvasStudioSelect
+            icon={Box}
+            label="生图模型"
+            onChange={(value) => setModel(value)}
+            options={imageModelOptions.map((option) => ({
+              label: getCanvasStudioModelLabel(option),
+              value: option,
+            }))}
+            value={model}
+          />
+          <CanvasStudioSelect
+            icon={Sparkles}
+            label="图片清晰度"
+            onChange={setQuality}
+            options={settings.qualities.map((option) => ({ label: option, value: option }))}
+            value={quality}
+          />
+          <CanvasStudioSelect
+            icon={RectangleHorizontal}
+            label="图片比例"
+            onChange={setRatio}
+            options={settings.ratios.map((option) => ({ label: option, value: option }))}
+            value={ratio}
+          />
+          <CanvasStudioSelect
+            icon={ImageIcon}
+            label="生成张数"
+            onChange={setImageCount}
+            options={["1", "2", "3", "4"].map((option) => ({ label: `${option} 张`, value: option }))}
+            value={imageCount}
+          />
+        </div>
+        <Button
+          className="h-12 w-full rounded-full bg-slate-950 text-base font-semibold text-white hover:bg-slate-800"
+          disabled={generating}
+          onClick={() => onGenerate({ imageCount, model, prompt, quality, ratio, referenceElementIds })}
+          type="button"
+        >
+          {generating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+          {generating ? "生成中..." : "生成图片"}
+        </Button>
+      </div>
+    </aside>
+  )
+}
+
+function CanvasStudioSelect({
+  icon: Icon,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  icon: typeof Box
+  label: string
+  onChange: (value: string) => void
+  options: { label: string; value: string }[]
+  value: string
+}) {
+  return (
+    <label className="inline-flex h-10 min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm">
+      <Icon className="h-4 w-4 shrink-0 text-slate-600" />
+      <span className="sr-only">{label}</span>
+      <select
+        aria-label={label}
+        className="min-w-0 max-w-48 bg-transparent font-medium outline-none"
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function getCanvasStudioModelLabel(model: string) {
+  return modelCatalog.find((item) => item.model === model)?.defaultDisplayName ?? model
 }
 
 function ProjectAssetRail({
@@ -1367,6 +1686,33 @@ function dataUrlToFile(dataUrl: string, filename: string, mimeType: string) {
   return new File([bytes], filename, { type: mimeType || "image/png" })
 }
 
+async function hydrateCanvasLabFiles(elements: readonly ExcalidrawElement[], files: BinaryFiles) {
+  const nextFiles: BinaryFiles = { ...files }
+  const imageElements = elements.filter((element) => element.type === "image" && "fileId" in element && element.fileId)
+
+  await Promise.allSettled(
+    imageElements.map(async (element) => {
+      const fileId = "fileId" in element ? element.fileId : null
+      if (!fileId || nextFiles[fileId]?.dataURL) return
+
+      const source = getCanvasLabSourceData(element)
+      if (!source?.storageUrl) return
+
+      const file = nextFiles[fileId]
+      const hydrated = await downloadCanvasLabImageAsDataUrl(source.storageUrl)
+      nextFiles[fileId] = {
+        created: file?.created ?? Date.now(),
+        dataURL: hydrated.dataURL,
+        id: fileId,
+        lastRetrieved: Date.now(),
+        mimeType: file?.mimeType || hydrated.mimeType,
+      }
+    })
+  )
+
+  return nextFiles
+}
+
 async function loadInitialCanvasDocument(): Promise<{
   activeDocument: ActiveCanvasDocument
   document: Pick<CanvasLabCloudDocument, "appState" | "elements" | "files" | "id" | "title" | "updatedAt">
@@ -1376,12 +1722,13 @@ async function loadInitialCanvasDocument(): Promise<{
     const cloudDocument = documents[0]
       ? await getCanvasLabCloudDocument(documents[0].id)
       : await createCanvasLabCloudDocument("未命名画布")
+    const files = await hydrateCanvasLabFiles(cloudDocument.elements, cloudDocument.files)
 
     await saveCanvasLabDocument(
       {
         appState: cloudDocument.appState,
         elements: cloudDocument.elements,
-        files: cloudDocument.files,
+        files,
         title: cloudDocument.title,
       },
       cloudDocument.id
@@ -1394,7 +1741,10 @@ async function loadInitialCanvasDocument(): Promise<{
         title: cloudDocument.title,
         updatedAt: cloudDocument.updatedAt,
       },
-      document: cloudDocument,
+      document: {
+        ...cloudDocument,
+        files,
+      },
     }
   } catch {
     const localDocument = await loadCanvasLabDocument()

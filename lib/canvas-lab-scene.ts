@@ -1,4 +1,4 @@
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types"
+import type { AppState, BinaryFileData, BinaryFiles } from "@excalidraw/excalidraw/types"
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types"
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types"
 import type { CanvasLabDocument } from "@/lib/canvas-lab-local-store"
@@ -75,4 +75,16 @@ export function buildSceneSignature(
       .sort()
       .map((id) => [id, files[id]?.version ?? 0]),
   })
+}
+
+export function stripCanvasLabFileData(files: BinaryFiles): BinaryFiles {
+  return Object.fromEntries(
+    Object.entries(files).map(([id, file]) => [
+      id,
+      {
+        ...file,
+        dataURL: "" as BinaryFileData["dataURL"],
+      },
+    ])
+  ) as BinaryFiles
 }

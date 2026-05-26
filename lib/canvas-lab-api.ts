@@ -1,4 +1,4 @@
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types"
+import type { AppState, BinaryFileData, BinaryFiles } from "@excalidraw/excalidraw/types"
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types"
 import { getSupabaseClient } from "@/lib/supabase"
 
@@ -172,6 +172,28 @@ export async function getCanvasGenerationTaskStatus(taskId: string) {
   }>(`/api/tasks/${encodeURIComponent(taskId)}`)
 
   return payload
+}
+
+export async function downloadCanvasLabImageAsDataUrl(url: string, filename = "canvas-image.png") {
+  const response = await fetch(`/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`)
+  if (!response.ok) {
+    throw new Error(`图片恢复失败：HTTP ${response.status}。`)
+  }
+
+  const blob = await response.blob()
+  if (!blob.type.startsWith("image/")) {
+    throw new Error("画布资源不是图片。")
+  }
+
+  return new Promise<{ dataURL: BinaryFileData["dataURL"]; mimeType: BinaryFileData["mimeType"] }>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error("图片读取失败。"))
+    reader.onload = () => resolve({
+      dataURL: String(reader.result) as BinaryFileData["dataURL"],
+      mimeType: blob.type as BinaryFileData["mimeType"],
+    })
+    reader.readAsDataURL(blob)
+  })
 }
 
 export async function listCanvasLabVersions(canvasId: string) {

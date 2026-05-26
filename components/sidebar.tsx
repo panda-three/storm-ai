@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import type { WorkspaceSection } from "@/lib/workspace-section"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -7,6 +8,7 @@ import {
   Coins,
   History,
   ImageIcon,
+  LayoutDashboard,
   LogOut,
   MessageCircle,
   RefreshCcw,
@@ -24,15 +26,28 @@ interface SidebarProps {
   variant?: "dark" | "light"
 }
 
-const navItems: Array<{
+type SidebarNavItem = {
   id: WorkspaceSection
+  kind: "section"
   label: string
   description: string
   icon: typeof ImageIcon
   match: WorkspaceSection[]
-}> = [
+}
+
+type SidebarLinkItem = {
+  href: string
+  id: "canvas"
+  kind: "link"
+  label: string
+  description: string
+  icon: typeof ImageIcon
+}
+
+const navItems: Array<SidebarNavItem | SidebarLinkItem> = [
   {
     id: "image",
+    kind: "section",
     label: "创作台",
     description: "提示词、比例、清晰度",
     icon: ImageIcon,
@@ -40,13 +55,23 @@ const navItems: Array<{
   },
   {
     id: "history",
+    kind: "section",
     label: "历史项目",
     description: "查看生成记录",
     icon: History,
     match: ["history"],
   },
   {
+    href: "/canvas-lab",
+    id: "canvas",
+    kind: "link",
+    label: "无限画布",
+    description: "空间化整理与继续创作",
+    icon: LayoutDashboard,
+  },
+  {
     id: "credits",
+    kind: "section",
     label: "点数充值",
     description: "微信购买兑换码",
     icon: Coins,
@@ -85,7 +110,36 @@ export function Sidebar({
       <nav className="flex flex-1 flex-col items-center gap-5 px-2 pt-3">
         {navItems.map((item) => {
           const Icon = item.icon
-          const active = item.match.includes(activeSection)
+          const active = item.kind === "section" && item.match.includes(activeSection)
+          const content = (
+            <>
+              <span
+                className={cn(
+                  "grid h-9 w-9 place-items-center rounded-xl transition-colors",
+                  active ? "bg-slate-950 text-white" : "bg-white text-slate-900 group-hover:bg-slate-100"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="text-[12px] font-medium leading-none">{item.label}</span>
+            </>
+          )
+
+          if (item.kind === "link") {
+            return (
+              <Link
+                key={item.id}
+                className={cn(
+                  "group flex w-full cursor-pointer flex-col items-center gap-1.5 rounded-2xl px-1 py-2 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300",
+                  "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
+                )}
+                href={item.href}
+                title={item.description}
+              >
+                {content}
+              </Link>
+            )
+          }
 
           return (
             <button
@@ -100,15 +154,7 @@ export function Sidebar({
               title={item.description}
               type="button"
             >
-              <span
-                className={cn(
-                  "grid h-9 w-9 place-items-center rounded-xl transition-colors",
-                  active ? "bg-slate-950 text-white" : "bg-white text-slate-900 group-hover:bg-slate-100"
-                )}
-              >
-                <Icon className="h-4 w-4" />
-              </span>
-              <span className="text-[12px] font-medium leading-none">{item.label}</span>
+              {content}
             </button>
           )
         })}
