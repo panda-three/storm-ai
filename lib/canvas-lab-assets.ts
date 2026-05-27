@@ -299,7 +299,6 @@ export function createCanvasUploadElements({
   existingElementCount,
   filePayload,
   storageUrl,
-  title,
   withFrame = true,
 }: {
   assetId: string
@@ -322,8 +321,8 @@ export function createCanvasUploadElements({
   const y = 80 + (existingElementCount % 5) * 32
   const imageWidth = Math.min(330, Math.max(220, filePayload.width))
   const imageHeight = Math.min(260, Math.max(160, Math.round((imageWidth / filePayload.width) * filePayload.height)))
-  const cardWidth = 380
-  const cardHeight = imageHeight + 112
+  const cardWidth = imageWidth + 48
+  const cardHeight = imageHeight + 48
   const skeletons: ExcalidrawElementSkeleton[] = []
 
   if (withFrame) {
@@ -352,35 +351,6 @@ export function createCanvasUploadElements({
     x: withFrame ? x + 24 : x,
     y: withFrame ? y + 24 : y,
   } as ExcalidrawElementSkeleton)
-
-  if (withFrame) {
-    skeletons.push(
-      {
-        customData: buildElementCustomData(source),
-        fontSize: 20,
-        height: 28,
-        id: createCanvasLabId("title", sourceKey),
-        strokeColor: "#f8fafc",
-        text: title || "上传图片",
-        type: "text",
-        width: cardWidth - 48,
-        x: x + 24,
-        y: y + imageHeight + 40,
-      } as ExcalidrawElementSkeleton,
-      {
-        customData: buildElementCustomData(source),
-        fontSize: 14,
-        height: 48,
-        id: createCanvasLabId("meta", sourceKey),
-        strokeColor: "#94a3b8",
-        text: "本地上传 · 已保存到素材库",
-        type: "text",
-        width: cardWidth - 48,
-        x: x + 24,
-        y: y + imageHeight + 74,
-      } as ExcalidrawElementSkeleton
-    )
-  }
 
   return convertToExcalidrawElements(skeletons, { regenerateIds: false }) as OrderedExcalidrawElement[]
 }

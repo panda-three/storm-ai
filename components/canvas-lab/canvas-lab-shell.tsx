@@ -72,7 +72,7 @@ import {
   createCanvasLabCloudDocument,
   createCanvasLabAssetUpload,
   createCanvasBinaryImageFile,
-  createCanvasImageGenerationTask,
+  createCanvasImageGenerationTaskWithStoredReferenceImages,
   createCanvasLabAssetBinding,
   createCanvasLabThumbnailUpload,
   createCanvasTaskPlaceholderElements,
@@ -108,6 +108,7 @@ import {
   saveCanvasLabCloudDocument,
   saveCanvasLabDocument,
   saveCanvasLabPrefs,
+  uploadCanvasLabReferenceImagesForGeneration,
   shouldSuppressCanvasLabLink,
   restoreCanvasLabVersion,
   stripCanvasLabFileData,
@@ -143,6 +144,7 @@ type CanvasDocumentSummary = {
 type CanvasStudioReference = {
   elementId: string
   id: string
+  file: File
   previewUrl: string
 }
 
@@ -1003,36 +1005,12 @@ function CanvasLabWorkspace({
     const pendingTaskId = `canvas-${activeDocument?.id ?? "local"}-${Date.now()}`
 
     try {
-      const formData = new FormData()
       const clientRequestId = pendingTaskId
-      formData.set("prompt", trimmedPrompt)
-      formData.set("model", model)
-      formData.set("quality", quality)
-      if (mode === "image") {
-        formData.set("imageCount", imageCount)
-        formData.set("ratio", ratio)
-      } else {
-        formData.set("duration", duration)
-        formData.set("aspectRatio", ratio)
-      }
-      formData.set("clientRequestId", clientRequestId)
-      formData.set("sourceCanvasId", activeDocument?.id ?? "")
-      formData.set("sourceElementIds", JSON.stringify(referenceElementIds))
-
       const files = api.getFiles()
       const selectedImageElements = api.getSceneElements()
         .filter((element) => referenceElementIds.includes(element.id))
         .filter((element) => element.type === "image" && "fileId" in element && element.fileId)
         .slice(0, 4)
-
-      selectedImageElements.forEach((element, index) => {
-        const fileId = "fileId" in element ? element.fileId : null
-        const fileData = fileId ? files[fileId] : null
-        if (!fileData?.dataURL) return
-
-        const file = dataUrlToFile(String(fileData.dataURL), `canvas-reference-${index + 1}.png`, String(fileData.mimeType || "image/png"))
-        formData.append("referenceImages", file)
-      })
 
       const placeholderElements = mode === "image"
         ? createCanvasTaskPlaceholderElements({
@@ -1056,8 +1034,59 @@ function CanvasLabWorkspace({
       }
 
       const result = mode === "image"
-        ? await createCanvasImageGenerationTask(formData)
-        : await createCanvasVideoGenerationTask(formData)
+        ? await (async () => {
+            const referenceFiles = await Promise.all(
+              selectedImageElements.map(async (element, index) => {
+                const fileId = "fileId" in element ? element.fileId : null
+                const fileData = fileId ? files[fileId] : null
+                if (!fileId || !fileData?.dataURL) return null
+
+                const name = `canvas-reference-${index + 1}.png`
+                const blob = await dataUrlToBlob(String(fileData.dataURL), String(fileData.mimeType || "image/png"))
+                return {
+                  file: dataUrlToFile(String(fileData.dataURL), name, String(blob.type || fileData.mimeType || "image/png")),
+                  name,
+                  size: blob.size,
+                }
+              })
+            )
+
+            const storedReferenceImages = await uploadCanvasLabReferenceImagesForGeneration(
+              referenceFiles.filter((item): item is { file: File; name: string; size: number } => item !== null)
+            )
+
+            return createCanvasImageGenerationTaskWithStoredReferenceImages({
+              clientRequestId,
+              imageCount: Number.parseInt(imageCount, 10) || 1,
+              model,
+              prompt: trimmedPrompt,
+              quality,
+              ratio,
+              referenceImages: storedReferenceImages,
+            })
+          })()
+        : await (async () => {
+            const formData = new FormData()
+            formData.set("prompt", trimmedPrompt)
+            formData.set("model", model)
+            formData.set("quality", quality)
+            formData.set("duration", duration)
+            formData.set("aspectRatio", ratio)
+            formData.set("clientRequestId", clientRequestId)
+            formData.set("sourceCanvasId", activeDocument?.id ?? "")
+            formData.set("sourceElementIds", JSON.stringify(referenceElementIds))
+
+            selectedImageElements.forEach((element, index) => {
+              const fileId = "fileId" in element ? element.fileId : null
+              const fileData = fileId ? files[fileId] : null
+              if (!fileData?.dataURL) return
+
+              const file = dataUrlToFile(String(fileData.dataURL), `canvas-reference-${index + 1}.png`, String(fileData.mimeType || "image/png"))
+              formData.append("referenceImages", file)
+            })
+
+            return createCanvasVideoGenerationTask(formData)
+          })()
       if (mode === "image" && result.taskId !== pendingTaskId) {
         const nextElements = api.getSceneElements().map((element) => updateCanvasTaskPlaceholderSource(element, pendingTaskId, result.taskId))
         api.updateScene({
@@ -1870,6 +1899,7 @@ function getReferencesFromElements(elements: readonly OrderedExcalidrawElement[]
       return {
         elementId: element.id,
         id: String(fileId),
+        file: dataUrlToFile(String(fileData.dataURL), `canvas-reference-${element.id}.png`, String(fileData.mimeType || "image/png")),
         previewUrl: String(fileData.dataURL),
       }
     })
