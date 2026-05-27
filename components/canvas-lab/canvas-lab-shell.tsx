@@ -288,6 +288,7 @@ function CanvasLabWorkspace({
   const [studioError, setStudioError] = useState("")
   const [studioStatus, setStudioStatus] = useState("")
   const [studioGenerating, setStudioGenerating] = useState(false)
+  const [selectedReferenceCount, setSelectedReferenceCount] = useState(0)
   const [pendingCanvasTaskIds, setPendingCanvasTaskIds] = useState<string[]>([])
   const saveTimerRef = useRef<number | null>(null)
   const skipNextSaveRef = useRef(true)
@@ -656,6 +657,8 @@ function CanvasLabWorkspace({
     }
 
     const sanitizedAppState = sanitizeCanvasLabAppState(appState)
+    const selectedReferenceCount = countSelectedImageReferences(sanitizedElements, appState.selectedElementIds ?? {}, files)
+    setSelectedReferenceCount((current) => current === selectedReferenceCount ? current : selectedReferenceCount)
     const signature = buildSceneSignature(sanitizedElements, sanitizedAppState, files)
 
     if (skipNextSaveRef.current) {
@@ -1436,6 +1439,20 @@ function CanvasLabWorkspace({
             <MessageSquare className="h-4 w-4" />
             <span className="hidden sm:inline">对话</span>
           </Button>
+          {selectedReferenceCount > 0 && (
+            <Button
+              className="h-9 rounded-full border-cyan-400/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20 hover:text-white"
+              onClick={addSelectedImagesToStudio}
+              type="button"
+              variant="outline"
+            >
+              <ImageIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">添加到对话</span>
+              <Badge className="ml-0.5 border-cyan-300/30 bg-cyan-300/15 px-1.5 text-[10px] text-cyan-100" variant="outline">
+                {selectedReferenceCount}
+              </Badge>
+            </Button>
+          )}
           <Button className="hidden h-9 rounded-full text-slate-300 hover:bg-slate-900 hover:text-white sm:inline-flex" onClick={() => syncCanvasTasks(false)} type="button" variant="ghost">
             <RefreshCcw className="h-4 w-4" />
             刷新任务
@@ -1815,6 +1832,19 @@ function getReferencesFromElements(elements: readonly OrderedExcalidrawElement[]
       }
     })
     .filter((item): item is CanvasStudioReference => item !== null)
+}
+
+function countSelectedImageReferences(
+  elements: readonly OrderedExcalidrawElement[],
+  selectedElementIds: AppState["selectedElementIds"],
+  files: BinaryFiles
+) {
+  return elements.reduce((count, element) => {
+    if (!selectedElementIds[element.id]) return count
+    if (element.type !== "image" || !("fileId" in element) || !element.fileId) return count
+
+    return files[element.fileId]?.dataURL ? count + 1 : count
+  }, 0)
 }
 
 function getProjectImportSourceKeys(project: ProjectItem, imageIndex?: number) {
