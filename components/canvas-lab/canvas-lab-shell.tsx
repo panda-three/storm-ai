@@ -905,10 +905,15 @@ function CanvasLabWorkspace({
 
   const handleCanvasDrop = useCallback(
     async (event: DragEvent<HTMLElement>) => {
-      const files = Array.from(event.dataTransfer.files ?? []).filter((file) => file.type.startsWith("image/"))
-      if (files.length === 0) return
-
       event.preventDefault()
+      const files = Array.from(event.dataTransfer.files ?? []).filter((file) => file.type.startsWith("image/"))
+      if (files.length === 0) {
+        if (event.dataTransfer.types.length > 0) {
+          setStorageStatus({ tone: "idle", text: "画布仅支持拖入本地图片文件" })
+        }
+        return
+      }
+
       for (const file of files) {
         await handleUploadFile(file)
       }

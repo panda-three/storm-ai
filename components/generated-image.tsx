@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, type DragEvent } from "react"
 import Image from "next/image"
 import { Download, ExternalLink, ImageIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -95,15 +95,21 @@ export function GeneratedImage({
     setHasError(true)
     onError?.()
   }
+  const handleDragStart = (event: DragEvent<HTMLImageElement>) => {
+    event.preventDefault()
+  }
+  const imageClassName = cn("select-none", className)
 
   if (canOptimize) {
     return fill ? (
       <Image
         alt={alt}
-        className={className}
+        className={imageClassName}
         decoding="async"
+        draggable={false}
         fill
         loading={priority ? undefined : loading}
+        onDragStart={handleDragStart}
         onError={handleError}
         priority={priority}
         quality={quality}
@@ -113,10 +119,12 @@ export function GeneratedImage({
     ) : (
       <Image
         alt={alt}
-        className={className}
+        className={imageClassName}
         decoding="async"
+        draggable={false}
         height={height ?? 900}
         loading={priority ? undefined : loading}
+        onDragStart={handleDragStart}
         onError={handleError}
         priority={priority}
         quality={quality}
@@ -130,9 +138,11 @@ export function GeneratedImage({
   return (
     <img
       alt={alt}
-      className={className}
+      className={imageClassName}
       decoding="async"
+      draggable={false}
       loading={loading}
+      onDragStart={handleDragStart}
       onError={handleError}
       src={src}
     />

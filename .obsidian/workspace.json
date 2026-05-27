@@ -181,8 +181,9 @@
       "vscode-editor:新建代码文件": false
     }
   },
-  "active": "ea90ea45f167b345",
+  "active": "8ec0b6e57e61c42e",
   "lastOpenFiles": [
+    "app/api/image-preview",
     "docs/无限画布_develop.md",
     "docs/scripts-manual.md",
     "app/api/canvas-documents/[id]/thumbnail/route.ts",
