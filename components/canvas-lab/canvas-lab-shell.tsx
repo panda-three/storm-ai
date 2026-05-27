@@ -156,11 +156,6 @@ type CanvasStudioGenerationOptions = {
   referenceElementIds: string[]
 }
 
-type FloatingReferenceAction = {
-  left: number
-  top: number
-}
-
 type PersistedNativeImage = {
   assetId: string
   elementId: string
@@ -293,8 +288,6 @@ function CanvasLabWorkspace({
   const [studioError, setStudioError] = useState("")
   const [studioStatus, setStudioStatus] = useState("")
   const [studioGenerating, setStudioGenerating] = useState(false)
-  const [selectedCanvasReferences, setSelectedCanvasReferences] = useState<CanvasStudioReference[]>([])
-  const [floatingReferenceAction, setFloatingReferenceAction] = useState<FloatingReferenceAction | null>(null)
   const [pendingCanvasTaskIds, setPendingCanvasTaskIds] = useState<string[]>([])
   const saveTimerRef = useRef<number | null>(null)
   const skipNextSaveRef = useRef(true)
@@ -661,12 +654,6 @@ function CanvasLabWorkspace({
         elements: sanitizedElements,
       })
     }
-
-    const nextSelectedReferences = getReferencesFromSelectedElements(sanitizedElements, appState, files)
-    setSelectedCanvasReferences((currentReferences) =>
-      areCanvasStudioReferencesEqual(currentReferences, nextSelectedReferences) ? currentReferences : nextSelectedReferences
-    )
-    setFloatingReferenceAction(nextSelectedReferences.length > 0 ? getFloatingReferenceAction(sanitizedElements, appState) : null)
 
     const sanitizedAppState = sanitizeCanvasLabAppState(appState)
     const signature = buildSceneSignature(sanitizedElements, sanitizedAppState, files)
@@ -1521,21 +1508,6 @@ function CanvasLabWorkspace({
           </Excalidraw>
         </section>
 
-        {selectedCanvasReferences.length > 0 && floatingReferenceAction && (
-          <button
-            className="fixed left-5 top-20 z-30 inline-flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-950 shadow-lg hover:bg-slate-50"
-            style={{
-              left: floatingReferenceAction.left,
-              top: floatingReferenceAction.top,
-            }}
-            onClick={addSelectedImagesToStudio}
-            type="button"
-          >
-            <MessageSquare className="h-4 w-4" />
-            添加到对话
-          </button>
-        )}
-
         {prefs.assetRailOpen && (
           <ProjectAssetRail
             assetSearch={assetSearch}
@@ -1827,18 +1799,6 @@ function getCanvasStudioModelLabel(model: string) {
   return modelCatalog.find((item) => item.model === model)?.defaultDisplayName ?? model
 }
 
-function getReferencesFromSelectedElements(
-  elements: readonly OrderedExcalidrawElement[],
-  appState: AppState,
-  files: BinaryFiles
-) {
-  const selectedElementIds = appState.selectedElementIds ?? {}
-  return getReferencesFromElements(
-    elements.filter((element) => selectedElementIds[element.id]),
-    files
-  )
-}
-
 function getReferencesFromElements(elements: readonly OrderedExcalidrawElement[], files: BinaryFiles) {
   return elements
     .filter((element) => element.type === "image" && "fileId" in element && element.fileId)
@@ -1855,41 +1815,6 @@ function getReferencesFromElements(elements: readonly OrderedExcalidrawElement[]
       }
     })
     .filter((item): item is CanvasStudioReference => item !== null)
-}
-
-function areCanvasStudioReferencesEqual(a: CanvasStudioReference[], b: CanvasStudioReference[]) {
-  return a.length === b.length && a.every((item, index) => item.elementId === b[index]?.elementId && item.id === b[index]?.id)
-}
-
-function getFloatingReferenceAction(elements: readonly OrderedExcalidrawElement[], appState: AppState): FloatingReferenceAction | null {
-  const selectedElementIds = appState.selectedElementIds ?? {}
-  const selectedImageElements = elements.filter((element) => selectedElementIds[element.id] && element.type === "image")
-  if (selectedImageElements.length === 0) return null
-
-  const bounds = selectedImageElements.reduce(
-    (acc, element) => ({
-      maxX: Math.max(acc.maxX, element.x + element.width),
-      minX: Math.min(acc.minX, element.x),
-      minY: Math.min(acc.minY, element.y),
-    }),
-    {
-      maxX: Number.NEGATIVE_INFINITY,
-      minX: Number.POSITIVE_INFINITY,
-      minY: Number.POSITIVE_INFINITY,
-    }
-  )
-  const zoom = appState.zoom?.value ?? 1
-  const left = bounds.minX * zoom + (appState.scrollX ?? 0)
-  const top = bounds.minY * zoom + (appState.scrollY ?? 0)
-
-  if (!Number.isFinite(left) || !Number.isFinite(top)) {
-    return null
-  }
-
-  return {
-    left: Math.max(16, Math.min(window.innerWidth - 220, left)),
-    top: Math.max(72, Math.min(window.innerHeight - 64, top - 58)),
-  }
 }
 
 function getProjectImportSourceKeys(project: ProjectItem, imageIndex?: number) {
