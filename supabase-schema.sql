@@ -815,6 +815,7 @@ create table if not exists public.generation_jobs (
   amount integer not null check (amount >= 0),
   client_request_id text,
   expected_result_count integer not null default 1 check (expected_result_count between 1 and 4),
+  input_reference_images jsonb not null default '[]'::jsonb,
   expires_at timestamptz,
   quality text,
   aspect_ratio text,
@@ -843,6 +844,7 @@ alter table public.generation_jobs add column if not exists sync_locked_until ti
 alter table public.generation_jobs add column if not exists completed_at timestamptz;
 alter table public.generation_jobs add column if not exists client_request_id text;
 alter table public.generation_jobs add column if not exists expected_result_count integer not null default 1;
+alter table public.generation_jobs add column if not exists input_reference_images jsonb not null default '[]'::jsonb;
 alter table public.generation_jobs add column if not exists expires_at timestamptz;
 alter table public.generation_jobs add column if not exists quality text;
 alter table public.generation_jobs add column if not exists aspect_ratio text;
@@ -854,6 +856,8 @@ alter table public.generation_jobs drop constraint if exists generation_jobs_exp
 alter table public.generation_jobs add constraint generation_jobs_expected_result_count_check check (expected_result_count between 1 and 4) not valid;
 alter table public.generation_jobs drop constraint if exists generation_jobs_storage_urls_check;
 alter table public.generation_jobs add constraint generation_jobs_storage_urls_check check (jsonb_typeof(storage_urls) = 'array') not valid;
+alter table public.generation_jobs drop constraint if exists generation_jobs_input_reference_images_check;
+alter table public.generation_jobs add constraint generation_jobs_input_reference_images_check check (jsonb_typeof(input_reference_images) = 'array') not valid;
 
 update public.generation_jobs
 set expires_at = coalesce(completed_at, created_at) + interval '24 hours'
@@ -1784,7 +1788,8 @@ create or replace function public.create_generation_job_with_billing(
   p_aspect_ratio text default null,
   p_duration_seconds integer default null,
   p_is_free boolean default false,
-  p_client_request_id text default null
+  p_client_request_id text default null,
+  p_input_reference_images jsonb default '[]'::jsonb
 )
 returns jsonb
 language plpgsql
@@ -1812,6 +1817,10 @@ begin
 
   if p_expected_result_count < 1 or p_expected_result_count > 4 then
     raise exception '生成结果数量无效。';
+  end if;
+
+  if p_input_reference_images is null or jsonb_typeof(p_input_reference_images) <> 'array' then
+    raise exception '参考图记录无效。';
   end if;
 
   if v_client_request_id is not null then
@@ -1881,6 +1890,7 @@ begin
       amount,
       client_request_id,
       expected_result_count,
+      input_reference_images,
       quality,
       aspect_ratio,
       duration_seconds,
@@ -1896,6 +1906,7 @@ begin
       case when p_is_free then 0 else p_amount end,
       v_client_request_id,
       p_expected_result_count,
+      p_input_reference_images,
       nullif(trim(coalesce(p_quality, '')), ''),
       nullif(trim(coalesce(p_aspect_ratio, '')), ''),
       p_duration_seconds,
@@ -2187,6 +2198,7 @@ revoke execute on function public.record_free_generation_usage(uuid, text, text)
 revoke execute on function public.refund_generation_credits(uuid, integer, text, text) from public, anon, authenticated;
 revoke execute on function public.create_generation_job_with_billing(uuid, integer, text, text, text, text, text, text, integer, boolean, text) from public, anon, authenticated;
 revoke execute on function public.create_generation_job_with_billing(uuid, integer, text, text, text, text, text, text, integer, text, text, integer, boolean, text) from public, anon, authenticated;
+revoke execute on function public.create_generation_job_with_billing(uuid, integer, text, text, text, text, text, text, integer, text, text, integer, boolean, text, jsonb) from public, anon, authenticated;
 revoke execute on function public.fail_generation_job_with_refund(uuid, text) from public, anon, authenticated;
 grant execute on function public.spend_generation_credits(uuid, integer, text, text) to service_role;
 grant execute on function public.record_free_generation_usage(uuid, text, text) to service_role;
@@ -2194,5 +2206,5 @@ grant execute on function public.refund_generation_credits(uuid, integer, text, 
 grant execute on function public.load_public_model_configs() to authenticated;
 grant execute on function public.load_public_model_pricing() to authenticated;
 grant execute on function public.save_model_config_bundle(text, text, text, boolean, boolean, integer, jsonb) to authenticated;
-grant execute on function public.create_generation_job_with_billing(uuid, integer, text, text, text, text, text, text, integer, text, text, integer, boolean, text) to service_role;
+grant execute on function public.create_generation_job_with_billing(uuid, integer, text, text, text, text, text, text, integer, text, text, integer, boolean, text, jsonb) to service_role;
 grant execute on function public.fail_generation_job_with_refund(uuid, text) to service_role;

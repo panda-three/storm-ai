@@ -2,6 +2,7 @@ import { getSupabaseServerClient } from "@/lib/server-supabase"
 import { deleteGeneratedImageByPublicUrl, describeServerError, getGeneratedStorageObjectPath } from "@/lib/server-supabase"
 import type { GenerationKind, NormalizedTaskStatus } from "@/lib/generation-types"
 import { buildGenerationFailureRefundReason } from "@/lib/generation-ledger"
+import type { ProjectReferenceImage } from "@/lib/reference-images"
 import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 
 export type GenerationJobStatus = "submitted" | "processing" | "completed" | "failed" | "partial_completed"
@@ -23,6 +24,7 @@ export interface GenerationJob {
   client_request_id: string | null
   completed_at: string | null
   created_at: string
+  input_reference_images: ProjectReferenceImage[]
   last_checked_at: string | null
   last_sync_error: string | null
   model: string
@@ -46,7 +48,7 @@ export interface GenerationJob {
 }
 
 const generationJobSelect =
-  "id, amount, aspect_ratio, check_attempts, client_request_id, completed_at, created_at, duration_seconds, expected_result_count, expires_at, last_checked_at, last_sync_error, model, next_check_at, prompt, provider, quality, reference, result_urls, status, storage_urls, sync_locked_until, task_error, type, upstream_task_id, user_id"
+  "id, amount, aspect_ratio, check_attempts, client_request_id, completed_at, created_at, duration_seconds, expected_result_count, expires_at, input_reference_images, last_checked_at, last_sync_error, model, next_check_at, prompt, provider, quality, reference, result_urls, status, storage_urls, sync_locked_until, task_error, type, upstream_task_id, user_id"
 const legacyGenerationJobSelect =
   "id, amount, created_at, model, prompt, provider, reference, result_urls, status, task_error, type, upstream_task_id, user_id"
 
@@ -67,6 +69,7 @@ export async function createGenerationJob({
   type,
   userId,
   clientRequestId,
+  inputReferenceImages = [],
 }: {
   amount: number
   clientRequestId?: string
@@ -80,6 +83,7 @@ export async function createGenerationJob({
   reference: string
   type: GenerationKind
   userId: string
+  inputReferenceImages?: ProjectReferenceImage[]
 }) {
   const { data, error } = await getSupabaseServerClient()
     .from("generation_jobs")
@@ -87,6 +91,7 @@ export async function createGenerationJob({
       amount,
       client_request_id: clientRequestId || null,
       expected_result_count: expectedResultCount,
+      input_reference_images: inputReferenceImages,
       quality: quality || null,
       aspect_ratio: aspectRatio || null,
       duration_seconds: durationSeconds ?? null,
@@ -122,6 +127,7 @@ export async function createGenerationJobWithBilling({
   type,
   userId,
   clientRequestId,
+  inputReferenceImages = [],
 }: {
   amount: number
   clientRequestId?: string
@@ -137,6 +143,7 @@ export async function createGenerationJobWithBilling({
   reference: string
   type: GenerationKind
   userId: string
+  inputReferenceImages?: ProjectReferenceImage[]
 }) {
   const { data, error } = await getSupabaseServerClient().rpc("create_generation_job_with_billing", {
     p_amount: amount,
@@ -146,6 +153,7 @@ export async function createGenerationJobWithBilling({
     p_aspect_ratio: aspectRatio || null,
     p_duration_seconds: durationSeconds ?? null,
     p_is_free: isFree,
+    p_input_reference_images: inputReferenceImages,
     p_model: model,
     p_prompt: prompt,
     p_provider: provider,
@@ -169,6 +177,7 @@ export async function updateGenerationJob(
       | "check_attempts"
       | "completed_at"
       | "expires_at"
+      | "input_reference_images"
       | "last_checked_at"
       | "last_sync_error"
       | "next_check_at"
@@ -205,6 +214,7 @@ export async function updateActiveGenerationJob(
       | "check_attempts"
       | "completed_at"
       | "expires_at"
+      | "input_reference_images"
       | "last_checked_at"
       | "last_sync_error"
       | "next_check_at"
@@ -358,6 +368,7 @@ function withDefaultSyncFields(job: Partial<GenerationJob>): GenerationJob {
     expires_at: null,
     last_checked_at: null,
     last_sync_error: null,
+    input_reference_images: [],
     next_check_at: null,
     quality: null,
     storage_urls: [],
@@ -378,6 +389,7 @@ function isMissingSyncColumnError(error: unknown) {
     message.includes("expires_at") ||
     message.includes("aspect_ratio") ||
     message.includes("duration_seconds") ||
+    message.includes("input_reference_images") ||
     message.includes("quality") ||
     message.includes("storage_urls") ||
     message.includes("sync_locked_until")
@@ -842,7 +854,13 @@ export async function cleanupExpiredGenerationJobs({ limit = 50 } = {}) {
 }
 
 function getStorageCleanupUrls(job: GenerationJob) {
-  return Array.from(new Set([...(job.storage_urls ?? []), ...(job.result_urls ?? [])])).filter((url) =>
+  return Array.from(
+    new Set([
+      ...(job.storage_urls ?? []),
+      ...(job.result_urls ?? []),
+      ...(job.input_reference_images ?? []).map((image) => image.publicUrl),
+    ])
+  ).filter((url) =>
     getGeneratedStorageObjectPath(url)
   )
 }

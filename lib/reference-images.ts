@@ -10,6 +10,10 @@ export interface StoredReferenceImage {
   type: string
 }
 
+export interface ProjectReferenceImage extends StoredReferenceImage {
+  publicUrl: string
+}
+
 export function getReferenceImageExtension(contentType: string) {
   if (contentType.includes("webp")) return "webp"
   if (contentType.includes("jpeg") || contentType.includes("jpg")) return "jpg"

@@ -22,6 +22,7 @@ import {
 import {
   getReferenceImageBucket,
   getReferenceImagePathPrefix,
+  type ProjectReferenceImage,
   type StoredReferenceImage,
   validateReferenceImageMetadata,
 } from "@/lib/reference-images"
@@ -146,6 +147,7 @@ export async function POST(request: Request) {
       reference: billingReference,
       type: "video",
       userId,
+      inputReferenceImages: [],
     })
     jobId = job.id
 
@@ -178,6 +180,13 @@ export async function POST(request: Request) {
     })
 
     const imageUrls = getPreparedReferencePublicUrls(preparedReferenceImages)
+    const inputReferenceImages = buildInputReferenceImages(preparedReferenceImages)
+    if (inputReferenceImages.length > 0) {
+      await updateActiveGenerationJob(job.id, {
+        input_reference_images: inputReferenceImages,
+      })
+    }
+    cleanupPreparedReferenceImages = false
     const generationInput = {
       durationSeconds: normalizeVideoDuration(duration),
       imageUrls,
@@ -190,7 +199,6 @@ export async function POST(request: Request) {
 
     const result = await createYunwuVideo(generationInput)
     upstreamTaskId = result.taskId
-    cleanupPreparedReferenceImages = false
     const nextJob = await updateActiveGenerationJob(job.id, {
       next_check_at: new Date(Date.now() + 5000).toISOString(),
       status: result.status === "submitted" ? "submitted" : "processing",
@@ -472,6 +480,23 @@ function toFileLog(file: File) {
     type: file.type,
     size: file.size,
   }
+}
+
+function buildInputReferenceImages(referenceImages: PreparedVideoReferenceImage[]): ProjectReferenceImage[] {
+  return referenceImages
+    .map((image) => {
+      if (!image.bucket || !image.path || !image.publicUrl) return null
+
+      return {
+        bucket: image.bucket,
+        name: image.name,
+        path: image.path,
+        publicUrl: image.publicUrl,
+        size: image.buffer.byteLength,
+        type: image.mimeType,
+      } satisfies ProjectReferenceImage
+    })
+    .filter((image): image is ProjectReferenceImage => image !== null)
 }
 
 function logGenerateVideo(label: string, value: unknown) {

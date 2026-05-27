@@ -226,6 +226,7 @@ export default function TaskResultPage() {
   const aspectRatio = task?.raw?.aspect_ratio ?? undefined
   const duration = task?.raw?.duration_seconds ? `${task.raw.duration_seconds} 秒` : undefined
   const createdAt = task?.raw?.created_at ? formatLedgerDateTime(task.raw.created_at) : "刚刚"
+  const referenceImages = task?.raw?.input_reference_images ?? []
   const expectedImageCount = Math.max(
     Number(task?.raw?.expected_result_count ?? 0) || 0,
     Number(task?.raw?.result_urls?.length ?? 0) || 0,
@@ -273,6 +274,7 @@ export default function TaskResultPage() {
       imageCount: projectType === "生图" ? galleryImageCount : undefined,
       duration,
       aspectRatio: projectType === "视频" ? aspectRatio : undefined,
+      referenceImages,
     })
     router.push(`/?section=${projectType === "视频" ? "video" : "image"}`)
   }

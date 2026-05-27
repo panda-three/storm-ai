@@ -234,6 +234,24 @@ export function createProjectElements(
   const cardWidth = 380
   const imageWidth = filePayload ? Math.min(330, Math.max(220, filePayload.width)) : 0
   const imageHeight = filePayload ? Math.min(260, Math.max(160, Math.round((imageWidth / filePayload.width) * filePayload.height))) : 0
+
+  if (filePayload) {
+    const skeletons: ExcalidrawElementSkeleton[] = [
+      {
+        customData: buildElementCustomData(source),
+        fileId: filePayload.file.id,
+        height: imageHeight,
+        id: createCanvasLabId("image", sourceKey),
+        type: "image",
+        width: imageWidth,
+        x,
+        y,
+      },
+    ]
+
+    return convertToExcalidrawElements(skeletons, { regenerateIds: false }) as OrderedExcalidrawElement[]
+  }
+
   const cardHeight = filePayload ? imageHeight + 112 : 210
   const skeletons: ExcalidrawElementSkeleton[] = [
     {
@@ -250,19 +268,6 @@ export function createProjectElements(
       y,
     },
   ]
-
-  if (filePayload) {
-    skeletons.push({
-      customData: buildElementCustomData(source),
-      fileId: filePayload.file.id,
-      height: imageHeight,
-      id: createCanvasLabId("image", sourceKey),
-      type: "image",
-      width: imageWidth,
-      x: x + 24,
-      y: y + 24,
-    })
-  }
 
   skeletons.push(
     {

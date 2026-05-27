@@ -12,20 +12,28 @@ import { formatModelNameForDisplay } from "@/lib/model-display"
 import {
   apimartGptImage2ModelName,
   getImageRatiosForSelection,
-  imageModelOptions,
   imageModelSettings,
   isGrokImagineImageModel,
   isApimartImageModel,
-  videoModelOptions,
   videoModelSettings,
   yunwuSeedance15ProVideoModelName,
   yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 import {
+  findModelPricing,
+  getAvailableModelConfigs,
+  getAvailableQualities,
+  getAvailableVideoVariants,
+  getDefaultModel,
+  getPreferredImageQuality,
+  getPreferredVideoDuration,
+  getPreferredVideoQuality,
+} from "@/lib/studio-options"
+import {
   maxReferenceImageBytes,
   maxReferenceImages,
   supportedReferenceImageTypes,
-  type StoredReferenceImage,
+  type ProjectReferenceImage,
 } from "@/lib/reference-images"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -129,12 +137,13 @@ const imageCountDropdownOptions = [
 ]
 
 interface ReferenceImage {
-  file: File
+  file?: File
   height: number
   id: string
   name: string
   previewUrl: string
   size: number
+  stored?: ProjectReferenceImage
   width: number
 }
 
@@ -147,6 +156,7 @@ export interface RegenerationDraft {
   imageCount?: number
   duration?: string
   aspectRatio?: string
+  referenceImages?: ProjectReferenceImage[]
 }
 
 function readRegenerationDraft() {
@@ -181,6 +191,7 @@ function buildRegenerationDraftFromProject(item: ProjectItem): RegenerationDraft
     prompt: item.prompt ?? "",
     model: item.model,
     quality: item.quality,
+    referenceImages: item.referenceImages,
   }
 
   if (draft.type === "image") {
@@ -271,15 +282,17 @@ async function getCurrentAccessToken() {
 }
 
 async function uploadReferenceImagesForGeneration(referenceImages: ReferenceImage[], accessToken: string) {
-  if (referenceImages.length === 0) return []
+  const storedImages = referenceImages.map((image) => image.stored).filter((image): image is ProjectReferenceImage => Boolean(image))
+  const fileImages = referenceImages.filter((image): image is ReferenceImage & { file: File } => Boolean(image.file))
+  if (storedImages.length === 0 && fileImages.length === 0) return []
 
   const supabase = getSupabaseClient()
   if (!supabase) {
     throw new Error("Supabase 未配置。")
   }
 
-  return Promise.all(
-    referenceImages.map(async (image) => {
+  const uploadedImages = await Promise.all(
+    fileImages.map(async (image) => {
       const signResponse = await fetch("/api/uploads/reference-image", {
         method: "POST",
         headers: {
@@ -316,15 +329,40 @@ async function uploadReferenceImagesForGeneration(referenceImages: ReferenceImag
         throw new Error(`参考图上传失败：${error.message}`)
       }
 
+      const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(path)
+
       return {
         bucket,
         name: image.name,
         path,
+        publicUrl: publicData.publicUrl,
         size: image.size,
         type: image.file.type,
-      } satisfies StoredReferenceImage
+      } satisfies ProjectReferenceImage
     })
   )
+
+  return [...storedImages, ...uploadedImages]
+}
+
+function buildReferenceImagesFromStoredReferences(referenceImages: ProjectReferenceImage[] | undefined, maxCount: number) {
+  return (referenceImages ?? []).slice(0, maxCount).map((image, index) => ({
+    file: undefined,
+    height: 0,
+    id: `stored-${image.path || image.publicUrl}-${index}`,
+    name: image.name || `参考图 ${index + 1}`,
+    previewUrl: image.publicUrl,
+    size: image.size,
+    stored: image,
+    width: 0,
+  }) satisfies ReferenceImage)
+}
+
+function revokeReferenceImagePreviewUrl(image: ReferenceImage, objectUrls: Set<string>) {
+  if (image.previewUrl.startsWith("blob:")) {
+    URL.revokeObjectURL(image.previewUrl)
+    objectUrls.delete(image.previewUrl)
+  }
 }
 
 function parseAspectRatio(ratio: string) {
@@ -361,12 +399,6 @@ function getImageDimensions(src: string) {
     image.onerror = () => resolve({ height: 0, width: 0 })
     image.src = src
   })
-}
-
-function parseDurationSeconds(duration?: string) {
-  if (!duration) return null
-  const parsed = Number.parseInt(duration, 10)
-  return Number.isFinite(parsed) ? parsed : null
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -499,91 +531,6 @@ function ModeDropdown({
       value={mode}
     />
   )
-}
-
-function findModelPricing(
-  pricing: PublicModelPricing[],
-  params: {
-    aspectRatio?: string
-    duration?: string
-    model: string
-    quality: string
-    type: "image" | "video"
-  }
-) {
-  const durationSeconds = parseDurationSeconds(params.duration)
-
-  return pricing.find((item) => {
-    if (!item.enabled || item.type !== params.type) return false
-    if (item.model !== params.model) return false
-    if ((item.quality ?? "") !== params.quality) return false
-    if (params.type === "video" && item.duration_seconds !== durationSeconds) return false
-
-    return true
-  })
-}
-
-function getAvailableModelConfigs(
-  type: "image" | "video",
-  configs: ModelConfig[],
-  pricing: PublicModelPricing[]
-) {
-  return configs
-    .filter((config) => config.type === type && config.frontend_enabled)
-    .filter((config) => pricing.some((item) => item.type === type && item.model === config.model && item.enabled))
-    .sort((a, b) => a.sort_order - b.sort_order)
-}
-
-function getDefaultModel(type: "image" | "video", configs: ModelConfig[]) {
-  const selected = configs.find((config) => config.initial_selected)
-  if (selected) return selected.model
-  if (configs[0]) return configs[0].model
-  return type === "image" ? imageModelOptions[0] : videoModelOptions[0]
-}
-
-function getAvailableQualities(pricing: PublicModelPricing[], type: "image" | "video", model: string) {
-  return Array.from(
-    new Set(
-      pricing
-        .filter((item) => item.enabled && item.type === type && item.model === model && item.quality)
-        .map((item) => item.quality as string)
-    )
-  )
-}
-
-function getPreferredImageQuality(model: string, availableQualities: string[]) {
-  const preferred = imageModelSettings[model]?.qualities[1] ?? imageModelSettings[model]?.qualities[0] ?? ""
-  return availableQualities.includes(preferred) ? preferred : availableQualities[0] ?? preferred
-}
-
-function getAvailableVideoVariants(pricing: PublicModelPricing[], model: string) {
-  const items = pricing.filter((item) => item.enabled && item.type === "video" && item.model === model)
-  return {
-    durations: Array.from(new Set(items.map((item) => `${item.duration_seconds ?? 0} 秒`))),
-    qualities: Array.from(new Set(items.map((item) => item.quality).filter((item): item is string => Boolean(item)))),
-  }
-}
-
-function getPreferredVideoDuration(
-  model: string,
-  variants: {
-    durations: string[]
-    qualities: string[]
-  }
-) {
-  const preferred = videoModelSettings[model]?.durations[0] ?? ""
-  return variants.durations.includes(preferred) ? preferred : variants.durations[0] ?? preferred
-}
-
-function getPreferredVideoQuality(
-  model: string,
-  variants: {
-    durations: string[]
-    qualities: string[]
-  }
-) {
-  const preferred = videoModelSettings[model]?.qualities[0] ?? ""
-  return variants.qualities.includes(preferred) ? preferred : variants.qualities[0] ?? preferred
 }
 
 function isMembershipActive(membershipTier: MembershipTier | null, membershipExpiresAt: string | null) {
@@ -797,6 +744,7 @@ interface ImageResult {
   status: ProjectStatus
   taskId: string
   progress: number
+  referenceImages?: ProjectReferenceImage[]
   taskError?: string
 }
 
@@ -815,6 +763,7 @@ interface VideoResult {
   status: ProjectStatus
   taskId: string
   progress: number
+  referenceImages?: ProjectReferenceImage[]
   taskError?: string
   videoUrl: string
 }
@@ -881,6 +830,12 @@ function getMaxTaskPollAttempts(taskProjects: ProjectItem[]) {
   return taskProjects.some((item) => item.type === "视频") ? 160 : 72
 }
 
+function normalizeGenerationProgress(value: unknown, fallback = 0) {
+  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""))
+  const progress = Number.isFinite(parsed) ? parsed : fallback
+  return Math.min(99, Math.max(0, Math.round(progress)))
+}
+
 function resolveImageTaskProject(task: TaskStatusResponse, fallbackUrl = "") {
   const imageUrls = task.imageUrls ?? []
   const previewUrl = imageUrls[0] ?? fallbackUrl
@@ -898,6 +853,7 @@ function resolveImageTaskProject(task: TaskStatusResponse, fallbackUrl = "") {
   return {
     imageUrls,
     previewUrl,
+    progress: status === "生成中" ? normalizeGenerationProgress(task.progress) : status === "失败" ? 0 : 100,
     status,
     stage: status === "生成中" ? "智能创意中" : "",
     taskError,
@@ -917,6 +873,7 @@ function resolveVideoTaskProject(task: TaskStatusResponse, fallbackUrl = "") {
 
   return {
     previewUrl,
+    progress: status === "生成中" ? normalizeGenerationProgress(task.progress) : status === "失败" ? 0 : 100,
     status,
     stage: status === "生成中" ? "智能创意中" : "",
     taskError,
@@ -1012,6 +969,15 @@ export function ChatArea({
                 : resolveImageTaskProject(task, taskProjects[0].previewUrl)
 
             if (resolved.status === "生成中") {
+              taskProjects.forEach((item) => {
+                onProjectUpdate({
+                  ...item,
+                  progress: Math.max(item.progress ?? 0, resolved.progress),
+                  stage: resolved.stage,
+                  taskError: resolved.taskError,
+                })
+              })
+
               if (attempts < maxAttempts) {
                 timers.push(window.setTimeout(reconcile, getPendingTaskPollDelayMs(attempts, task)))
               }
@@ -1022,6 +988,7 @@ export function ChatArea({
               ...taskProjects[0],
               status: resolved.status,
               imageUrls: "imageUrls" in resolved ? resolved.imageUrls : taskProjects[0].imageUrls,
+              progress: resolved.progress,
               previewUrl: resolved.previewUrl,
               stage: resolved.stage,
               taskError: resolved.taskError,
@@ -1076,6 +1043,8 @@ export function ChatArea({
       stage: result.status === "生成中" ? "智能创意中" : "",
       taskId: result.taskId,
       taskError: result.taskError,
+      progress: result.progress,
+      referenceImages: result.referenceImages,
     })
   }
 
@@ -1099,6 +1068,8 @@ export function ChatArea({
       ratio: result.aspectRatio,
       stage: result.status === "生成中" ? "智能创意中" : "",
       taskId: result.taskId,
+      progress: result.progress,
+      referenceImages: result.referenceImages,
     })
   }
 
@@ -1261,10 +1232,12 @@ function ImageWorkspace({
     const nextRatioOptions = getImageRatiosForSelection(nextModel, nextQuality)
     const nextRatio = draft.ratio && nextRatioOptions.includes(draft.ratio) ? draft.ratio : defaultRatio
     const nextImageCount = draft.imageCount ? String(draft.imageCount) : imageCountOptions[2]
+    const nextMaxReferences = isGrokImagineImageModel(nextModel) ? 1 : maxReferenceImages
 
     setModel(nextModel)
     setQuality(nextQuality)
     setRatio(nextRatio)
+    setReferenceImages(buildReferenceImagesFromStoredReferences(draft.referenceImages, nextMaxReferences))
     if (imageCountOptions.includes(nextImageCount)) {
       setImageCount(nextImageCount)
     }
@@ -1316,8 +1289,7 @@ function ImageWorkspace({
 
     const removed = referenceImages.slice(1)
     removed.forEach((image) => {
-      URL.revokeObjectURL(image.previewUrl)
-      objectUrlsRef.current.delete(image.previewUrl)
+      revokeReferenceImagePreviewUrl(image, objectUrlsRef.current)
     })
     setReferenceImages(referenceImages.slice(0, 1))
   }, [isGrokImagineImage, referenceImages])
@@ -1419,8 +1391,7 @@ function ImageWorkspace({
     setReferenceImages((items) => {
       const removed = items.find((item) => item.id === id)
       if (removed) {
-        URL.revokeObjectURL(removed.previewUrl)
-        objectUrlsRef.current.delete(removed.previewUrl)
+        revokeReferenceImagePreviewUrl(removed, objectUrlsRef.current)
       }
       return items.filter((item) => item.id !== id)
     })
@@ -1479,6 +1450,7 @@ function ImageWorkspace({
       status: "生成中",
       taskId: optimisticId,
       progress: 0,
+      referenceImages: referenceImages.map((image) => image.stored).filter((image): image is ProjectReferenceImage => Boolean(image)),
       taskError: "",
     })
     onSectionChange("history")
@@ -1535,6 +1507,7 @@ function ImageWorkspace({
         status: initialStatus,
         taskId: data.taskId,
         progress: isCompleted ? 100 : 0,
+        referenceImages: storedReferenceImages.filter((image): image is ProjectReferenceImage => "publicUrl" in image && Boolean(image.publicUrl)),
         taskError: typeof data.taskError === "string" ? data.taskError : "",
       }
 
@@ -1557,6 +1530,7 @@ function ImageWorkspace({
         status: "失败",
         taskId: optimisticId,
         progress: 0,
+        referenceImages: referenceImages.map((image) => image.stored).filter((image): image is ProjectReferenceImage => Boolean(image)),
         taskError: getErrorMessage(error, "生图任务提交失败。"),
       })
       setError(getErrorMessage(error, "生图任务提交失败。"))
@@ -1773,11 +1747,13 @@ function VideoWorkspace({
     const nextDuration = draft.duration && settings.durations.includes(draft.duration) ? draft.duration : defaultSettings.durations[0]
     const nextQuality = draft.quality && settings.qualities.includes(draft.quality) ? draft.quality : defaultSettings.qualities[0]
     const nextAspectRatio = draft.aspectRatio && settings.aspectRatios.includes(draft.aspectRatio) ? draft.aspectRatio : defaultSettings.aspectRatios[0]
+    const nextMaxReferences = getMaxVideoReferenceImages(nextModel)
 
     setModel(nextModel)
     setDuration(nextDuration)
     setQuality(nextQuality)
     setAspectRatio(nextAspectRatio)
+    setReferenceImages(buildReferenceImagesFromStoredReferences(draft.referenceImages, nextMaxReferences))
     window.requestAnimationFrame(() => promptRef.current?.focus())
   }, [availableModels])
 
@@ -1804,8 +1780,7 @@ function VideoWorkspace({
 
     const kept = referenceImages.slice(0, maxVideoReferenceImages)
     for (const removed of referenceImages.slice(maxVideoReferenceImages)) {
-      URL.revokeObjectURL(removed.previewUrl)
-      videoObjectUrlsRef.current.delete(removed.previewUrl)
+      revokeReferenceImagePreviewUrl(removed, videoObjectUrlsRef.current)
     }
     setReferenceImages(kept)
     setError(`当前视频模型最多支持 ${maxVideoReferenceImages} 张参考图，已保留前 ${maxVideoReferenceImages} 张。`)
@@ -1922,8 +1897,7 @@ function VideoWorkspace({
     setReferenceImages((items) => {
       const removed = items.find((item) => item.id === id)
       if (removed) {
-        URL.revokeObjectURL(removed.previewUrl)
-        videoObjectUrlsRef.current.delete(removed.previewUrl)
+        revokeReferenceImagePreviewUrl(removed, videoObjectUrlsRef.current)
       }
       return items.filter((item) => item.id !== id)
     })
@@ -1974,6 +1948,7 @@ function VideoWorkspace({
       status: "生成中",
       taskId: optimisticId,
       progress: 0,
+      referenceImages: referenceImages.map((image) => image.stored).filter((image): image is ProjectReferenceImage => Boolean(image)),
       taskError: "",
       videoUrl: "",
     })
@@ -2022,6 +1997,7 @@ function VideoWorkspace({
         status: "生成中",
         taskId: data.taskId,
         progress: 0,
+        referenceImages: storedReferenceImages,
         taskError: "",
         videoUrl: "",
       }
@@ -2044,6 +2020,7 @@ function VideoWorkspace({
         status: "失败",
         taskId: optimisticId,
         progress: 0,
+        referenceImages: referenceImages.map((image) => image.stored).filter((image): image is ProjectReferenceImage => Boolean(image)),
         taskError: getErrorMessage(error, "视频任务提交失败。"),
         videoUrl: "",
       })
@@ -2347,18 +2324,21 @@ function ProjectPreviewThumb({ item }: { item: ProjectItem }) {
   )
 }
 
-function PendingResultPreview({ item }: { item: ProjectItem }) {
+function PendingResultPreview({ item, progress }: { item: ProjectItem; progress: number }) {
   const stageLabel = getPendingStageLabel(item)
   const expectedCount = item.type === "生图" ? Math.max(1, Math.min(4, item.expectedCount ?? 1)) : 1
   const slots = Array.from({ length: expectedCount })
+  const progressLabel = `${progress}%造梦中`
 
   if (item.type === "视频") {
     return (
       <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-gradient-to-br from-sky-100 via-cyan-50 to-teal-100">
         <div className="absolute inset-0 animate-pulse bg-[linear-gradient(110deg,rgba(255,255,255,0)_0%,rgba(255,255,255,0.62)_45%,rgba(255,255,255,0)_70%)]" />
-        <div className="relative grid justify-items-center gap-3 text-cyan-700">
+        <div className="relative grid w-full max-w-xs justify-items-center gap-3 px-6 text-cyan-700">
           <Loader2 className="h-8 w-8 animate-spin" />
-          <div className="rounded-full bg-white/70 px-3 py-1 text-sm font-medium shadow-sm">{stageLabel}</div>
+          <div className="rounded-full bg-white/70 px-3 py-1 text-sm font-medium shadow-sm">{progressLabel}</div>
+          <PendingProgressBar progress={progress} />
+          <div className="text-xs font-medium text-cyan-700/80">{stageLabel}</div>
         </div>
       </div>
     )
@@ -2373,12 +2353,29 @@ function PendingResultPreview({ item }: { item: ProjectItem }) {
         >
           <div className="absolute inset-0 animate-pulse bg-[linear-gradient(110deg,rgba(255,255,255,0)_0%,rgba(255,255,255,0.58)_45%,rgba(255,255,255,0)_70%)]" />
           {index === 0 && (
-            <div className="absolute left-3 top-3 rounded-full bg-white/75 px-3 py-1 text-sm font-medium text-cyan-700 shadow-sm">
-              {stageLabel}
+            <div className="absolute left-3 right-3 top-3 grid gap-2">
+              <div className="w-fit rounded-full bg-white/75 px-3 py-1 text-sm font-medium text-cyan-700 shadow-sm">
+                {progressLabel}
+              </div>
+              <PendingProgressBar progress={progress} />
             </div>
           )}
+          <div className="absolute bottom-3 left-3 rounded-full bg-white/65 px-2.5 py-1 text-xs font-medium text-cyan-700 shadow-sm">
+            {index === 0 ? stageLabel : Math.max(progress - index * 2, 0)}%
+          </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function PendingProgressBar({ progress }: { progress: number }) {
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-white/65 shadow-inner">
+      <div
+        className="h-full rounded-full bg-cyan-500 transition-[width] duration-700 ease-out"
+        style={{ width: `${progress}%` }}
+      />
     </div>
   )
 }
@@ -2414,6 +2411,31 @@ function HistoryDetailPanel({
   onSectionChange: (section: WorkspaceSection) => void
 }) {
   const [viewerUrl, setViewerUrl] = useState("")
+  const [displayProgress, setDisplayProgress] = useState(0)
+  const itemId = item?.id
+  const itemPreviewUrl = item?.previewUrl
+  const itemProgress = item?.progress
+  const itemStatus = item?.status
+
+  useEffect(() => {
+    if (!itemId || itemStatus !== "生成中" || itemPreviewUrl) {
+      setDisplayProgress(itemStatus === "已完成" || itemStatus === "部分完成" ? 100 : 0)
+      return
+    }
+
+    const initialProgress = Math.min(Math.max(itemProgress ?? 13, 13), 92)
+    setDisplayProgress(initialProgress)
+
+    const timer = window.setInterval(() => {
+      setDisplayProgress((current) => {
+        const next = current + Math.max(1, Math.round(Math.random() * 3))
+        return Math.min(next, 92)
+      })
+    }, 1200)
+
+    return () => window.clearInterval(timer)
+  }, [itemId, itemPreviewUrl, itemProgress, itemStatus])
+
   if (!item) {
     return (
       <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_14px_38px_rgba(15,23,42,0.06)]">
@@ -2452,7 +2474,7 @@ function HistoryDetailPanel({
 
       <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
         {item.status === "生成中" && !item.previewUrl ? (
-          <PendingResultPreview item={item} />
+          <PendingResultPreview item={item} progress={displayProgress} />
         ) : imageUrls.length > 0 && item.type === "生图" ? (
           <div className={imageUrls.length === 1 ? "grid gap-2" : "grid grid-cols-2 gap-2 bg-white p-2"}>
             {imageUrls.map((url, index) => (

@@ -1,5 +1,6 @@
 import { formatLedgerDateTime, getLedgerTimeValue } from "@/lib/date-time"
 import type { GenerationJob } from "@/lib/generation-jobs"
+import type { ProjectReferenceImage } from "@/lib/reference-images"
 
 export type ProjectType = "生图" | "视频"
 export type ProjectStatus = "已完成" | "生成中" | "失败" | "部分完成"
@@ -22,6 +23,8 @@ export interface ProjectItem {
   imageUrls?: string[]
   previewLabel?: string
   previewUrl?: string
+  progress?: number
+  referenceImages?: ProjectReferenceImage[]
   ratio?: string
   stage?: string
   taskId?: string
@@ -58,6 +61,7 @@ export function normalizeProjectItem(project: ProjectItem): ProjectItem {
     expectedCount: normalizeExpectedCount(project.expectedCount, imageUrls.length),
     imageUrls,
     previewUrl: project.previewUrl || imageUrls[0] || "",
+    progress: normalizeProjectProgress(project.progress, status),
     status,
   }
 }
@@ -141,10 +145,31 @@ function normalizeExpectedCount(value: unknown, fallback: number) {
   return Math.max(1, Math.min(4, fallback || 1))
 }
 
+function normalizeProjectProgress(value: unknown, status: ProjectStatus) {
+  if (status === "已完成" || status === "部分完成") return 100
+  if (status === "失败") return 0
+
+  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""))
+  if (!Number.isFinite(parsed)) return 0
+  return Math.min(99, Math.max(0, Math.round(parsed)))
+}
+
 function mergeImageUrls(primary: ProjectItem, fallback: ProjectItem) {
   return Array.from(
     new Set([...(primary.imageUrls ?? []), ...(fallback.imageUrls ?? [])].filter((url): url is string => Boolean(url)))
   )
+}
+
+function mergeReferenceImages(primary: ProjectItem, fallback: ProjectItem) {
+  const references = [...(primary.referenceImages ?? []), ...(fallback.referenceImages ?? [])]
+  const seen = new Set<string>()
+
+  return references.filter((image) => {
+    const key = image.publicUrl || `${image.bucket}/${image.path}`
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export function generationJobToProjectItem(job: GenerationJob): ProjectItem {
@@ -163,6 +188,7 @@ export function generationJobToProjectItem(job: GenerationJob): ProjectItem {
     palette: isImage ? "from-indigo-500 via-sky-400 to-emerald-300" : "from-slate-950 via-indigo-700 to-cyan-400",
     prompt: job.prompt,
     quality: job.quality ?? undefined,
+    referenceImages: job.input_reference_images,
     expectedCount: job.expected_result_count,
     imageUrls: isImage ? resultUrls : [],
     previewLabel: buildGenerationJobPreviewLabel(job),
@@ -240,6 +266,7 @@ export function mergeProjectHistories(serverProjects: ProjectItem[], localProjec
           previewLabel: existing.previewLabel ?? normalized.previewLabel,
           previewUrl: normalized.previewUrl || existing.previewUrl,
           quality: normalized.quality ?? existing.quality,
+          referenceImages: mergeReferenceImages(normalized, existing),
           ratio: normalized.ratio ?? existing.ratio,
           status: normalized.status,
           taskError: normalized.taskError,
@@ -259,6 +286,7 @@ export function mergeProjectHistories(serverProjects: ProjectItem[], localProjec
           previewLabel: normalized.previewLabel ?? existing.previewLabel,
           previewUrl: isServerBackedProjectItem(existing) ? existing.previewUrl || normalized.previewUrl : normalized.previewUrl || existing.previewUrl,
           quality: normalized.quality ?? existing.quality,
+          referenceImages: mergeReferenceImages(normalized, existing),
           ratio: normalized.ratio ?? existing.ratio,
           taskError: isServerBackedProjectItem(existing) ? existing.taskError || normalized.taskError : normalized.taskError || existing.taskError,
           upstreamTaskId: existing.upstreamTaskId || normalized.upstreamTaskId,

@@ -48,6 +48,7 @@ import {
   getReferenceImageBucket,
   getReferenceImagePathPrefix,
   maxReferenceImages,
+  type ProjectReferenceImage,
   type StoredReferenceImage,
   validateReferenceImageMetadata,
 } from "@/lib/reference-images"
@@ -247,6 +248,7 @@ export async function POST(request: Request) {
           stage = "prepare_apimart_references"
         })
       : []
+    const inputReferenceImages = buildInputReferenceImages(preparedReferenceImages)
 
     stage = "create_generation_job_with_billing"
     const job = await createGenerationJobWithBilling({
@@ -263,6 +265,7 @@ export async function POST(request: Request) {
       reference: billingReference,
       type: "image",
       userId,
+      inputReferenceImages,
     })
     jobId = job.id
 
@@ -288,6 +291,7 @@ export async function POST(request: Request) {
         taskError: job.task_error ?? "",
       })
     }
+    cleanupPreparedReferenceImages = false
 
     if (isToapisImage) {
       stage = "submit_toapis_generation"
@@ -938,6 +942,23 @@ function toFileLog(file: File) {
     type: file.type,
     size: file.size,
   }
+}
+
+function buildInputReferenceImages(referenceImages: PreparedReferenceImage[]): ProjectReferenceImage[] {
+  return referenceImages
+    .map((image) => {
+      if (!image.bucket || !image.path || !image.publicUrl) return null
+
+      return {
+        bucket: image.bucket,
+        name: image.name,
+        path: image.path,
+        publicUrl: image.publicUrl,
+        size: image.buffer.byteLength,
+        type: image.mimeType,
+      } satisfies ProjectReferenceImage
+    })
+    .filter((image): image is ProjectReferenceImage => image !== null)
 }
 
 function logGenerateImage(label: string, value: unknown) {
