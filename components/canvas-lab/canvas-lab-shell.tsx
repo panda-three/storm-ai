@@ -103,9 +103,11 @@ import {
   loadCanvasLabDocument,
   loadCanvasLabPrefs,
   sanitizeCanvasLabAppState,
+  sanitizeCanvasLabElements,
   saveCanvasLabCloudDocument,
   saveCanvasLabDocument,
   saveCanvasLabPrefs,
+  shouldSuppressCanvasLabLink,
   restoreCanvasLabVersion,
   stripCanvasLabFileData,
   uploadCanvasLabAssetFile,
@@ -318,7 +320,7 @@ function CanvasLabWorkspace({
           document
             ? {
                 appState: document.appState,
-                elements: document.elements,
+                elements: sanitizeCanvasLabElements(document.elements),
                 files: document.files,
               }
             : emptyInitialData
@@ -385,12 +387,13 @@ function CanvasLabWorkspace({
   const hydrateCanvasDocument = useCallback(
     async (documentId: string) => {
       const document = await getCanvasLabCloudDocument(documentId)
-      const files = await hydrateCanvasLabFiles(document.elements, document.files)
+      const elements = sanitizeCanvasLabElements(document.elements)
+      const files = await hydrateCanvasLabFiles(elements, document.files)
 
       await saveCanvasLabDocument(
         {
           appState: document.appState,
-          elements: document.elements,
+          elements,
           files,
           title: document.title,
         },
@@ -406,6 +409,7 @@ function CanvasLabWorkspace({
         },
         document: {
           ...document,
+          elements,
           files,
         },
       }
@@ -425,7 +429,7 @@ function CanvasLabWorkspace({
         setActiveDocument(result.activeDocument)
         setInitialData({
           appState: result.document.appState,
-          elements: result.document.elements,
+          elements: sanitizeCanvasLabElements(result.document.elements),
           files: result.document.files,
         })
         setStorageStatus({
@@ -612,7 +616,7 @@ function CanvasLabWorkspace({
       }
 
       const persistedByElementId = new Map(persisted.map((item) => [item.elementId, item]))
-      const nextElements = api.getSceneElements().map((element) => {
+      const nextElements = sanitizeCanvasLabElements(api.getSceneElements().map((element) => {
         const persistedImage = persistedByElementId.get(element.id)
         if (!persistedImage || element.type !== "image") return element
 
@@ -633,7 +637,7 @@ function CanvasLabWorkspace({
           },
           status: "saved",
         }
-      }) as readonly OrderedExcalidrawElement[]
+      }) as readonly OrderedExcalidrawElement[])
 
       api.updateScene({
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
@@ -650,14 +654,22 @@ function CanvasLabWorkspace({
   const saveCurrentScene = useCallback((elements: readonly OrderedExcalidrawElement[], appState: AppState, files: BinaryFiles) => {
     if (!hydratedRef.current) return
 
-    const nextSelectedReferences = getReferencesFromSelectedElements(elements, appState, files)
+    const sanitizedElements = sanitizeCanvasLabElements(elements)
+    if (sanitizedElements.some((element, index) => element !== elements[index])) {
+      api?.updateScene({
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+        elements: sanitizedElements,
+      })
+    }
+
+    const nextSelectedReferences = getReferencesFromSelectedElements(sanitizedElements, appState, files)
     setSelectedCanvasReferences((currentReferences) =>
       areCanvasStudioReferencesEqual(currentReferences, nextSelectedReferences) ? currentReferences : nextSelectedReferences
     )
-    setFloatingReferenceAction(nextSelectedReferences.length > 0 ? getFloatingReferenceAction(elements, appState) : null)
+    setFloatingReferenceAction(nextSelectedReferences.length > 0 ? getFloatingReferenceAction(sanitizedElements, appState) : null)
 
     const sanitizedAppState = sanitizeCanvasLabAppState(appState)
-    const signature = buildSceneSignature(elements, sanitizedAppState, files)
+    const signature = buildSceneSignature(sanitizedElements, sanitizedAppState, files)
 
     if (skipNextSaveRef.current) {
       skipNextSaveRef.current = false
@@ -668,7 +680,7 @@ function CanvasLabWorkspace({
     if (lastSignatureRef.current === signature) return
     lastSignatureRef.current = signature
 
-    if (persistNativeImageUploads(elements, files)) {
+    if (persistNativeImageUploads(sanitizedElements, files)) {
       return
     }
 
@@ -680,7 +692,7 @@ function CanvasLabWorkspace({
     saveTimerRef.current = window.setTimeout(() => {
       const localPayload = {
         appState: sanitizedAppState,
-        elements,
+        elements: sanitizedElements,
         files,
         title: activeDocument?.title,
       }
@@ -697,7 +709,7 @@ function CanvasLabWorkspace({
                 document.id
               ).then(() => {
                 maybeCreateAutomaticVersion(document.id)
-                maybeUpdateCanvasThumbnail(document.id, elements, sanitizedAppState, files)
+                maybeUpdateCanvasThumbnail(document.id, sanitizedElements, sanitizedAppState, files)
                 return document
               })
             )
@@ -720,7 +732,7 @@ function CanvasLabWorkspace({
           setStorageStatus({ tone: "error", text: getErrorMessage(error, "云端保存失败，已保留本地缓存。") })
         })
     }, 700)
-  }, [activeDocument, maybeCreateAutomaticVersion, maybeUpdateCanvasThumbnail, persistNativeImageUploads])
+  }, [activeDocument, api, maybeCreateAutomaticVersion, maybeUpdateCanvasThumbnail, persistNativeImageUploads])
 
   const handleReset = useCallback(async () => {
     if (!api) return
@@ -799,11 +811,12 @@ function CanvasLabWorkspace({
       if (!window.confirm("恢复该版本？恢复前会自动保存当前画布版本。")) return
 
       const document = await restoreCanvasLabVersion(activeDocument.id, selectedVersion.id)
-      const files = await hydrateCanvasLabFiles(document.elements, document.files)
+      const elements = sanitizeCanvasLabElements(document.elements)
+      const files = await hydrateCanvasLabFiles(elements, document.files)
       await saveCanvasLabDocument(
         {
           appState: document.appState,
-          elements: document.elements,
+          elements,
           files,
           title: document.title,
         },
@@ -824,12 +837,12 @@ function CanvasLabWorkspace({
           ...document.appState,
         },
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-        elements: document.elements,
+        elements,
       })
       api?.history.clear()
       setInitialData({
         appState: document.appState,
-        elements: document.elements,
+        elements,
         files,
       })
       setStorageStatus({ tone: "ok", text: "已恢复历史版本" })
@@ -879,7 +892,7 @@ function CanvasLabWorkspace({
         api.addFiles([filePayload.file])
         api.updateScene({
           captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-          elements: [...api.getSceneElements(), ...elements],
+          elements: sanitizeCanvasLabElements([...api.getSceneElements(), ...elements]),
         })
         window.requestAnimationFrame(() => {
           api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
@@ -920,6 +933,13 @@ function CanvasLabWorkspace({
     },
     [handleUploadFile]
   )
+
+  const handleCanvasLinkOpen = useCallback((element: ExcalidrawElement, event: CustomEvent) => {
+    if (!shouldSuppressCanvasLabLink(element)) return
+
+    event.preventDefault()
+    setStorageStatus({ tone: "idle", text: "画布图片已选中" })
+  }, [])
 
   const getCanvasGenerationContext = useCallback(() => {
     if (!api) {
@@ -1164,7 +1184,7 @@ function CanvasLabWorkspace({
 
       api.updateScene({
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-        elements: [...sceneElements, ...appendedElements],
+        elements: sanitizeCanvasLabElements([...sceneElements, ...appendedElements]),
       })
 
       if (appendedElements.length > 0) {
@@ -1244,7 +1264,7 @@ function CanvasLabWorkspace({
           api.addFiles(filePayloads.map((payload) => payload.file))
           api.updateScene({
             captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-            elements: [...api.getSceneElements(), ...nextElements],
+            elements: sanitizeCanvasLabElements([...api.getSceneElements(), ...nextElements]),
           })
           window.requestAnimationFrame(() => {
             api.scrollToContent(nextElements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
@@ -1264,7 +1284,7 @@ function CanvasLabWorkspace({
           const elements = createProjectElements(project, null, api.getSceneElements().length, "video")
           api.updateScene({
             captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-            elements: [...api.getSceneElements(), ...elements],
+            elements: sanitizeCanvasLabElements([...api.getSceneElements(), ...elements]),
           })
           window.requestAnimationFrame(() => {
             api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
@@ -1282,7 +1302,7 @@ function CanvasLabWorkspace({
           const elements = createProjectElements(project, null, api.getSceneElements().length, "status")
           api.updateScene({
             captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-            elements: [...api.getSceneElements(), ...elements],
+            elements: sanitizeCanvasLabElements([...api.getSceneElements(), ...elements]),
           })
           window.requestAnimationFrame(() => {
             api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
@@ -1486,6 +1506,7 @@ function CanvasLabWorkspace({
             langCode="zh-CN"
             name="季风无限画布"
             onChange={saveCurrentScene}
+            onLinkOpen={handleCanvasLinkOpen}
             theme={THEME.DARK}
           >
             <MainMenu>
@@ -2220,12 +2241,13 @@ async function loadInitialCanvasDocument(): Promise<{
     const cloudDocument = documents[0]
       ? await getCanvasLabCloudDocument(documents[0].id)
       : await createCanvasLabCloudDocument("未命名画布")
-    const files = await hydrateCanvasLabFiles(cloudDocument.elements, cloudDocument.files)
+    const elements = sanitizeCanvasLabElements(cloudDocument.elements)
+    const files = await hydrateCanvasLabFiles(elements, cloudDocument.files)
 
     await saveCanvasLabDocument(
       {
         appState: cloudDocument.appState,
-        elements: cloudDocument.elements,
+        elements,
         files,
         title: cloudDocument.title,
       },
@@ -2241,6 +2263,7 @@ async function loadInitialCanvasDocument(): Promise<{
       },
       document: {
         ...cloudDocument,
+        elements,
         files,
       },
     }
@@ -2256,7 +2279,7 @@ async function loadInitialCanvasDocument(): Promise<{
         },
         document: {
           appState: localDocument.appState,
-          elements: localDocument.elements,
+          elements: sanitizeCanvasLabElements(localDocument.elements),
           files: localDocument.files,
           id: localDocument.id,
           title: localDocument.title || "本地画布",

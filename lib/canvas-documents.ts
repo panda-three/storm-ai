@@ -1,5 +1,6 @@
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types"
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types"
+import { sanitizeCanvasLabElements } from "@/lib/canvas-lab-scene"
 import { describeServerError, getSupabaseServerClient, ServerResponseError } from "@/lib/server-supabase"
 
 export interface CanvasDocumentUpdateInput {
@@ -143,7 +144,7 @@ export async function updateCanvasDocumentForUser({
   if ("thumbnailUrl" in input) update.thumbnail_url = input.thumbnailUrl || null
   if ("appState" in input) update.app_state = input.appState ?? {}
   if ("files" in input) update.files = input.files ?? {}
-  if ("elements" in input) update.scene = { elements: input.elements ?? [] }
+  if ("elements" in input) update.scene = { elements: sanitizeCanvasLabElements(input.elements ?? []) }
 
   const { data, error } = await getSupabaseServerClient()
     .from("canvas_documents")
@@ -421,7 +422,7 @@ export async function createCanvasVersionForUser({
       canvas_id: canvasId,
       files: document.files,
       reason: normalizeVersionReason(reason),
-      scene: { elements: document.elements },
+      scene: { elements: sanitizeCanvasLabElements(document.elements) },
       user_id: userId,
     })
     .select("id, reason, created_at")
@@ -471,9 +472,11 @@ export async function restoreCanvasVersionForUser({
     id: canvasId,
     input: {
       appState: (version.app_state as CanvasDocumentUpdateInput["appState"]) ?? {},
-      elements: Array.isArray((version.scene as { elements?: unknown })?.elements)
-        ? (version.scene as { elements: readonly ExcalidrawElement[] }).elements
-        : [],
+      elements: sanitizeCanvasLabElements(
+        Array.isArray((version.scene as { elements?: unknown })?.elements)
+          ? (version.scene as { elements: readonly ExcalidrawElement[] }).elements
+          : []
+      ),
       files: (version.files as BinaryFiles) ?? {},
     },
     userId,
@@ -484,7 +487,7 @@ function mapCanvasDocumentRow(row: CanvasDocumentRow) {
   return {
     appState: row.app_state ?? {},
     assetCount: 0,
-    elements: Array.isArray(row.scene?.elements) ? row.scene.elements : [],
+    elements: sanitizeCanvasLabElements(Array.isArray(row.scene?.elements) ? row.scene.elements : []),
     files: row.files ?? {},
     id: row.id,
     thumbnailUrl: row.thumbnail_url ?? null,

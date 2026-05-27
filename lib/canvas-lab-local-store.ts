@@ -1,5 +1,6 @@
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types"
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types"
+import { sanitizeCanvasLabElements } from "@/lib/canvas-lab-scene"
 
 const canvasLabDbName = "storm-canvas-lab-v1"
 const canvasLabStoreName = "documents"
@@ -86,7 +87,10 @@ export async function loadCanvasLabDocument(documentId = defaultCanvasLabDocumen
     return null
   }
 
-  return document
+  return {
+    ...document,
+    elements: sanitizeCanvasLabElements(document.elements),
+  }
 }
 
 export async function saveCanvasLabDocument(
@@ -95,6 +99,7 @@ export async function saveCanvasLabDocument(
 ) {
   const nextDocument: CanvasLabDocument = {
     ...document,
+    elements: sanitizeCanvasLabElements(document.elements),
     id: documentId,
     updatedAt: new Date().toISOString(),
     version: 1,

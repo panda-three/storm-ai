@@ -63,6 +63,21 @@ export function getCanvasLabSourceData(element: ExcalidrawElement) {
   return source as CanvasLabSourceData
 }
 
+export function shouldSuppressCanvasLabLink(element: ExcalidrawElement) {
+  return element.type === "image" || Boolean(getCanvasLabSourceData(element))
+}
+
+export function sanitizeCanvasLabElements<T extends ExcalidrawElement>(elements: readonly T[]) {
+  return elements.map((element) => {
+    if (!element.link || !shouldSuppressCanvasLabLink(element)) return element
+
+    return {
+      ...element,
+      link: null,
+    } as T
+  })
+}
+
 export function buildSceneSignature(
   elements: readonly OrderedExcalidrawElement[],
   appState: Record<string, unknown>,
