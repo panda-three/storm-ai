@@ -2031,6 +2031,7 @@ async function renderReferencesFromCanvasSelection({
       const blob = await exportToBlob({
         appState: {
           exportBackground: false,
+          exportWithDarkMode: true,
           viewBackgroundColor: "transparent",
         },
         elements: renderElements,
