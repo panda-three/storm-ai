@@ -75,6 +75,7 @@ import {
   createCanvasImageGenerationTask,
   createCanvasLabAssetBinding,
   createCanvasLabThumbnailUpload,
+  createCanvasTaskPlaceholderElements,
   createCanvasVideoGenerationTask,
   createCanvasUploadElements,
   createCanvasLabVersion,
@@ -999,9 +1000,11 @@ function CanvasLabWorkspace({
     setStudioStatus("正在提交生成任务...")
     setStudioGenerating(true)
 
+    const pendingTaskId = `canvas-${activeDocument?.id ?? "local"}-${Date.now()}`
+
     try {
       const formData = new FormData()
-      const clientRequestId = `canvas-${activeDocument?.id ?? "local"}-${Date.now()}`
+      const clientRequestId = pendingTaskId
       formData.set("prompt", trimmedPrompt)
       formData.set("model", model)
       formData.set("quality", quality)
@@ -1031,15 +1034,50 @@ function CanvasLabWorkspace({
         formData.append("referenceImages", file)
       })
 
+      const placeholderElements = mode === "image"
+        ? createCanvasTaskPlaceholderElements({
+            canvasId: activeDocument?.id ?? "local",
+            existingElementCount: api.getSceneElements().length,
+            expectedResultCount: Number.parseInt(imageCount, 10) || 1,
+            progress: 0,
+            prompt: trimmedPrompt,
+            taskId: pendingTaskId,
+          })
+        : []
+
+      if (placeholderElements.length > 0) {
+        api.updateScene({
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+          elements: sanitizeCanvasLabElements([...api.getSceneElements(), ...placeholderElements]),
+        })
+        window.requestAnimationFrame(() => {
+          api.scrollToContent(placeholderElements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.58 })
+        })
+      }
+
       const result = mode === "image"
         ? await createCanvasImageGenerationTask(formData)
         : await createCanvasVideoGenerationTask(formData)
+      if (mode === "image" && result.taskId !== pendingTaskId) {
+        const nextElements = api.getSceneElements().map((element) => updateCanvasTaskPlaceholderSource(element, pendingTaskId, result.taskId))
+        api.updateScene({
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+          elements: sanitizeCanvasLabElements(nextElements),
+        })
+      }
       setPendingCanvasTaskIds((currentTaskIds) => Array.from(new Set([...currentTaskIds, result.taskId])))
       setStorageStatus({ tone: "ok", text: mode === "image" ? "生图任务已创建" : "视频任务已创建" })
       setStudioStatus(`任务已创建：${result.taskId}`)
       onRefreshAccount()
     } catch (error) {
       const message = getErrorMessage(error, "从画布创建生成任务失败。")
+      if (mode === "image") {
+        const nextElements = api.getSceneElements().map((element) => markCanvasTaskPlaceholderFailed(element, pendingTaskId, message))
+        api.updateScene({
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+          elements: sanitizeCanvasLabElements(nextElements),
+        })
+      }
       setStorageStatus({ tone: "error", text: message })
       setStudioError(message)
     } finally {
@@ -1088,10 +1126,11 @@ function CanvasLabWorkspace({
 
           const errorText = status.taskError || status.error || ""
           const nextText = isTitle
-            ? statusText
+            ? buildTaskProgressTitle(status.progress, statusText)
             : buildTaskMetaText({
                 currentText: String(element.text ?? ""),
                 error: errorText,
+                progress: status.progress,
                 status: status.status,
               })
           if (element.text === nextText) return element
@@ -1103,6 +1142,8 @@ function CanvasLabWorkspace({
         }) as readonly OrderedExcalidrawElement[]
 
         if (status.status !== "completed" && status.status !== "partial_completed") continue
+
+        sceneElements = sceneElements.filter((element) => getCanvasLabTaskSourceData(element)?.taskId !== taskId)
 
         if (status.videoUrl) {
           const videoSourceKey = getProjectVideoSourceKey({
@@ -1162,6 +1203,7 @@ function CanvasLabWorkspace({
             filePayload,
             storageUrl: imageUrl,
             title: `生成结果 ${index + 1}`,
+            withFrame: false,
           })
           appendedFiles.push(filePayload.file)
           appendedElements.push(...elements)
@@ -1858,23 +1900,78 @@ function getProjectImportSourceKeys(project: ProjectItem, imageIndex?: number) {
   return [getProjectStatusSourceKey(project)]
 }
 
+function buildTaskProgressTitle(progress: number, fallback: string) {
+  const normalizedProgress = Number.isFinite(progress) ? Math.round(progress) : 0
+  if (normalizedProgress >= 100) return fallback
+
+  return `${Math.min(99, Math.max(0, normalizedProgress))}%造梦中`
+}
+
 function buildTaskMetaText({
   currentText,
   error,
+  progress,
   status,
 }: {
   currentText: string
   error: string
+  progress: number
   status: string
 }) {
   const baseText = currentText
     .split("\n")
-    .filter((line) => !line.startsWith("状态：") && !line.startsWith("说明："))
+    .filter((line) => !line.startsWith("状态：") && !line.startsWith("进度：") && !line.startsWith("说明："))
     .join("\n")
-  const statusLine = status === "partial_completed" ? "状态：部分完成" : status === "failed" ? "状态：生成失败" : ""
+  const statusLine = status === "partial_completed" ? "状态：部分完成" : status === "failed" ? "状态：生成失败" : "状态：生成中"
+  const progressLine = status === "submitted" || status === "processing" ? `进度：${buildTaskProgressTitle(progress, "生成中")}` : ""
   const errorLine = error ? `说明：${error}` : ""
 
-  return [baseText, statusLine, errorLine].filter(Boolean).join("\n").slice(0, 360)
+  return [baseText, statusLine, progressLine, errorLine].filter(Boolean).join("\n").slice(0, 360)
+}
+
+function updateCanvasTaskPlaceholderSource(element: OrderedExcalidrawElement, pendingTaskId: string, taskId: string) {
+  const source = getCanvasLabTaskSourceData(element)
+  if (source?.taskId !== pendingTaskId) return element
+
+  const nextSource: CanvasLabSourceData = {
+    ...source,
+    sourceKey: `task:${taskId}`,
+    taskId,
+  }
+  const nextElement = {
+    ...element,
+    customData: {
+      ...element.customData,
+      [canvasLabSourceCustomDataKey]: nextSource,
+    },
+  }
+
+  if (element.type !== "text" || !("text" in element)) return nextElement
+
+  return {
+    ...nextElement,
+    text: String(element.text ?? "").replaceAll(pendingTaskId, taskId),
+  }
+}
+
+function markCanvasTaskPlaceholderFailed(element: OrderedExcalidrawElement, pendingTaskId: string, message: string) {
+  const source = getCanvasLabTaskSourceData(element)
+  if (source?.taskId !== pendingTaskId || element.type !== "text" || !("text" in element)) return element
+
+  const isTitle = element.id.includes("task-title")
+  const isMeta = element.id.includes("task-meta")
+  if (!isTitle && !isMeta) return element
+
+  return {
+    ...element,
+    strokeColor: isTitle ? "#be123c" : "#9f1239",
+    text: isTitle ? "生成失败" : buildTaskMetaText({
+      currentText: String(element.text ?? ""),
+      error: message,
+      progress: 100,
+      status: "failed",
+    }),
+  }
 }
 
 function ProjectAssetRail({
