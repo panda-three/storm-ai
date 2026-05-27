@@ -874,7 +874,6 @@ function CanvasLabWorkspace({
         title: document.title,
         updatedAt: document.updatedAt,
       })
-      api?.addFiles(Object.values(files))
       api?.updateScene({
         appState: {
           ...(emptyInitialData.appState as Pick<AppState, "gridSize" | "scrollX" | "scrollY" | "viewBackgroundColor" | "zoom">),
@@ -883,6 +882,7 @@ function CanvasLabWorkspace({
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
         elements,
       })
+      api?.addFiles(Object.values(files))
       api?.history.clear()
       setInitialData({
         appState: document.appState,
@@ -933,11 +933,11 @@ function CanvasLabWorkspace({
           storageUrl: upload.publicUrl,
           title: file.name,
         })
-        api.addFiles([filePayload.file])
         api.updateScene({
           captureUpdate: CaptureUpdateAction.IMMEDIATELY,
           elements: sanitizeCanvasLabElements([...api.getSceneElements(), ...elements]),
         })
+        api.addFiles([filePayload.file])
         window.requestAnimationFrame(() => {
           api.scrollToContent(elements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
         })
@@ -1299,14 +1299,14 @@ function CanvasLabWorkspace({
         }
       }
 
-      if (appendedFiles.length > 0) {
-        api.addFiles(appendedFiles)
-      }
-
       api.updateScene({
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
         elements: sanitizeCanvasLabElements([...sceneElements, ...appendedElements]),
       })
+
+      if (appendedFiles.length > 0) {
+        api.addFiles(appendedFiles)
+      }
 
       if (appendedElements.length > 0) {
         window.requestAnimationFrame(() => {
@@ -1385,11 +1385,11 @@ function CanvasLabWorkspace({
             createProjectElements(project, payload, api.getSceneElements().length + index * 4, String(index), imageUrls[index])
           )
 
-          api.addFiles(filePayloads.map((payload) => payload.file))
           api.updateScene({
             captureUpdate: CaptureUpdateAction.IMMEDIATELY,
             elements: sanitizeCanvasLabElements([...api.getSceneElements(), ...nextElements]),
           })
+          api.addFiles(filePayloads.map((payload) => payload.file))
           window.requestAnimationFrame(() => {
             api.scrollToContent(nextElements, { animate: true, fitToViewport: true, viewportZoomFactor: 0.56 })
           })

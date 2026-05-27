@@ -346,16 +346,39 @@ async function uploadReferenceImagesForGeneration(referenceImages: ReferenceImag
 }
 
 function buildReferenceImagesFromStoredReferences(referenceImages: ProjectReferenceImage[] | undefined, maxCount: number) {
-  return (referenceImages ?? []).slice(0, maxCount).map((image, index) => ({
-    file: undefined,
-    height: 0,
-    id: `stored-${image.path || image.publicUrl}-${index}`,
-    name: image.name || `参考图 ${index + 1}`,
-    previewUrl: image.publicUrl,
-    size: image.size,
-    stored: image,
-    width: 0,
-  }) satisfies ReferenceImage)
+  return (referenceImages ?? []).slice(0, maxCount).map((image, index) => {
+    const publicUrl = resolveStoredReferencePublicUrl(image)
+
+    return {
+      file: undefined,
+      height: 0,
+      id: `stored-${image.path || publicUrl}-${index}`,
+      name: image.name || `参考图 ${index + 1}`,
+      previewUrl: publicUrl,
+      size: image.size,
+      stored: {
+        ...image,
+        publicUrl,
+      },
+      width: 0,
+    } satisfies ReferenceImage
+  }).filter((image) => image.previewUrl)
+}
+
+function resolveStoredReferencePublicUrl(image: ProjectReferenceImage) {
+  const record = image as ProjectReferenceImage & {
+    public_url?: unknown
+    url?: unknown
+  }
+  if (typeof image.publicUrl === "string" && image.publicUrl) return image.publicUrl
+  if (typeof record.public_url === "string" && record.public_url) return record.public_url
+  if (typeof record.url === "string" && record.url) return record.url
+
+  const supabase = getSupabaseClient()
+  if (!supabase || !image.bucket || !image.path) return ""
+
+  const { data } = supabase.storage.from(image.bucket).getPublicUrl(image.path)
+  return data.publicUrl ?? ""
 }
 
 function revokeReferenceImagePreviewUrl(image: ReferenceImage, objectUrls: Set<string>) {
@@ -614,7 +637,7 @@ function UploadColumn({
               className="group relative h-10 w-10 overflow-hidden rounded-xl border border-slate-200 bg-slate-100"
               key={image.id}
             >
-              <img alt={`参考图 ${index + 1}`} className="h-full w-full object-cover" src={image.previewUrl} />
+              <ReferenceImageThumb image={image} index={index} />
               <button
                 aria-label={`移除参考图 ${index + 1}`}
                 className="absolute right-0.5 top-0.5 grid h-4 w-4 cursor-pointer place-items-center rounded-full bg-slate-950/85 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
@@ -637,6 +660,42 @@ function UploadColumn({
         </div>
       )}
     </div>
+  )
+}
+
+function ReferenceImageThumb({ image, index }: { image: ReferenceImage; index: number }) {
+  const [src, setSrc] = useState(image.previewUrl)
+  const [failed, setFailed] = useState(false)
+  const proxySrc = image.previewUrl
+    ? `/api/download?url=${encodeURIComponent(image.previewUrl)}&filename=${encodeURIComponent(image.name || `reference-${index + 1}.png`)}`
+    : ""
+
+  useEffect(() => {
+    setSrc(image.previewUrl)
+    setFailed(false)
+  }, [image.previewUrl])
+
+  if (!src || failed) {
+    return (
+      <div className="grid h-full w-full place-items-center bg-slate-100 text-slate-400">
+        <ImageIcon className="h-4 w-4" />
+      </div>
+    )
+  }
+
+  return (
+    <img
+      alt={`参考图 ${index + 1}`}
+      className="h-full w-full object-cover"
+      onError={() => {
+        if (proxySrc && src !== proxySrc) {
+          setSrc(proxySrc)
+          return
+        }
+        setFailed(true)
+      }}
+      src={src}
+    />
   )
 }
 

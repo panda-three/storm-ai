@@ -232,8 +232,9 @@ export function createProjectElements(
   const x = 80 + (existingElementCount % 6) * 36
   const y = 80 + (existingElementCount % 5) * 32
   const cardWidth = 380
-  const imageWidth = filePayload ? Math.min(330, Math.max(220, filePayload.width)) : 0
-  const imageHeight = filePayload ? Math.min(260, Math.max(160, Math.round((imageWidth / filePayload.width) * filePayload.height))) : 0
+  const imageSize = filePayload ? getCanvasImageDisplaySize(filePayload.width, filePayload.height) : { height: 0, width: 0 }
+  const imageWidth = imageSize.width
+  const imageHeight = imageSize.height
 
   if (filePayload) {
     const skeletons: ExcalidrawElementSkeleton[] = [
@@ -324,8 +325,7 @@ export function createCanvasUploadElements({
   const sourceKey = source.sourceKey
   const x = 80 + (existingElementCount % 6) * 36
   const y = 80 + (existingElementCount % 5) * 32
-  const imageWidth = Math.min(330, Math.max(220, filePayload.width))
-  const imageHeight = Math.min(260, Math.max(160, Math.round((imageWidth / filePayload.width) * filePayload.height)))
+  const { height: imageHeight, width: imageWidth } = getCanvasImageDisplaySize(filePayload.width, filePayload.height)
   const cardWidth = imageWidth + 48
   const cardHeight = imageHeight + 48
   const skeletons: ExcalidrawElementSkeleton[] = []
@@ -478,6 +478,24 @@ export function createCanvasTaskPlaceholderElements({
 function buildElementCustomData(source: CanvasLabSourceData) {
   return {
     [canvasLabSourceCustomDataKey]: source,
+  }
+}
+
+function getCanvasImageDisplaySize(width: number, height: number) {
+  const naturalWidth = Number.isFinite(width) && width > 0 ? width : 320
+  const naturalHeight = Number.isFinite(height) && height > 0 ? height : 220
+  const maxWidth = 330
+  const maxHeight = 260
+  const minLongSide = 220
+  const scaleDown = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight, 1)
+  const fittedWidth = naturalWidth * scaleDown
+  const fittedHeight = naturalHeight * scaleDown
+  const scaleUp = Math.max(minLongSide / Math.max(fittedWidth, fittedHeight), 1)
+  const scale = Math.min(scaleDown * scaleUp, maxWidth / naturalWidth, maxHeight / naturalHeight)
+
+  return {
+    height: Math.max(1, Math.round(naturalHeight * scale)),
+    width: Math.max(1, Math.round(naturalWidth * scale)),
   }
 }
 
