@@ -1471,7 +1471,7 @@ function CanvasLabWorkspace({
                 saveToActiveFile: false,
               },
               tools: {
-                image: true,
+                image: false,
               },
             }}
             aiEnabled={false}
@@ -1853,8 +1853,12 @@ function getFloatingReferenceAction(elements: readonly OrderedExcalidrawElement[
     }
   )
   const zoom = appState.zoom?.value ?? 1
-  const left = bounds.minX * zoom + appState.scrollX
-  const top = bounds.minY * zoom + appState.scrollY
+  const left = bounds.minX * zoom + (appState.scrollX ?? 0)
+  const top = bounds.minY * zoom + (appState.scrollY ?? 0)
+
+  if (!Number.isFinite(left) || !Number.isFinite(top)) {
+    return null
+  }
 
   return {
     left: Math.max(16, Math.min(window.innerWidth - 220, left)),
