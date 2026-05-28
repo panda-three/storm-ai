@@ -57,6 +57,7 @@ tail -f /root/.pm2/logs/storm-ai-error.log
 
 - `APIMart`：APIMart 生图或任务同步。
 - `ToAPIs`：ToAPIs 生图或任务同步。
+- `VectorEngine`：VectorEngine 生图。
 - `Yunwu`：云雾图片/视频。
 - `Generate Image`：生图提交接口。
 - `Generate Video`：视频提交接口。

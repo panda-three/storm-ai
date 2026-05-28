@@ -191,7 +191,10 @@ async function recoverStaleGenerationJobIfDue(job: GenerationJob) {
 
   const ageMs = Date.now() - Date.parse(job.created_at)
   const isSynchronousImageOrphan =
-    job.provider === "yunwu" && job.type === "image" && !job.upstream_task_id && ageMs >= synchronousImageOrphanTimeoutMs
+    (job.provider === "yunwu" || job.provider === "vectorengine") &&
+    job.type === "image" &&
+    !job.upstream_task_id &&
+    ageMs >= synchronousImageOrphanTimeoutMs
   const isAsyncVideoTimeout = job.type === "video" && Boolean(job.upstream_task_id) && ageMs >= asyncVideoTimeoutMs
   const isAsyncImageTimeout =
     (job.provider === "toapis" || job.provider === "apimart") &&

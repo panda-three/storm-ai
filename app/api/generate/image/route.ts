@@ -15,6 +15,11 @@ import {
   type YunwuGeneratedImage,
 } from "@/lib/yunwu"
 import {
+  assertVectorEngineConfigured,
+  createVectorEngineGeminiImage,
+  type VectorEngineGeneratedImage,
+} from "@/lib/vectorengine"
+import {
   calculatePricingCredits,
   type ModelPricing,
 } from "@/lib/supabase"
@@ -36,12 +41,15 @@ import {
   isGrokImagineImageModel,
   isSelectableImageModel,
   isToapisImageModel,
+  isVectorEngineGeminiImageModel,
+  isVectorEngineImageModel,
   isYunwuGeminiImageModel,
   isYunwuGptImageModel,
   isYunwuImageModel,
   isYunwuSeedream5ImageModel,
   isValidImageRatioForQuality,
   toapisImageProviderName,
+  vectorEngineImageProviderName,
   yunwuGeminiImageModelName,
 } from "@/lib/model-options"
 import {
@@ -182,16 +190,24 @@ export async function POST(request: Request) {
     const isYunwuImage = isYunwuImageModel(model)
     const isApimartImage = isApimartImageModel(model)
     const isToapisImage = isToapisImageModel(model)
-    const provider = isApimartImage ? apimartImageProviderName : isToapisImage ? toapisImageProviderName : "yunwu"
+    const isVectorEngineImage = isVectorEngineImageModel(model)
+    const provider = isApimartImage
+      ? apimartImageProviderName
+      : isToapisImage
+        ? toapisImageProviderName
+        : isVectorEngineImage
+          ? vectorEngineImageProviderName
+          : "yunwu"
     jobProvider = provider
     logGenerateImage("provider route", {
       isApimartImage,
       isToapisImage,
+      isVectorEngineImage,
       isYunwuImage,
       model,
       provider,
     })
-    if (!isYunwuImage && !isToapisImage && !isApimartImage) {
+    if (!isYunwuImage && !isToapisImage && !isApimartImage && !isVectorEngineImage) {
       return NextResponse.json({ ok: false, error: "当前图片模型暂不支持该上游。" }, { status: 400 })
     }
 
@@ -209,6 +225,11 @@ export async function POST(request: Request) {
       assertToapisConfigured()
     }
 
+    if (isVectorEngineImage) {
+      stage = "check_vectorengine_config"
+      assertVectorEngineConfigured()
+    }
+
     stage = "prepare_reference_images"
     preparedReferenceImages = await prepareReferenceImages({
       referenceFiles,
@@ -218,6 +239,11 @@ export async function POST(request: Request) {
     const referenceBuffers = isYunwuGeminiImageModel(model)
       ? await prepareYunwuGeminiReferenceImages(preparedReferenceImages, () => {
           stage = "prepare_yunwu_gemini_references"
+        })
+      : []
+    const vectorEngineReferenceBuffers = isVectorEngineGeminiImageModel(model)
+      ? await prepareYunwuGeminiReferenceImages(preparedReferenceImages, () => {
+          stage = "prepare_vectorengine_gemini_references"
         })
       : []
     const yunwuReferenceImageUrls = isYunwuGptImageModel(model)
@@ -380,8 +406,26 @@ export async function POST(request: Request) {
       })
     }
 
-    stage = "submit_yunwu_generation"
-    const generatedResults: PromiseSettledResult<string>[] = isYunwuGeminiImageModel(model)
+    stage = isVectorEngineImage ? "submit_vectorengine_generation" : "submit_yunwu_generation"
+    const generatedResults: PromiseSettledResult<string>[] = isVectorEngineGeminiImageModel(model)
+      ? await Promise.allSettled(
+          Array.from({ length: imageCount }, async () => {
+            const generated: VectorEngineGeneratedImage = await createVectorEngineGeminiImage({
+              model,
+              prompt,
+              quality,
+              ratio,
+              referenceImages: vectorEngineReferenceBuffers,
+            })
+            const uploaded = await uploadGeneratedImage({
+              buffer: generated.buffer,
+              contentType: generated.mimeType,
+              userId,
+            })
+            return uploaded.publicUrl
+          })
+        )
+      : isYunwuGeminiImageModel(model)
       ? await Promise.allSettled(
           Array.from({ length: imageCount }, async () => {
             const generated: YunwuGeneratedImage = await createYunwuGeminiImage({
@@ -480,7 +524,7 @@ export async function POST(request: Request) {
           : null
     const completedAt = new Date().toISOString()
 
-    stage = "complete_yunwu_job"
+    stage = isVectorEngineImage ? "complete_vectorengine_job" : "complete_yunwu_job"
     const nextJob = await updateActiveGenerationJob(job.id, {
       completed_at: completedAt,
       expires_at: getGenerationJobExpiresAt(completedAt),
@@ -514,7 +558,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      mode: "yunwu",
+      mode: provider,
       taskId: job.id,
       status,
       type: "image",
@@ -545,7 +589,7 @@ export async function POST(request: Request) {
         if (recoveredJob) {
           return NextResponse.json({
             ok: true,
-            mode: recoveredJob.provider === "apimart" ? "apimart" : recoveredJob.provider === "toapis" ? "toapis" : "yunwu",
+            mode: getImageResponseMode(recoveredJob.provider),
             taskId: recoveredJob.id,
             upstreamTaskId,
             status: recoveredJob.status,
@@ -662,12 +706,16 @@ function buildFailureMessage({
 
 function getFailureStageLabel(stage: string) {
   if (stage === "submit_yunwu_generation") return "yw 图片生成失败"
+  if (stage === "submit_vectorengine_generation") return "VectorEngine 图片生成失败"
   if (
     stage === "prepare_yunwu_gemini_references" ||
     stage === "prepare_yunwu_gpt_references" ||
     stage === "prepare_yunwu_seedream_references"
   ) return "yw 参考图处理失败"
+  if (stage === "prepare_vectorengine_gemini_references") return "VectorEngine 参考图处理失败"
   if (stage === "complete_yunwu_job") return "yw 图片任务结算失败"
+  if (stage === "complete_vectorengine_job") return "VectorEngine 图片任务结算失败"
+  if (stage === "check_vectorengine_config") return "VectorEngine 配置检查失败"
   if (stage === "check_apimart_config") return "APIMart 配置检查失败"
   if (stage === "submit_apimart_generation") return "APIMart 图片生成提交失败"
   if (stage === "record_apimart_task") return "APIMart 图片任务记录失败"
@@ -682,6 +730,13 @@ function getFailureStageLabel(stage: string) {
   if (stage === "load_membership") return "会员权益读取失败"
   if (stage === "create_generation_job_with_billing") return "图片任务创建失败"
   return "图片生成失败"
+}
+
+function getImageResponseMode(provider: string) {
+  if (provider === "apimart") return "apimart"
+  if (provider === "toapis") return "toapis"
+  if (provider === "vectorengine") return "vectorengine"
+  return "yunwu"
 }
 
 async function refundImageGenerationCredits({

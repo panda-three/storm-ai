@@ -7,6 +7,8 @@ import {
   imageModelOptions,
   toaGptImage2ModelName,
   toapisGptImage2ApiModelName,
+  vectorEngineGeminiImageApiModelName,
+  vectorEngineGeminiImageModelName,
   videoModelOptions,
   yunwuGeminiImageModelName,
   yunwuSeedream5ImageModelName,
@@ -15,7 +17,7 @@ import {
 } from "@/lib/model-options"
 
 export type ModelKind = "image" | "video"
-export type ModelProvider = "apimart" | "toapis" | "yunwu"
+export type ModelProvider = "apimart" | "toapis" | "vectorengine" | "yunwu"
 
 export interface ModelCatalogEntry {
   apiModel: string
@@ -31,6 +33,13 @@ export const modelCatalog: ModelCatalogEntry[] = [
     defaultDisplayName: "nano banana pro（y通道)",
     model: yunwuGeminiImageModelName,
     provider: "yunwu",
+    type: "image",
+  },
+  {
+    apiModel: vectorEngineGeminiImageApiModelName,
+    defaultDisplayName: "nano banana pro（VE通道)",
+    model: vectorEngineGeminiImageModelName,
+    provider: "vectorengine",
     type: "image",
   },
   {

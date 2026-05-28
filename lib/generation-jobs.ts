@@ -572,6 +572,7 @@ export async function loadStaleGenerationJobs({
     .or(
       [
         `and(provider.eq.yunwu,type.eq.image,upstream_task_id.is.null,created_at.lte.${new Date(Date.now() - synchronousImageOrphanTimeoutMs).toISOString()})`,
+        `and(provider.eq.vectorengine,type.eq.image,upstream_task_id.is.null,created_at.lte.${new Date(Date.now() - synchronousImageOrphanTimeoutMs).toISOString()})`,
         `and(type.eq.video,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncVideoTimeoutMs).toISOString()})`,
         `and(provider.eq.toapis,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
         `and(provider.eq.apimart,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
@@ -742,7 +743,9 @@ export function normalizeJobTaskStatus(job: GenerationJob): NormalizedTaskStatus
             ? "toapis"
             : job.provider === "apimart"
               ? "apimart"
-              : "mock",
+              : job.provider === "vectorengine"
+                ? "vectorengine"
+                : "mock",
     taskId: job.id,
     status: job.status,
     progress: isTerminalGenerationJobStatus(job.status) ? 100 : 0,

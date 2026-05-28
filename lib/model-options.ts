@@ -15,6 +15,9 @@ export const toapisImage2KRatios = ["1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4
 export const toapisImage4KRatios = ["16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
 export const mengfactoryGeminiImageModelName = "Gemini 3.1 Flash Image Preview"
 export const yunwuGeminiImageModelName = "gemini-3.1-flash-image-preview"
+export const vectorEngineGeminiImageModelName = "gemini-3.1-flash-image-preview-ve"
+export const vectorEngineGeminiImageApiModelName = yunwuGeminiImageModelName
+export const vectorEngineImageProviderName = "vectorengine"
 export const grokImagineImageModelName = "grok-imagine-image"
 export const yunwuSeedream5ImageModelName = "doubao-seedream-5-0-260128"
 export const yunwuSeedream5ImageRatios = ["默认", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"]
@@ -31,6 +34,7 @@ export const yunwuSeedance15ProVideoModelName = "doubao-seedance-1-5-pro-251215"
 
 export const imageModelOptions = [
   yunwuGeminiImageModelName,
+  vectorEngineGeminiImageModelName,
   gptImage2AllModelName,
   apimartGptImage2ModelName,
   toaGptImage2ModelName,
@@ -54,6 +58,10 @@ export const imageModelSettings: Record<
     ratios: ["默认", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "1:8", "4:1", "8:1"],
   },
   [yunwuGeminiImageModelName]: {
+    qualities: ["1K", "2K", "4K"],
+    ratios: ["默认", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "1:8", "4:1", "8:1"],
+  },
+  [vectorEngineGeminiImageModelName]: {
     qualities: ["1K", "2K", "4K"],
     ratios: ["默认", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "1:8", "4:1", "8:1"],
   },
@@ -95,6 +103,10 @@ export function isYunwuGeminiImageModel(model: string) {
   return model === yunwuGeminiImageModelName
 }
 
+export function isVectorEngineGeminiImageModel(model: string) {
+  return model === vectorEngineGeminiImageModelName
+}
+
 export function isYunwuGptImageModel(model: string) {
   return model === gptImage2AllModelName
 }
@@ -117,6 +129,10 @@ export function isToapisImageModel(model: string) {
 
 export function isApimartImageModel(model: string) {
   return model === apimartGptImage2ModelName
+}
+
+export function isVectorEngineImageModel(model: string) {
+  return isVectorEngineGeminiImageModel(model)
 }
 
 export function isGptImage2Restricted4K(quality: string, model: string) {

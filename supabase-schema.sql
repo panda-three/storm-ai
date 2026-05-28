@@ -770,6 +770,10 @@ values ('image', 'gemini-3.1-flash-image-preview', 'nano banana pro（y通道)',
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+values ('image', 'gemini-3.1-flash-image-preview-ve', 'nano banana pro（VE通道)', false, false, 15)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
 values ('image', 'gpt-image-2-all', 'GPT Image 2', true, false, 20)
 on conflict (type, model) do nothing;
 

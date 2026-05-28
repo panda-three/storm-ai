@@ -7,6 +7,8 @@
 - `APIMART_PROXY_URL`：本地开发如需代理可填 `http://127.0.0.1:7890`，线上通常留空。
 - `MENGFACTORY_API_KEY`：MengFactory 服务端密钥，只能放在服务端环境变量中。
 - `MENGFACTORY_BASE_URL`：默认 `https://api.mengfactory.cn`。
+- `VECTORENGINE_API_KEY`：VectorEngine 服务端密钥，只能放在服务端环境变量中。
+- `VECTORENGINE_BASE_URL`：默认 `https://api.vectorengine.cn`。
 - `SUPABASE_SERVICE_ROLE_KEY`：服务端专用 Supabase service role key，不能暴露到前端。
 - `SUPABASE_GENERATED_IMAGES_BUCKET`：生成图片存储桶，默认 `generated-images`。
 - `CRON_SECRET`：外部定时器调用 `/api/cron/sync-generation-jobs` 时使用的 Bearer 密钥。
