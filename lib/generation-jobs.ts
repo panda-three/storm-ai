@@ -12,6 +12,7 @@ export const generationTimeoutMessage = "生成任务超时未完成，系统已
 export const synchronousImageOrphanTimeoutMs = 10 * 60 * 1000
 export const asyncVideoTimeoutMs = 60 * 60 * 1000
 export const asyncImageTimeoutMs = 60 * 60 * 1000
+export const manjuImageTimeoutMs = 30 * 60 * 1000
 export const generationHistoryRetentionHours = 24
 export const generationHistoryRetentionMs = generationHistoryRetentionHours * 60 * 60 * 1000
 const videoMissingResultRetryMs = 90 * 1000
@@ -623,7 +624,7 @@ export async function loadStaleGenerationJobs({
         `and(type.eq.video,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncVideoTimeoutMs).toISOString()})`,
         `and(provider.eq.toapis,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
         `and(provider.eq.apimart,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
-        `and(provider.eq.manju,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
+        `and(provider.eq.manju,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - manjuImageTimeoutMs).toISOString()})`,
       ].join(",")
     )
     .order("created_at", { ascending: true })
@@ -651,6 +652,18 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
   if (isTerminalGenerationJobStatus(job.status)) return job
 
   if (!job.upstream_task_id) {
+    return failGenerationJobWithRefund({
+      jobId: job.id,
+      reason: buildGenerationFailureRefundReason({
+        error: generationTimeoutMessage,
+        model: job.model,
+        provider: job.provider,
+        type: job.type,
+      }),
+    })
+  }
+
+  if (job.provider === "manju" && job.type === "image") {
     return failGenerationJobWithRefund({
       jobId: job.id,
       reason: buildGenerationFailureRefundReason({

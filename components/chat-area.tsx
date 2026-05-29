@@ -15,6 +15,7 @@ import {
   imageModelSettings,
   isGrokImagineImageModel,
   isApimartImageModel,
+  manjuGeminiImageModelName,
   videoModelSettings,
   yunwuSeedance15ProVideoModelName,
   yunwuVeo31FastVideoModelName,
@@ -885,6 +886,7 @@ function getFailedTaskPollDelayMs(attempts: number, task?: TaskStatusResponse) {
 
 function getMaxTaskPollAttempts(taskProjects: ProjectItem[]) {
   if (taskProjects.some((item) => item.model === apimartGptImage2ModelName)) return 180
+  if (taskProjects.some((item) => item.model === manjuGeminiImageModelName)) return 180
   if (taskProjects.some((item) => item.model === "image2-Toa通道")) return 180
   return taskProjects.some((item) => item.type === "视频") ? 160 : 72
 }

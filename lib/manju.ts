@@ -15,6 +15,8 @@ interface ManjuTaskResponse {
   data?: unknown
   error?: unknown
   id?: string
+  poll_url?: string
+  progress?: number
   result?: unknown
   status?: string
   task_id?: string
@@ -23,9 +25,7 @@ interface ManjuTaskResponse {
 export async function createManjuGeminiImageTask(request: ManjuImageRequest): Promise<GenerationResponse> {
   assertManjuConfigured()
 
-  const payload = request.referenceImages?.length
-    ? buildManjuChatImagePayload(request)
-    : buildManjuTextImagePayload(request)
+  const payload = buildManjuChatImagePayload(request)
 
   logManju("image.submit.input", {
     promptLength: request.prompt.length,
@@ -34,11 +34,7 @@ export async function createManjuGeminiImageTask(request: ManjuImageRequest): Pr
     referenceImages: request.referenceImages?.length ?? 0,
   })
 
-  const data = await manjuRequest(
-    request.referenceImages?.length ? "/v1/chat/completions" : "/v1/images/generations",
-    "POST",
-    payload
-  ) as ManjuTaskResponse
+  const data = await manjuRequest("/v1/chat/completions", "POST", payload) as ManjuTaskResponse
   const taskId = findStringValue(data, ["task_id", "taskId", "id"])
 
   if (!taskId) {
@@ -46,28 +42,45 @@ export async function createManjuGeminiImageTask(request: ManjuImageRequest): Pr
   }
 
   const status = normalizeManjuStatus(findStringValue(data, ["status"]) || "queued")
+  const imageUrls = status === "completed" ? extractManjuImageUrls(data) : []
+  const pollUrl = normalizeManjuPollUrl(findStringValue(data, ["poll_url", "pollUrl"]))
+  const progress = findNumberValue(data, ["progress", "percentage"]) ?? (status === "completed" || status === "failed" ? 100 : 0)
+  const taskError = status === "failed" ? extractManjuError(data) || "Manju 图片生成失败。" : ""
+
   logManju("image.submit.output", {
+    imageUrls: imageUrls.length,
+    pollUrl: Boolean(pollUrl),
+    progress,
     status,
     taskId,
+    taskError,
   })
 
   return {
+    imageUrls,
     ok: true,
     mode: "manju",
+    pollUrl,
+    progress,
+    raw: data,
     taskId,
+    taskError,
     status,
     type: "image",
   }
 }
 
-export async function getManjuImageTaskStatus(taskId: string): Promise<NormalizedTaskStatus> {
-  const response = await manjuRequest(`/api/tasks/${encodeURIComponent(taskId)}`, "GET") as ManjuTaskResponse
+export async function getManjuImageTaskStatus(taskIdOrPollUrl: string): Promise<NormalizedTaskStatus> {
+  const taskId = extractManjuTaskId(taskIdOrPollUrl)
+  const response = await manjuRequest(getManjuTaskStatusPath(taskIdOrPollUrl), "GET") as ManjuTaskResponse
   const status = normalizeManjuStatus(findStringValue(response, ["status"]) || "processing")
   const imageUrls = status === "completed" ? extractManjuImageUrls(response) : []
   const taskError = status === "failed" ? extractManjuError(response) || "Manju 图片生成失败。" : ""
+  const progress = findNumberValue(response, ["progress", "percentage"]) ?? (status === "completed" || status === "failed" ? 100 : 0)
 
   logManju("sync.output", {
     imageUrls: imageUrls.length,
+    progress,
     status,
     taskError,
     taskId,
@@ -78,7 +91,7 @@ export async function getManjuImageTaskStatus(taskId: string): Promise<Normalize
     mode: "manju",
     taskId,
     status,
-    progress: status === "completed" || status === "failed" ? 100 : 0,
+    progress,
     imageUrls,
     videoUrl: "",
     taskError,
@@ -123,17 +136,46 @@ function buildManjuChatImagePayload(request: ManjuImageRequest) {
   }
 }
 
-function buildManjuTextImagePayload(request: ManjuImageRequest) {
-  return {
-    model: manjuGeminiImageApiModelName,
-    prompt: request.prompt,
-    aspect_ratio: request.ratio,
-    output_resolution: normalizeManjuImageResolution(request.quality),
-  }
-}
-
 function normalizeManjuImageResolution(quality: string) {
   return quality.trim().toUpperCase() === "2K" ? "2K" : "1K"
+}
+
+function getManjuTaskStatusPath(taskIdOrPollUrl: string) {
+  const pollUrl = normalizeManjuPollUrl(taskIdOrPollUrl)
+  if (pollUrl) return pollUrl
+  return `/api/tasks/${encodeURIComponent(taskIdOrPollUrl)}`
+}
+
+function extractManjuTaskId(taskIdOrPollUrl: string) {
+  const pollUrl = normalizeManjuPollUrl(taskIdOrPollUrl)
+  if (!pollUrl) return taskIdOrPollUrl
+
+  const url = new URL(pollUrl)
+  const parts = url.pathname.split("/").filter(Boolean)
+  return parts[parts.length - 1] || taskIdOrPollUrl
+}
+
+function normalizeManjuPollUrl(value: string) {
+  if (!value) return ""
+
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return ""
+  }
+
+  const baseUrl = new URL(MANJU_BASE_URL)
+  if (url.protocol !== baseUrl.protocol || url.host !== baseUrl.host) {
+    console.warn("[Manju] ignored untrusted poll_url", {
+      host: url.host,
+      protocol: url.protocol,
+    })
+    return ""
+  }
+
+  if (!url.pathname.startsWith("/api/tasks/")) return ""
+  return url.toString()
 }
 
 async function manjuRequest(pathOrUrl: string, method: "GET" | "POST", body?: Record<string, unknown>) {

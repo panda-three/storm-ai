@@ -6,6 +6,11 @@ export interface GenerationResponse {
   taskId: string
   status: string
   type: GenerationKind
+  imageUrls?: string[]
+  pollUrl?: string
+  progress?: number
+  raw?: unknown
+  taskError?: string
 }
 
 export interface NormalizedTaskStatus {

@@ -222,6 +222,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "image2-M通道暂时仅支持单张生成。" }, { status: 400 })
     }
 
+    if (isManjuImage && imageCount !== 1) {
+      return NextResponse.json({ ok: false, error: "Gemini 3.0 Pro Image · Manju 通道暂时仅支持单张生成。" }, { status: 400 })
+    }
+
     if (isApimartImage) {
       stage = "check_apimart_config"
       assertApimartConfigured()
@@ -431,15 +435,92 @@ export async function POST(request: Request) {
         ratio,
         referenceImages: manjuReferenceImageUrls,
       })
-      upstreamTaskId = result.taskId
+      upstreamTaskId = result.pollUrl || result.taskId
       cleanupPreparedReferenceImages = false
+
+      const immediateImageUrls = result.imageUrls ?? []
+      if (result.status === "completed" && immediateImageUrls.length > 0) {
+        cleanupPreparedReferenceImages = true
+        stage = "complete_manju_job"
+        const persisted = await persistRemoteImageUrls(immediateImageUrls, userId)
+        const imageUrls = persisted.resultUrls.slice(0, imageCount)
+        const taskError = persisted.error
+        const completedAt = new Date().toISOString()
+        const nextJob = await updateActiveGenerationJob(job.id, {
+          completed_at: completedAt,
+          expires_at: getGenerationJobExpiresAt(completedAt),
+          last_checked_at: completedAt,
+          last_sync_error: taskError,
+          next_check_at: completedAt,
+          result_urls: imageUrls,
+          status: "completed",
+          storage_urls: persisted.storageUrls,
+          task_error: taskError,
+          upstream_task_id: upstreamTaskId,
+        })
+
+        if (!nextJob) {
+          await Promise.all(imageUrls.map((url) => deleteGeneratedImageByPublicUrl(url)))
+          throw new Error("生成任务已结束，迟到结果已丢弃。")
+        }
+
+        logGenerateImage("manju completed output", {
+          imageUrls: imageUrls.length,
+          jobId: job.id,
+          status: nextJob.status,
+          upstreamTaskId,
+        })
+
+        return NextResponse.json({
+          ok: true,
+          mode: "manju",
+          taskId: job.id,
+          upstreamTaskId,
+          status: nextJob.status,
+          type: "image",
+          imageUrls,
+          clientRequestId,
+          progress: 100,
+          taskError: taskError ?? "",
+        })
+      }
+
+      if (result.status === "failed" || result.status === "completed") {
+        cleanupPreparedReferenceImages = true
+        const taskError =
+          result.taskError ||
+          (result.status === "completed" ? "任务已完成，但接口没有返回图片地址。" : "Manju 图片生成失败。")
+        const failedJob = await failGenerationJobWithRefund({
+          jobId: job.id,
+          reason: buildGenerationSubmitFailureRefundReason({
+            error: taskError,
+            model,
+            provider,
+            type: "image",
+          }),
+        })
+
+        return NextResponse.json({
+          ok: true,
+          mode: "manju",
+          taskId: failedJob.id,
+          upstreamTaskId,
+          status: failedJob.status,
+          type: "image",
+          imageUrls: [],
+          clientRequestId,
+          progress: 0,
+          taskError,
+        })
+      }
 
       stage = "record_manju_task"
       const nextJob = await updateActiveGenerationJob(job.id, {
         next_check_at: new Date(Date.now() + 5000).toISOString(),
         status: result.status === "submitted" ? "submitted" : "processing",
         storage_urls: manjuReferenceImageUrls,
-        upstream_task_id: result.taskId,
+        task_error: result.taskError || null,
+        upstream_task_id: upstreamTaskId,
       })
 
       if (!nextJob) {
@@ -449,20 +530,20 @@ export async function POST(request: Request) {
       logGenerateImage("manju output", {
         jobId: job.id,
         status: nextJob.status,
-        upstreamTaskId: result.taskId,
+        upstreamTaskId,
       })
 
       return NextResponse.json({
         ok: true,
         mode: "manju",
         taskId: job.id,
-        upstreamTaskId: result.taskId,
+        upstreamTaskId,
         status: nextJob.status,
         type: "image",
         imageUrls: [],
         clientRequestId,
-        progress: 0,
-        taskError: "",
+        progress: result.progress ?? 0,
+        taskError: result.taskError ?? "",
       })
     }
 
@@ -752,6 +833,36 @@ function summarizeSettledErrors<T>(results: PromiseSettledResult<T>[]) {
         .filter(Boolean)
     )
   ).slice(0, 3)
+}
+
+async function persistRemoteImageUrls(urls: string[], userId: string) {
+  const resultUrls: string[] = []
+  const storageUrls: string[] = []
+  const errors: string[] = []
+
+  for (const url of Array.from(new Set(urls.filter(Boolean)))) {
+    try {
+      const savedUrl = await persistRemoteGeneratedImage({
+        sourceUrl: url,
+        userId,
+      })
+      resultUrls.push(savedUrl)
+      storageUrls.push(savedUrl)
+    } catch (error) {
+      const message = describeServerError(error, "生成图片转存失败。")
+      errors.push(message)
+      resultUrls.push(url)
+      console.warn("[Generate Image] manju remote image mirror failed", {
+        error: message,
+      })
+    }
+  }
+
+  return {
+    error: errors.length > 0 ? Array.from(new Set(errors)).join("；") : null,
+    resultUrls,
+    storageUrls,
+  }
 }
 
 function buildFailureMessage({

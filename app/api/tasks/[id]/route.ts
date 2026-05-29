@@ -11,6 +11,7 @@ import {
   synchronousImageOrphanTimeoutMs,
   asyncVideoTimeoutMs,
   asyncImageTimeoutMs,
+  manjuImageTimeoutMs,
   type GenerationJob,
 } from "@/lib/generation-jobs"
 import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
@@ -208,12 +209,17 @@ async function recoverStaleGenerationJobIfDue(job: GenerationJob) {
     ageMs >= synchronousImageOrphanTimeoutMs
   const isAsyncVideoTimeout = job.type === "video" && Boolean(job.upstream_task_id) && ageMs >= asyncVideoTimeoutMs
   const isAsyncImageTimeout =
-    (job.provider === "toapis" || job.provider === "apimart" || job.provider === "manju") &&
+    (job.provider === "toapis" || job.provider === "apimart") &&
     job.type === "image" &&
     Boolean(job.upstream_task_id) &&
     ageMs >= asyncImageTimeoutMs
+  const isManjuImageTimeout =
+    job.provider === "manju" &&
+    job.type === "image" &&
+    Boolean(job.upstream_task_id) &&
+    ageMs >= manjuImageTimeoutMs
 
-  if (!isSynchronousImageOrphan && !isAsyncVideoTimeout && !isAsyncImageTimeout) {
+  if (!isSynchronousImageOrphan && !isAsyncVideoTimeout && !isAsyncImageTimeout && !isManjuImageTimeout) {
     return job
   }
 
