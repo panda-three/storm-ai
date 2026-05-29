@@ -458,6 +458,27 @@ export async function loadDueApimartGenerationJobs({ limit = 20 } = {}) {
   return (data ?? []) as GenerationJob[]
 }
 
+export async function loadDueManjuGenerationJobs({ limit = 20 } = {}) {
+  const now = new Date().toISOString()
+  const { data, error } = await getSupabaseServerClient()
+    .from("generation_jobs")
+    .select(generationJobSelect)
+    .eq("provider", "manju")
+    .eq("type", "image")
+    .in("status", ["submitted", "processing"])
+    .not("upstream_task_id", "is", null)
+    .lte("next_check_at", now)
+    .or(`sync_locked_until.is.null,sync_locked_until.lt.${now}`)
+    .order("next_check_at", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(limit)
+
+  if (error) {
+    throw new Error(describeServerError(error, "读取 Manju 待同步任务失败。"), { cause: error })
+  }
+  return (data ?? []) as GenerationJob[]
+}
+
 export async function loadInteractiveYunwuGenerationJobsForUser({
   limit = 20,
   userId,
@@ -535,6 +556,32 @@ export async function loadInteractiveApimartGenerationJobsForUser({
   return (data ?? []) as GenerationJob[]
 }
 
+export async function loadInteractiveManjuGenerationJobsForUser({
+  limit = 20,
+  userId,
+}: {
+  limit?: number
+  userId: string
+}) {
+  const now = new Date().toISOString()
+  const { data, error } = await getSupabaseServerClient()
+    .from("generation_jobs")
+    .select(generationJobSelect)
+    .eq("provider", "manju")
+    .eq("type", "image")
+    .eq("user_id", userId)
+    .in("status", ["submitted", "processing"])
+    .not("upstream_task_id", "is", null)
+    .or(`sync_locked_until.is.null,sync_locked_until.lt.${now}`)
+    .order("created_at", { ascending: true })
+    .limit(limit)
+
+  if (error) {
+    throw new Error(describeServerError(error, "读取用户 Manju 待同步任务失败。"), { cause: error })
+  }
+  return (data ?? []) as GenerationJob[]
+}
+
 export async function loadYunwuImageJobsForMirroring({ limit = 20 } = {}) {
   const { data, error } = await getSupabaseServerClient()
     .from("generation_jobs")
@@ -576,6 +623,7 @@ export async function loadStaleGenerationJobs({
         `and(type.eq.video,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncVideoTimeoutMs).toISOString()})`,
         `and(provider.eq.toapis,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
         `and(provider.eq.apimart,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
+        `and(provider.eq.manju,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
       ].join(",")
     )
     .order("created_at", { ascending: true })
@@ -614,7 +662,7 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
     })
   }
 
-  if ((job.provider === "toapis" || job.provider === "apimart") && job.type === "image") {
+  if ((job.provider === "toapis" || job.provider === "apimart" || job.provider === "manju") && job.type === "image") {
     return updateGenerationJob(job.id, {
       last_checked_at: new Date().toISOString(),
       last_sync_error: generationTimeoutMessage,

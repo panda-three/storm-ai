@@ -1,9 +1,11 @@
 import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
+import { syncManjuGenerationJob } from "@/lib/manju-task-sync"
 import { mirrorYunwuImageResults, syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
 import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
 import {
   cleanupExpiredGenerationJobs,
   loadDueApimartGenerationJobs,
+  loadDueManjuGenerationJobs,
   loadDueToapisGenerationJobs,
   loadDueYunwuGenerationJobs,
   loadYunwuImageJobsForMirroring,
@@ -91,12 +93,33 @@ export async function syncGenerationJobs({ limit = 20 } = {}) {
       synced: 0,
     }
   )
+  const manjuJobs = await loadDueManjuGenerationJobs({ limit })
+  const manjuResults = await Promise.allSettled(manjuJobs.map((job) => syncManjuGenerationJob(job)))
+  const manju = manjuResults.reduce(
+    (current, result) => {
+      if (result.status === "rejected") {
+        current.errors += 1
+        return current
+      }
+
+      current[result.value.status] += 1
+      return current
+    },
+    {
+      checked: manjuJobs.length,
+      errors: 0,
+      retryable_error: 0,
+      skipped: 0,
+      synced: 0,
+    }
+  )
   const stale = await recoverStaleGenerationJobs({ limit })
   const cleanup = await cleanupExpiredGenerationJobs({ limit })
 
   return {
     apimart,
     cleanup,
+    manju,
     ok: true,
     mirrors,
     stale,

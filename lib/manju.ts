@@ -1,8 +1,8 @@
+import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-types"
 import { manjuGeminiImageApiModelName } from "@/lib/model-options"
 
 const MANJU_BASE_URL = process.env.MANJU_BASE_URL ?? "https://manjuapi.com"
-const manjuImageTimeoutMs = 360_000
-const manjuPollIntervalMs = 5000
+const manjuRequestTimeoutMs = 60_000
 
 interface ManjuImageRequest {
   prompt: string
@@ -11,7 +11,16 @@ interface ManjuImageRequest {
   referenceImages?: string[]
 }
 
-export async function createManjuGeminiImage(request: ManjuImageRequest) {
+interface ManjuTaskResponse {
+  data?: unknown
+  error?: unknown
+  id?: string
+  result?: unknown
+  status?: string
+  task_id?: string
+}
+
+export async function createManjuGeminiImageTask(request: ManjuImageRequest): Promise<GenerationResponse> {
   assertManjuConfigured()
 
   const payload = request.referenceImages?.length
@@ -29,18 +38,57 @@ export async function createManjuGeminiImage(request: ManjuImageRequest) {
     request.referenceImages?.length ? "/v1/chat/completions" : "/v1/images/generations",
     "POST",
     payload
-  )
-  const imageUrls = await waitForManjuImageResult(data)
+  ) as ManjuTaskResponse
+  const taskId = findStringValue(data, ["task_id", "taskId", "id"])
 
-  if (imageUrls.length === 0) {
-    throw new Error("Manju 图片接口已返回，但未找到可用图片地址。")
+  if (!taskId) {
+    throw new Error("Manju 未返回有效任务 ID。")
   }
 
+  const status = normalizeManjuStatus(findStringValue(data, ["status"]) || "queued")
   logManju("image.submit.output", {
-    imageUrls: imageUrls.length,
+    status,
+    taskId,
   })
 
-  return imageUrls[0]
+  return {
+    ok: true,
+    mode: "manju",
+    taskId,
+    status,
+    type: "image",
+  }
+}
+
+export async function getManjuImageTaskStatus(taskId: string): Promise<NormalizedTaskStatus> {
+  const response = await manjuRequest(`/api/tasks/${encodeURIComponent(taskId)}`, "GET") as ManjuTaskResponse
+  const status = normalizeManjuStatus(findStringValue(response, ["status"]) || "processing")
+  const imageUrls = status === "completed" ? extractManjuImageUrls(response) : []
+  const taskError = status === "failed" ? extractManjuError(response) || "Manju 图片生成失败。" : ""
+
+  logManju("sync.output", {
+    imageUrls: imageUrls.length,
+    status,
+    taskError,
+    taskId,
+  })
+
+  return {
+    ok: true,
+    mode: "manju",
+    taskId,
+    status,
+    progress: status === "completed" || status === "failed" ? 100 : 0,
+    imageUrls,
+    videoUrl: "",
+    taskError,
+    raw: response,
+  }
+}
+
+export function isManjuRateLimitError(message: string) {
+  const normalized = message.toLowerCase()
+  return normalized.includes("rate limit") || normalized.includes("too many requests") || normalized.includes("429")
 }
 
 export function assertManjuConfigured() {
@@ -88,38 +136,6 @@ function normalizeManjuImageResolution(quality: string) {
   return quality.trim().toUpperCase() === "2K" ? "2K" : "1K"
 }
 
-async function waitForManjuImageResult(initialData: unknown) {
-  let data = initialData
-  const startedAt = Date.now()
-
-  while (true) {
-    const imageUrls = extractManjuImageUrls(data)
-    const status = normalizeManjuStatus(findStringValue(data, ["status"]))
-    const taskError = status === "failed" ? extractManjuError(data) || "Manju 图片生成失败。" : ""
-
-    if ((status === "completed" || status === "unknown") && imageUrls.length > 0) {
-      return imageUrls
-    }
-
-    if (taskError) {
-      throw new Error(taskError)
-    }
-
-    if (Date.now() - startedAt >= manjuImageTimeoutMs) {
-      throw new Error("Manju 图片生成等待超时，请稍后重试。")
-    }
-
-    const pollUrl = findStringValue(data, ["poll_url"])
-    if (!pollUrl) {
-      if (imageUrls.length > 0) return imageUrls
-      throw new Error("Manju 图片接口已返回，但未找到可用图片地址。")
-    }
-
-    await sleep(manjuPollIntervalMs)
-    data = await manjuRequest(pollUrl, "GET")
-  }
-}
-
 async function manjuRequest(pathOrUrl: string, method: "GET" | "POST", body?: Record<string, unknown>) {
   const apiKey = process.env.MANJU_API_KEY
   const url = new URL(pathOrUrl, MANJU_BASE_URL)
@@ -133,7 +149,7 @@ async function manjuRequest(pathOrUrl: string, method: "GET" | "POST", body?: Re
         ...(body ? { "Content-Type": "application/json" } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(manjuImageTimeoutMs),
+      signal: AbortSignal.timeout(manjuRequestTimeoutMs),
     })
   } catch (error) {
     throw new Error(`无法连接 Manju：${error instanceof Error ? error.message : "网络请求失败。"}`, { cause: error })
@@ -286,16 +302,13 @@ function uniqueUrls(urls: string[]) {
   return Array.from(new Set(urls.filter(Boolean)))
 }
 
-function normalizeManjuStatus(status: string) {
+function normalizeManjuStatus(status: string): NormalizedTaskStatus["status"] {
   const normalized = status.trim().toLowerCase()
-  if (!normalized) return "unknown"
+  if (!normalized) return "processing"
   if (["completed", "succeeded", "success", "done", "finished"].includes(normalized)) return "completed"
   if (["failed", "error", "cancelled", "canceled"].includes(normalized)) return "failed"
+  if (["queued", "pending", "submitted"].includes(normalized)) return "submitted"
   return "processing"
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function logManjuRawResponse(path: string, status: number, data: unknown) {

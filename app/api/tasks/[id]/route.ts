@@ -14,6 +14,7 @@ import {
   type GenerationJob,
 } from "@/lib/generation-jobs"
 import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
+import { syncManjuGenerationJob } from "@/lib/manju-task-sync"
 import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 import { syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
 import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
@@ -133,6 +134,16 @@ export async function GET(
       return NextResponse.json(normalizeJobTaskStatus(result.job))
     }
 
+    if (recoveredJob.provider === "manju") {
+      logTaskSyncRoute("dispatch", {
+        jobId: recoveredJob.id,
+        provider: recoveredJob.provider,
+        upstreamTaskId: recoveredJob.upstream_task_id,
+      })
+      const result = await syncManjuGenerationJob(recoveredJob, { mode: "interactive" })
+      return NextResponse.json(normalizeJobTaskStatus(result.job))
+    }
+
     if (recoveredJob.provider === "yunwu") {
       logTaskSyncRoute("dispatch", {
         jobId: recoveredJob.id,
@@ -197,7 +208,7 @@ async function recoverStaleGenerationJobIfDue(job: GenerationJob) {
     ageMs >= synchronousImageOrphanTimeoutMs
   const isAsyncVideoTimeout = job.type === "video" && Boolean(job.upstream_task_id) && ageMs >= asyncVideoTimeoutMs
   const isAsyncImageTimeout =
-    (job.provider === "toapis" || job.provider === "apimart") &&
+    (job.provider === "toapis" || job.provider === "apimart" || job.provider === "manju") &&
     job.type === "image" &&
     Boolean(job.upstream_task_id) &&
     ageMs >= asyncImageTimeoutMs

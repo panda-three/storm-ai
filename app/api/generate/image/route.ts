@@ -64,7 +64,7 @@ import {
 } from "@/lib/reference-images"
 import { assertApimartConfigured, createApimartGptImage2Task } from "@/lib/apimart"
 import { assertToapisConfigured, createToapisGptImageTask } from "@/lib/toapis"
-import { assertManjuConfigured, createManjuGeminiImage } from "@/lib/manju"
+import { assertManjuConfigured, createManjuGeminiImageTask } from "@/lib/manju"
 import {
   buildGenerationPartialFailureRefundReason,
   buildGenerationSubmitFailureRefundReason,
@@ -423,6 +423,49 @@ export async function POST(request: Request) {
       })
     }
 
+    if (isManjuImage) {
+      stage = "submit_manju_generation"
+      const result = await createManjuGeminiImageTask({
+        prompt,
+        quality,
+        ratio,
+        referenceImages: manjuReferenceImageUrls,
+      })
+      upstreamTaskId = result.taskId
+      cleanupPreparedReferenceImages = false
+
+      stage = "record_manju_task"
+      const nextJob = await updateActiveGenerationJob(job.id, {
+        next_check_at: new Date(Date.now() + 5000).toISOString(),
+        status: result.status === "submitted" ? "submitted" : "processing",
+        storage_urls: manjuReferenceImageUrls,
+        upstream_task_id: result.taskId,
+      })
+
+      if (!nextJob) {
+        throw new Error("生成任务已结束，不能提交 Manju 上游任务。")
+      }
+
+      logGenerateImage("manju output", {
+        jobId: job.id,
+        status: nextJob.status,
+        upstreamTaskId: result.taskId,
+      })
+
+      return NextResponse.json({
+        ok: true,
+        mode: "manju",
+        taskId: job.id,
+        upstreamTaskId: result.taskId,
+        status: nextJob.status,
+        type: "image",
+        imageUrls: [],
+        clientRequestId,
+        progress: 0,
+        taskError: "",
+      })
+    }
+
     stage = isManjuImage ? "submit_manju_generation" : isVectorEngineImage ? "submit_vectorengine_generation" : "submit_yunwu_generation"
     const generatedResults: PromiseSettledResult<string>[] = isVectorEngineGeminiImageModel(model)
       ? await Promise.allSettled(
@@ -442,27 +485,6 @@ export async function POST(request: Request) {
             return uploaded.publicUrl
           })
         )
-      : isManjuImage
-        ? await Promise.allSettled(
-            Array.from({ length: imageCount }, async () => {
-              const url = await createManjuGeminiImage({
-                prompt,
-                quality,
-                ratio,
-                referenceImages: manjuReferenceImageUrls,
-              })
-              return persistRemoteGeneratedImage({
-                sourceUrl: url,
-                userId,
-              }).catch((error) => {
-                console.warn("[Generate Image] Manju remote image mirror failed", {
-                  error: describeServerError(error, "生成图片转存失败。"),
-                  url,
-                })
-                return url
-              })
-            })
-          )
       : isYunwuGeminiImageModel(model)
       ? await Promise.allSettled(
           Array.from({ length: imageCount }, async () => {
@@ -752,6 +774,7 @@ function getFailureStageLabel(stage: string) {
   ) return "yw 参考图处理失败"
   if (stage === "prepare_vectorengine_gemini_references") return "VectorEngine 参考图处理失败"
   if (stage === "submit_manju_generation") return "Manju 图片生成失败"
+  if (stage === "record_manju_task") return "Manju 图片任务记录失败"
   if (stage === "complete_manju_job") return "Manju 图片任务结算失败"
   if (stage === "check_manju_config") return "Manju 配置检查失败"
   if (stage === "prepare_manju_references") return "Manju 参考图处理失败"

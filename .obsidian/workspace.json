@@ -183,6 +183,7 @@
   },
   "active": "ea90ea45f167b345",
   "lastOpenFiles": [
+    "lib/manju-task-sync.ts",
     "lib/studio-options.ts",
     "app/api/image-preview",
     "docs/无限画布_develop.md",
@@ -196,7 +197,6 @@
     "components/canvas-lab/canvas-lab-shell.tsx",
     "components/canvas-lab",
     "lib/canvas-lab.ts",
-    "node_modules/@excalidraw",
     "docs/manual-release.md",
     "docs/linux-deployment.md",
     "docs/self-hosted-supabase.md",
