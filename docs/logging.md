@@ -185,7 +185,7 @@ docker exec -it supabase-db psql -U postgres -d postgres
 不要直接把 `.env.production` 全量贴出来。只检查变量是否存在：
 
 ```bash
-awk -F= '/^(APIMART|TOAPIS|YUNWU|NEXT_PUBLIC_SUPABASE|SUPABASE|CRON_SECRET)/ {print $1"=<set>"}' /usr/storm-ai/.env.production
+awk -F= '/^(APIMART|MANJU|TOAPIS|YUNWU|NEXT_PUBLIC_SUPABASE|SUPABASE|CRON_SECRET)/ {print $1"=<set>"}' /usr/storm-ai/.env.production
 ```
 
 如果要检查 `CRON_SECRET` 是否一致，不要输出原文，可以看长度或哈希。

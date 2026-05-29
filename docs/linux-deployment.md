@@ -100,6 +100,8 @@ nano .env.production
 - `TOAPIS_BASE_URL`
 - `APIMART_API_KEY`
 - `APIMART_BASE_URL`
+- `MANJU_API_KEY`
+- `MANJU_BASE_URL`
 - `APIMART_SYNC_BATCH_SIZE`
 
 重要注意：

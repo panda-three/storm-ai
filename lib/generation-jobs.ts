@@ -743,9 +743,11 @@ export function normalizeJobTaskStatus(job: GenerationJob): NormalizedTaskStatus
             ? "toapis"
             : job.provider === "apimart"
               ? "apimart"
-              : job.provider === "vectorengine"
-                ? "vectorengine"
-                : "mock",
+              : job.provider === "manju"
+                ? "manju"
+                : job.provider === "vectorengine"
+                  ? "vectorengine"
+                  : "mock",
     taskId: job.id,
     status: job.status,
     progress: isTerminalGenerationJobStatus(job.status) ? 100 : 0,

@@ -1,10 +1,13 @@
 import {
   apimartGptImage2ApiModelName,
   apimartGptImage2ModelName,
+  gptImage2AllModelName,
   grokImagineImageModelName,
   grokVideo310sModelName,
   grokVideo3ModelName,
   imageModelOptions,
+  manjuGeminiImageApiModelName,
+  manjuGeminiImageModelName,
   toaGptImage2ModelName,
   toapisGptImage2ApiModelName,
   vectorEngineGeminiImageApiModelName,
@@ -17,7 +20,7 @@ import {
 } from "@/lib/model-options"
 
 export type ModelKind = "image" | "video"
-export type ModelProvider = "apimart" | "toapis" | "vectorengine" | "yunwu"
+export type ModelProvider = "apimart" | "manju" | "toapis" | "vectorengine" | "yunwu"
 
 export interface ModelCatalogEntry {
   apiModel: string
@@ -43,9 +46,16 @@ export const modelCatalog: ModelCatalogEntry[] = [
     type: "image",
   },
   {
+    apiModel: manjuGeminiImageApiModelName,
+    defaultDisplayName: "Gemini 3.0 Pro Image · Manju",
+    model: manjuGeminiImageModelName,
+    provider: "manju",
+    type: "image",
+  },
+  {
     apiModel: "gpt-image-2",
     defaultDisplayName: "GPT Image 2",
-    model: imageModelOptions[1],
+    model: gptImage2AllModelName,
     provider: "yunwu",
     type: "image",
   },

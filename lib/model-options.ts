@@ -18,6 +18,10 @@ export const yunwuGeminiImageModelName = "gemini-3.1-flash-image-preview"
 export const vectorEngineGeminiImageModelName = "gemini-3.1-flash-image-preview-ve"
 export const vectorEngineGeminiImageApiModelName = yunwuGeminiImageModelName
 export const vectorEngineImageProviderName = "vectorengine"
+export const manjuGeminiImageModelName = "gemini-3.0-pro-image-manju"
+export const manjuGeminiImageApiModelName = "gemini-3.0-pro-image"
+export const manjuImageProviderName = "manju"
+export const manjuGeminiImageRatios = ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"]
 export const grokImagineImageModelName = "grok-imagine-image"
 export const yunwuSeedream5ImageModelName = "doubao-seedream-5-0-260128"
 export const yunwuSeedream5ImageRatios = ["默认", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"]
@@ -35,6 +39,7 @@ export const yunwuSeedance15ProVideoModelName = "doubao-seedance-1-5-pro-251215"
 export const imageModelOptions = [
   yunwuGeminiImageModelName,
   vectorEngineGeminiImageModelName,
+  manjuGeminiImageModelName,
   gptImage2AllModelName,
   apimartGptImage2ModelName,
   toaGptImage2ModelName,
@@ -64,6 +69,10 @@ export const imageModelSettings: Record<
   [vectorEngineGeminiImageModelName]: {
     qualities: ["1K", "2K", "4K"],
     ratios: ["默认", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "1:8", "4:1", "8:1"],
+  },
+  [manjuGeminiImageModelName]: {
+    qualities: ["1K", "2K"],
+    ratios: manjuGeminiImageRatios,
   },
   [yunwuSeedream5ImageModelName]: {
     qualities: ["2K", "3K"],
@@ -107,6 +116,10 @@ export function isVectorEngineGeminiImageModel(model: string) {
   return model === vectorEngineGeminiImageModelName
 }
 
+export function isManjuGeminiImageModel(model: string) {
+  return model === manjuGeminiImageModelName
+}
+
 export function isYunwuGptImageModel(model: string) {
   return model === gptImage2AllModelName
 }
@@ -133,6 +146,10 @@ export function isApimartImageModel(model: string) {
 
 export function isVectorEngineImageModel(model: string) {
   return isVectorEngineGeminiImageModel(model)
+}
+
+export function isManjuImageModel(model: string) {
+  return isManjuGeminiImageModel(model)
 }
 
 export function isGptImage2Restricted4K(quality: string, model: string) {

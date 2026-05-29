@@ -13,6 +13,7 @@ interface PartialFailureRefundContext extends GenerationLedgerContext {
 
 const providerLabels: Record<string, string> = {
   apimart: "APIMart",
+  manju: "Manju",
   toapis: "ToAPIs",
   vectorengine: "VectorEngine",
   yunwu: "yw",

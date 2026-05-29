@@ -130,7 +130,7 @@ curl -I https://www.zlaction.online
 只检查变量是否存在：
 
 ```bash
-awk -F= '/^(APIMART|TOAPIS|YUNWU|NEXT_PUBLIC_SUPABASE|SUPABASE|CRON_SECRET)/ {print $1"=<set>"}' /usr/storm-ai/.env.production
+awk -F= '/^(APIMART|MANJU|TOAPIS|YUNWU|NEXT_PUBLIC_SUPABASE|SUPABASE|CRON_SECRET)/ {print $1"=<set>"}' /usr/storm-ai/.env.production
 ```
 
 如果 `.env.production` 变了，需要走标准发布脚本：

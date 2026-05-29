@@ -2,7 +2,7 @@ export type GenerationKind = "image" | "video"
 
 export interface GenerationResponse {
   ok: true
-  mode: "apimart" | "mengfactory" | "mock" | "toapis" | "vectorengine" | "yunwu"
+  mode: "apimart" | "manju" | "mengfactory" | "mock" | "toapis" | "vectorengine" | "yunwu"
   taskId: string
   status: string
   type: GenerationKind
@@ -10,7 +10,7 @@ export interface GenerationResponse {
 
 export interface NormalizedTaskStatus {
   ok: true
-  mode: "apimart" | "mengfactory" | "mock" | "toapis" | "vectorengine" | "yunwu"
+  mode: "apimart" | "manju" | "mengfactory" | "mock" | "toapis" | "vectorengine" | "yunwu"
   taskId: string
   status: "submitted" | "processing" | "completed" | "failed" | "partial_completed"
   progress: number

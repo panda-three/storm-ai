@@ -39,6 +39,7 @@ import {
   imageModelSettings,
   isApimartImageModel,
   isGrokImagineImageModel,
+  isManjuImageModel,
   isSelectableImageModel,
   isToapisImageModel,
   isVectorEngineGeminiImageModel,
@@ -47,6 +48,7 @@ import {
   isYunwuGptImageModel,
   isYunwuImageModel,
   isYunwuSeedream5ImageModel,
+  manjuImageProviderName,
   isValidImageRatioForQuality,
   toapisImageProviderName,
   vectorEngineImageProviderName,
@@ -62,6 +64,7 @@ import {
 } from "@/lib/reference-images"
 import { assertApimartConfigured, createApimartGptImage2Task } from "@/lib/apimart"
 import { assertToapisConfigured, createToapisGptImageTask } from "@/lib/toapis"
+import { assertManjuConfigured, createManjuGeminiImage } from "@/lib/manju"
 import {
   buildGenerationPartialFailureRefundReason,
   buildGenerationSubmitFailureRefundReason,
@@ -191,23 +194,27 @@ export async function POST(request: Request) {
     const isApimartImage = isApimartImageModel(model)
     const isToapisImage = isToapisImageModel(model)
     const isVectorEngineImage = isVectorEngineImageModel(model)
+    const isManjuImage = isManjuImageModel(model)
     const provider = isApimartImage
       ? apimartImageProviderName
       : isToapisImage
         ? toapisImageProviderName
         : isVectorEngineImage
           ? vectorEngineImageProviderName
-          : "yunwu"
+          : isManjuImage
+            ? manjuImageProviderName
+            : "yunwu"
     jobProvider = provider
     logGenerateImage("provider route", {
       isApimartImage,
       isToapisImage,
       isVectorEngineImage,
+      isManjuImage,
       isYunwuImage,
       model,
       provider,
     })
-    if (!isYunwuImage && !isToapisImage && !isApimartImage && !isVectorEngineImage) {
+    if (!isYunwuImage && !isToapisImage && !isApimartImage && !isVectorEngineImage && !isManjuImage) {
       return NextResponse.json({ ok: false, error: "当前图片模型暂不支持该上游。" }, { status: 400 })
     }
 
@@ -228,6 +235,11 @@ export async function POST(request: Request) {
     if (isVectorEngineImage) {
       stage = "check_vectorengine_config"
       assertVectorEngineConfigured()
+    }
+
+    if (isManjuImage) {
+      stage = "check_manju_config"
+      assertManjuConfigured()
     }
 
     stage = "prepare_reference_images"
@@ -272,6 +284,11 @@ export async function POST(request: Request) {
     const apimartReferenceImageUrls = isApimartImage
       ? await prepareApimartReferenceImageUrls(preparedReferenceImages, () => {
           stage = "prepare_apimart_references"
+        })
+      : []
+    const manjuReferenceImageUrls = isManjuImage
+      ? await prepareManjuReferenceImageUrls(preparedReferenceImages, userId, () => {
+          stage = "prepare_manju_references"
         })
       : []
     const inputReferenceImages = buildInputReferenceImages(preparedReferenceImages)
@@ -406,7 +423,7 @@ export async function POST(request: Request) {
       })
     }
 
-    stage = isVectorEngineImage ? "submit_vectorengine_generation" : "submit_yunwu_generation"
+    stage = isManjuImage ? "submit_manju_generation" : isVectorEngineImage ? "submit_vectorengine_generation" : "submit_yunwu_generation"
     const generatedResults: PromiseSettledResult<string>[] = isVectorEngineGeminiImageModel(model)
       ? await Promise.allSettled(
           Array.from({ length: imageCount }, async () => {
@@ -425,6 +442,27 @@ export async function POST(request: Request) {
             return uploaded.publicUrl
           })
         )
+      : isManjuImage
+        ? await Promise.allSettled(
+            Array.from({ length: imageCount }, async () => {
+              const url = await createManjuGeminiImage({
+                prompt,
+                quality,
+                ratio,
+                referenceImages: manjuReferenceImageUrls,
+              })
+              return persistRemoteGeneratedImage({
+                sourceUrl: url,
+                userId,
+              }).catch((error) => {
+                console.warn("[Generate Image] Manju remote image mirror failed", {
+                  error: describeServerError(error, "生成图片转存失败。"),
+                  url,
+                })
+                return url
+              })
+            })
+          )
       : isYunwuGeminiImageModel(model)
       ? await Promise.allSettled(
           Array.from({ length: imageCount }, async () => {
@@ -524,7 +562,7 @@ export async function POST(request: Request) {
           : null
     const completedAt = new Date().toISOString()
 
-    stage = isVectorEngineImage ? "complete_vectorengine_job" : "complete_yunwu_job"
+    stage = isManjuImage ? "complete_manju_job" : isVectorEngineImage ? "complete_vectorengine_job" : "complete_yunwu_job"
     const nextJob = await updateActiveGenerationJob(job.id, {
       completed_at: completedAt,
       expires_at: getGenerationJobExpiresAt(completedAt),
@@ -713,6 +751,10 @@ function getFailureStageLabel(stage: string) {
     stage === "prepare_yunwu_seedream_references"
   ) return "yw 参考图处理失败"
   if (stage === "prepare_vectorengine_gemini_references") return "VectorEngine 参考图处理失败"
+  if (stage === "submit_manju_generation") return "Manju 图片生成失败"
+  if (stage === "complete_manju_job") return "Manju 图片任务结算失败"
+  if (stage === "check_manju_config") return "Manju 配置检查失败"
+  if (stage === "prepare_manju_references") return "Manju 参考图处理失败"
   if (stage === "complete_yunwu_job") return "yw 图片任务结算失败"
   if (stage === "complete_vectorengine_job") return "VectorEngine 图片任务结算失败"
   if (stage === "check_vectorengine_config") return "VectorEngine 配置检查失败"
@@ -734,6 +776,7 @@ function getFailureStageLabel(stage: string) {
 
 function getImageResponseMode(provider: string) {
   if (provider === "apimart") return "apimart"
+  if (provider === "manju") return "manju"
   if (provider === "toapis") return "toapis"
   if (provider === "vectorengine") return "vectorengine"
   return "yunwu"
@@ -959,6 +1002,32 @@ async function prepareApimartReferenceImageUrls(referenceImages: PreparedReferen
 
   if (urls.length !== referenceImages.length) {
     throw new Error("APIMart 参考图必须先上传为可访问 URL。")
+  }
+
+  return urls
+}
+
+async function prepareManjuReferenceImageUrls(referenceImages: PreparedReferenceImage[], userId: string, setStage: () => void) {
+  if (referenceImages.length === 0) return []
+
+  setStage()
+  const urls: string[] = []
+
+  for (const image of referenceImages) {
+    if (image.publicUrl) {
+      urls.push(image.publicUrl)
+      continue
+    }
+
+    const uploaded = await uploadGeneratedImage({
+      buffer: image.buffer,
+      contentType: image.mimeType,
+      userId,
+    })
+    image.bucket = uploaded.bucket
+    image.path = uploaded.path
+    image.publicUrl = uploaded.publicUrl
+    urls.push(uploaded.publicUrl)
   }
 
   return urls

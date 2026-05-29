@@ -15,6 +15,7 @@ const client = createClient(url, serviceRoleKey, {
 const supported = new Set([
   "image:gemini-3.1-flash-image-preview",
   "image:gemini-3.1-flash-image-preview-ve",
+  "image:gemini-3.0-pro-image-manju",
   "image:gpt-image-2-all",
   "image:image2-M通道",
   "image:image2-Toa通道",
