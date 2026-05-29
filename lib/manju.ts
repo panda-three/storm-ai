@@ -2,6 +2,7 @@ import { manjuGeminiImageApiModelName } from "@/lib/model-options"
 
 const MANJU_BASE_URL = process.env.MANJU_BASE_URL ?? "https://manjuapi.com"
 const manjuImageTimeoutMs = 360_000
+const manjuPollIntervalMs = 5000
 
 interface ManjuImageRequest {
   prompt: string
@@ -29,16 +30,7 @@ export async function createManjuGeminiImage(request: ManjuImageRequest) {
     "POST",
     payload
   )
-  const imageUrls = uniqueUrls(
-    extractMediaUrls(data, ["url", "image_url", "image_urls", "content", "data", "poll_url", "result_url", "download_url"], [
-      "jpg",
-      "jpeg",
-      "png",
-      "webp",
-      "gif",
-      "avif",
-    ])
-  )
+  const imageUrls = await waitForManjuImageResult(data)
 
   if (imageUrls.length === 0) {
     throw new Error("Manju 图片接口已返回，但未找到可用图片地址。")
@@ -96,9 +88,41 @@ function normalizeManjuImageResolution(quality: string) {
   return quality.trim().toUpperCase() === "2K" ? "2K" : "1K"
 }
 
-async function manjuRequest(path: string, method: "POST", body: Record<string, unknown>) {
+async function waitForManjuImageResult(initialData: unknown) {
+  let data = initialData
+  const startedAt = Date.now()
+
+  while (true) {
+    const imageUrls = extractManjuImageUrls(data)
+    const status = normalizeManjuStatus(findStringValue(data, ["status"]))
+    const taskError = status === "failed" ? extractManjuError(data) || "Manju 图片生成失败。" : ""
+
+    if ((status === "completed" || status === "unknown") && imageUrls.length > 0) {
+      return imageUrls
+    }
+
+    if (taskError) {
+      throw new Error(taskError)
+    }
+
+    if (Date.now() - startedAt >= manjuImageTimeoutMs) {
+      throw new Error("Manju 图片生成等待超时，请稍后重试。")
+    }
+
+    const pollUrl = findStringValue(data, ["poll_url"])
+    if (!pollUrl) {
+      if (imageUrls.length > 0) return imageUrls
+      throw new Error("Manju 图片接口已返回，但未找到可用图片地址。")
+    }
+
+    await sleep(manjuPollIntervalMs)
+    data = await manjuRequest(pollUrl, "GET")
+  }
+}
+
+async function manjuRequest(pathOrUrl: string, method: "GET" | "POST", body?: Record<string, unknown>) {
   const apiKey = process.env.MANJU_API_KEY
-  const url = new URL(path, MANJU_BASE_URL)
+  const url = new URL(pathOrUrl, MANJU_BASE_URL)
   let response: Response
 
   try {
@@ -106,9 +130,9 @@ async function manjuRequest(path: string, method: "POST", body: Record<string, u
       method,
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+        ...(body ? { "Content-Type": "application/json" } : {}),
       },
-      body: JSON.stringify(body),
+      body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(manjuImageTimeoutMs),
     })
   } catch (error) {
@@ -116,7 +140,7 @@ async function manjuRequest(path: string, method: "POST", body: Record<string, u
   }
 
   const data = await response.json().catch(() => ({}))
-  logManjuRawResponse(path, response.status, data)
+  logManjuRawResponse(url.pathname, response.status, data)
 
   if (!response.ok) {
     throw new Error(`Manju 请求失败：HTTP ${response.status} ${extractManjuError(data) || response.statusText}`)
@@ -174,11 +198,21 @@ function findNumberValue(value: unknown, keys: string[]): number | null {
   return null
 }
 
+function extractManjuImageUrls(value: unknown) {
+  return uniqueUrls(
+    extractMediaUrls(
+      value,
+      ["image_url", "image_urls", "final_url", "result_url", "download_url", "url", "content", "data"],
+      ["jpg", "jpeg", "png", "webp", "gif", "avif"]
+    )
+  )
+}
+
 function extractMediaUrls(value: unknown, preferredKeys: string[], extensions: string[]) {
   const keyedUrls = new Set<string>()
   collectKeyedUrls(value, keyedUrls, preferredKeys)
 
-  const preferred = Array.from(keyedUrls).filter((url) => hasExtension(url, extensions))
+  const preferred = Array.from(keyedUrls).filter(isImageUrlCandidate)
   if (preferred.length > 0) return preferred
 
   const urls = new Set<string>()
@@ -232,6 +266,11 @@ function hasExtension(url: string, extensions: string[]) {
   return extensions.some((extension) => normalized.endsWith(`.${extension}`))
 }
 
+function isImageUrlCandidate(url: string) {
+  if (url.startsWith("data:image/")) return true
+  return /^https?:\/\//i.test(url)
+}
+
 function extractUrlsFromString(value: string) {
   const urls: string[] = []
   const httpUrlPattern = /https?:\/\/[^\s"'<>()[\]]+/gi
@@ -245,6 +284,18 @@ function extractUrlsFromString(value: string) {
 
 function uniqueUrls(urls: string[]) {
   return Array.from(new Set(urls.filter(Boolean)))
+}
+
+function normalizeManjuStatus(status: string) {
+  const normalized = status.trim().toLowerCase()
+  if (!normalized) return "unknown"
+  if (["completed", "succeeded", "success", "done", "finished"].includes(normalized)) return "completed"
+  if (["failed", "error", "cancelled", "canceled"].includes(normalized)) return "failed"
+  return "processing"
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function logManjuRawResponse(path: string, status: number, data: unknown) {
