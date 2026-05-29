@@ -29,14 +29,16 @@ export async function createManjuGeminiImage(request: ManjuImageRequest) {
     "POST",
     payload
   )
-  const imageUrls = uniqueUrls(extractMediaUrls(data, ["url", "image_url", "image_urls", "content", "data", "result_url", "download_url"], [
-    "jpg",
-    "jpeg",
-    "png",
-    "webp",
-    "gif",
-    "avif",
-  ]))
+  const imageUrls = uniqueUrls(
+    extractMediaUrls(data, ["url", "image_url", "image_urls", "content", "data", "poll_url", "result_url", "download_url"], [
+      "jpg",
+      "jpeg",
+      "png",
+      "webp",
+      "gif",
+      "avif",
+    ])
+  )
 
   if (imageUrls.length === 0) {
     throw new Error("Manju 图片接口已返回，但未找到可用图片地址。")
@@ -114,6 +116,7 @@ async function manjuRequest(path: string, method: "POST", body: Record<string, u
   }
 
   const data = await response.json().catch(() => ({}))
+  logManjuRawResponse(path, response.status, data)
 
   if (!response.ok) {
     throw new Error(`Manju 请求失败：HTTP ${response.status} ${extractManjuError(data) || response.statusText}`)
@@ -242,6 +245,38 @@ function extractUrlsFromString(value: string) {
 
 function uniqueUrls(urls: string[]) {
   return Array.from(new Set(urls.filter(Boolean)))
+}
+
+function logManjuRawResponse(path: string, status: number, data: unknown) {
+  console.log("[Manju] raw response", {
+    path,
+    status,
+    data: sanitizeForLog(data),
+  })
+}
+
+function sanitizeForLog(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (value.startsWith("data:image/")) return `${value.slice(0, 48)}...<data-url:${value.length}>`
+    if (value.length > 1000) return `${value.slice(0, 1000)}...<truncated:${value.length}>`
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(sanitizeForLog)
+  }
+
+  if (!value || typeof value !== "object") return value
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => {
+      const normalizedKey = key.toLowerCase()
+      if (normalizedKey.includes("key") || normalizedKey.includes("token") || normalizedKey === "authorization") {
+        return [key, "<redacted>"]
+      }
+      return [key, sanitizeForLog(nested)]
+    })
+  )
 }
 
 function logManju(label: string, value: unknown) {
