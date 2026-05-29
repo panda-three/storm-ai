@@ -64,7 +64,12 @@ import {
 } from "@/lib/reference-images"
 import { assertApimartConfigured, createApimartGptImage2Task } from "@/lib/apimart"
 import { assertToapisConfigured, createToapisGptImageTask } from "@/lib/toapis"
-import { assertManjuConfigured, createManjuGeminiImageTask } from "@/lib/manju"
+import {
+  assertManjuConfigured,
+  buildManjuUpstreamTaskId,
+  createManjuGeminiImageTask,
+  type ManjuUpstreamTask,
+} from "@/lib/manju"
 import {
   buildGenerationPartialFailureRefundReason,
   buildGenerationSubmitFailureRefundReason,
@@ -220,10 +225,6 @@ export async function POST(request: Request) {
 
     if (isApimartImage && imageCount !== 1) {
       return NextResponse.json({ ok: false, error: "image2-M通道暂时仅支持单张生成。" }, { status: 400 })
-    }
-
-    if (isManjuImage && imageCount !== 1) {
-      return NextResponse.json({ ok: false, error: "Gemini 3.0 Pro Image · Manju 通道暂时仅支持单张生成。" }, { status: 400 })
     }
 
     if (isApimartImage) {
@@ -429,39 +430,150 @@ export async function POST(request: Request) {
 
     if (isManjuImage) {
       stage = "submit_manju_generation"
-      const result = await createManjuGeminiImageTask({
-        prompt,
-        quality,
-        ratio,
-        referenceImages: manjuReferenceImageUrls,
-      })
-      upstreamTaskId = result.pollUrl || result.taskId
+      const upstreamTasks: ManjuUpstreamTask[] = []
+      const immediateImageUrls: string[] = []
+      const submitErrors: string[] = []
       cleanupPreparedReferenceImages = false
 
-      const immediateImageUrls = result.imageUrls ?? []
-      if (result.status === "completed" && immediateImageUrls.length > 0) {
+      for (let index = 0; index < imageCount; index += 1) {
+        let result: Awaited<ReturnType<typeof createManjuGeminiImageTask>>
+        try {
+          result = await createManjuGeminiImageTask({
+            model,
+            prompt,
+            quality,
+            ratio,
+            referenceImages: manjuReferenceImageUrls,
+          })
+        } catch (error) {
+          submitErrors.push(describeServerError(error, "Manju 图片生成失败。"))
+          continue
+        }
+
+        const resultImageUrls = result.imageUrls ?? []
+        if (result.status === "completed" && resultImageUrls.length > 0) {
+          immediateImageUrls.push(resultImageUrls[0])
+          continue
+        }
+
+        if (result.status === "failed" || result.status === "completed") {
+          submitErrors.push(
+            result.taskError ||
+              (result.status === "completed" ? "任务已完成，但接口没有返回图片地址。" : "Manju 图片生成失败。")
+          )
+          continue
+        }
+
+        upstreamTasks.push({
+          id: result.taskId,
+          pollUrl: result.pollUrl || undefined,
+        })
+        upstreamTaskId = buildManjuUpstreamTaskId(upstreamTasks)
+
+        stage = "record_manju_task"
+        const nextJob = await updateActiveGenerationJob(job.id, {
+          next_check_at: new Date(Date.now() + 5000).toISOString(),
+          status: result.status === "submitted" ? "submitted" : "processing",
+          storage_urls: manjuReferenceImageUrls,
+          task_error: submitErrors.length > 0 ? submitErrors.join("；") : result.taskError || null,
+          upstream_task_id: upstreamTaskId,
+        })
+
+        if (!nextJob) {
+          throw new Error("生成任务已结束，不能提交 Manju 上游任务。")
+        }
+        stage = "submit_manju_generation"
+      }
+
+      const persistedImmediate = immediateImageUrls.length > 0
+        ? await persistRemoteImageUrls(immediateImageUrls, userId)
+        : { error: null, resultUrls: [] as string[], storageUrls: [] as string[] }
+      const persistedImmediateError = persistedImmediate.error ? [persistedImmediate.error] : []
+
+      if (upstreamTasks.length > 0) {
+        upstreamTaskId = buildManjuUpstreamTaskId(upstreamTasks)
+        stage = "record_manju_task"
+        const nextJob = await updateActiveGenerationJob(job.id, {
+          last_sync_error: persistedImmediate.error,
+          next_check_at: new Date(Date.now() + 5000).toISOString(),
+          result_urls: persistedImmediate.resultUrls,
+          status: "processing",
+          storage_urls: Array.from(new Set([...manjuReferenceImageUrls, ...persistedImmediate.storageUrls])),
+          task_error: [...submitErrors, ...persistedImmediateError].join("；") || null,
+          upstream_task_id: upstreamTaskId,
+        })
+
+        if (!nextJob) {
+          await Promise.all(persistedImmediate.resultUrls.map((url) => deleteGeneratedImageByPublicUrl(url)))
+          throw new Error("生成任务已结束，不能提交 Manju 上游任务。")
+        }
+
+        logGenerateImage("manju output", {
+          immediateImageUrls: persistedImmediate.resultUrls.length,
+          jobId: job.id,
+          status: nextJob.status,
+          upstreamTaskCount: upstreamTasks.length,
+        })
+
+        return NextResponse.json({
+          ok: true,
+          mode: "manju",
+          taskId: job.id,
+          upstreamTaskId,
+          status: nextJob.status,
+          type: "image",
+          imageUrls: persistedImmediate.resultUrls,
+          clientRequestId,
+          progress: persistedImmediate.resultUrls.length >= imageCount ? 100 : 0,
+          taskError: nextJob.task_error ?? "",
+        })
+      }
+
+      if (persistedImmediate.resultUrls.length > 0) {
         cleanupPreparedReferenceImages = true
         stage = "complete_manju_job"
-        const persisted = await persistRemoteImageUrls(immediateImageUrls, userId)
-        const imageUrls = persisted.resultUrls.slice(0, imageCount)
-        const taskError = persisted.error
+        const imageUrls = persistedImmediate.resultUrls.slice(0, imageCount)
+        const status: GenerationJobStatus = imageUrls.length < imageCount ? "partial_completed" : "completed"
+        const taskError =
+          status === "partial_completed"
+            ? buildPartialImageMessage({
+                amount: billingAmount,
+                expectedResultCount: imageCount,
+                successCount: imageUrls.length,
+                upstreamErrors: [...submitErrors, ...persistedImmediateError],
+              })
+            : [...submitErrors, ...persistedImmediateError].join("；") || null
         const completedAt = new Date().toISOString()
         const nextJob = await updateActiveGenerationJob(job.id, {
           completed_at: completedAt,
           expires_at: getGenerationJobExpiresAt(completedAt),
           last_checked_at: completedAt,
-          last_sync_error: taskError,
+          last_sync_error: persistedImmediate.error,
           next_check_at: completedAt,
           result_urls: imageUrls,
-          status: "completed",
-          storage_urls: persisted.storageUrls,
+          status,
+          storage_urls: persistedImmediate.storageUrls,
           task_error: taskError,
-          upstream_task_id: upstreamTaskId,
         })
 
         if (!nextJob) {
           await Promise.all(imageUrls.map((url) => deleteGeneratedImageByPublicUrl(url)))
           throw new Error("生成任务已结束，迟到结果已丢弃。")
+        }
+
+        if (status === "partial_completed") {
+          await refundImageGenerationCredits({
+            amount: calculatePartialRefundAmount(billingAmount, imageUrls.length, imageCount),
+            reason: buildGenerationPartialFailureRefundReason({
+              expectedCount: imageCount,
+              failedCount: imageCount - imageUrls.length,
+              model,
+              provider,
+              type: "image",
+            }),
+            reference: buildPartialRefundReference(billingReference, imageUrls.length, imageCount),
+            userId,
+          })
         }
 
         logGenerateImage("manju completed output", {
@@ -475,7 +587,7 @@ export async function POST(request: Request) {
           ok: true,
           mode: "manju",
           taskId: job.id,
-          upstreamTaskId,
+          upstreamTaskId: "",
           status: nextJob.status,
           type: "image",
           imageUrls,
@@ -485,65 +597,29 @@ export async function POST(request: Request) {
         })
       }
 
-      if (result.status === "failed" || result.status === "completed") {
-        cleanupPreparedReferenceImages = true
-        const taskError =
-          result.taskError ||
-          (result.status === "completed" ? "任务已完成，但接口没有返回图片地址。" : "Manju 图片生成失败。")
-        const failedJob = await failGenerationJobWithRefund({
-          jobId: job.id,
-          reason: buildGenerationSubmitFailureRefundReason({
-            error: taskError,
-            model,
-            provider,
-            type: "image",
-          }),
-        })
-
-        return NextResponse.json({
-          ok: true,
-          mode: "manju",
-          taskId: failedJob.id,
-          upstreamTaskId,
-          status: failedJob.status,
-          type: "image",
-          imageUrls: [],
-          clientRequestId,
-          progress: 0,
-          taskError,
-        })
-      }
-
-      stage = "record_manju_task"
-      const nextJob = await updateActiveGenerationJob(job.id, {
-        next_check_at: new Date(Date.now() + 5000).toISOString(),
-        status: result.status === "submitted" ? "submitted" : "processing",
-        storage_urls: manjuReferenceImageUrls,
-        task_error: result.taskError || null,
-        upstream_task_id: upstreamTaskId,
-      })
-
-      if (!nextJob) {
-        throw new Error("生成任务已结束，不能提交 Manju 上游任务。")
-      }
-
-      logGenerateImage("manju output", {
+      cleanupPreparedReferenceImages = true
+      const taskError = submitErrors.join("；") || "Manju 图片生成失败。"
+      const failedJob = await failGenerationJobWithRefund({
         jobId: job.id,
-        status: nextJob.status,
-        upstreamTaskId,
+        reason: buildGenerationSubmitFailureRefundReason({
+          error: taskError,
+          model,
+          provider,
+          type: "image",
+        }),
       })
 
       return NextResponse.json({
         ok: true,
         mode: "manju",
-        taskId: job.id,
-        upstreamTaskId,
-        status: nextJob.status,
+        taskId: failedJob.id,
+        upstreamTaskId: "",
+        status: failedJob.status,
         type: "image",
         imageUrls: [],
         clientRequestId,
-        progress: result.progress ?? 0,
-        taskError: result.taskError ?? "",
+        progress: 0,
+        taskError,
       })
     }
 

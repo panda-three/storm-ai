@@ -1,4 +1,10 @@
-import { getManjuImageTaskStatus, isManjuRateLimitError } from "@/lib/manju"
+import {
+  buildManjuUpstreamTaskId,
+  getManjuImageTaskStatus,
+  isManjuRateLimitError,
+  parseManjuUpstreamTaskId,
+  type ManjuUpstreamTask,
+} from "@/lib/manju"
 import {
   failGenerationJobWithRefund,
   getGenerationJobExpiresAt,
@@ -64,17 +70,53 @@ export async function syncManjuGenerationJob(
   })
 
   try {
-    const result = await getManjuImageTaskStatus(lockedJob.upstream_task_id)
     const expectedResultCount = Math.max(1, lockedJob.expected_result_count)
-    const upstreamResultUrls = uniqueUrls(result.imageUrls).slice(0, expectedResultCount)
+    const tasks = parseManjuUpstreamTaskId(lockedJob.upstream_task_id)
+    const syncedTasks: ManjuUpstreamTask[] = []
+    const taskErrors: string[] = []
+    let hasPendingTask = false
+
+    for (const task of tasks) {
+      if (task.resultUrls && task.resultUrls.length > 0) {
+        syncedTasks.push(task)
+        continue
+      }
+
+      const result = await getManjuImageTaskStatus(task.pollUrl || task.id)
+      if (result.status === "completed" && result.imageUrls.length > 0) {
+        syncedTasks.push({
+          ...task,
+          id: task.id || result.taskId,
+          resultUrls: result.imageUrls,
+        })
+        continue
+      }
+
+      if (result.status === "failed" || result.status === "completed") {
+        taskErrors.push(result.taskError || (result.status === "completed" ? "任务已完成，但接口没有返回图片地址。" : "Manju 图片生成失败。"))
+        syncedTasks.push({
+          ...task,
+          error: result.taskError || "Manju 图片生成失败。",
+        })
+        continue
+      }
+
+      hasPendingTask = true
+      syncedTasks.push(task)
+    }
+
+    const upstreamResultUrls = uniqueUrls([
+      ...lockedJob.result_urls,
+      ...syncedTasks.flatMap((task) => task.resultUrls ?? []),
+    ]).slice(0, expectedResultCount)
     const persisted = await persistResultUrls({
       job: lockedJob,
       urls: upstreamResultUrls,
     })
     const resultUrls = persisted.resultUrls
-    const missingResultError =
-      result.status === "completed" && resultUrls.length === 0 ? "任务已完成，但接口没有返回图片地址。" : ""
-    const isPartialImageResult = result.status === "completed" && resultUrls.length > 0 && resultUrls.length < expectedResultCount
+    const isFinished = !hasPendingTask
+    const missingResultError = isFinished && resultUrls.length === 0 ? "任务已完成，但接口没有返回图片地址。" : ""
+    const isPartialImageResult = isFinished && resultUrls.length > 0 && resultUrls.length < expectedResultCount
     const partialResultError = isPartialImageResult
       ? buildPartialImageMessage({
           amount: lockedJob.amount,
@@ -82,13 +124,15 @@ export async function syncManjuGenerationJob(
           successCount: resultUrls.length,
         })
       : ""
-    const taskError = missingResultError || partialResultError || persisted.error || (result.status === "failed" ? result.taskError : "")
+    const taskError = missingResultError || partialResultError || persisted.error || taskErrors.join("；")
     const status: GenerationJobStatus =
-      missingResultError && result.status === "completed"
+      missingResultError
         ? "failed"
         : isPartialImageResult
           ? "partial_completed"
-          : result.status
+          : isFinished
+            ? "completed"
+            : "processing"
 
     if (status === "failed" && lockedJob.status !== "failed") {
       const failedJob = await failGenerationJobWithRefund({
@@ -126,6 +170,7 @@ export async function syncManjuGenerationJob(
       storage_urls: Array.from(new Set([...(lockedJob.storage_urls ?? []), ...persisted.storageUrls])),
       sync_locked_until: null,
       task_error: taskError || null,
+      upstream_task_id: buildManjuUpstreamTaskId(syncedTasks),
     })
 
     if (!updatedJob) {

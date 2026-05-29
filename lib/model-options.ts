@@ -20,6 +20,8 @@ export const vectorEngineGeminiImageApiModelName = yunwuGeminiImageModelName
 export const vectorEngineImageProviderName = "vectorengine"
 export const manjuGeminiImageModelName = "gemini-3.0-pro-image-manju"
 export const manjuGeminiImageApiModelName = "gemini-3.0-pro-image"
+export const manjuNanoBanana2ImageModelName = "nano-banana-2-manju"
+export const manjuNanoBanana2ImageApiModelName = "Nano Banana 2"
 export const manjuImageProviderName = "manju"
 export const manjuGeminiImageRatios = ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"]
 export const grokImagineImageModelName = "grok-imagine-image"
@@ -40,6 +42,7 @@ export const imageModelOptions = [
   yunwuGeminiImageModelName,
   vectorEngineGeminiImageModelName,
   manjuGeminiImageModelName,
+  manjuNanoBanana2ImageModelName,
   gptImage2AllModelName,
   apimartGptImage2ModelName,
   toaGptImage2ModelName,
@@ -71,6 +74,10 @@ export const imageModelSettings: Record<
     ratios: ["默认", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "1:8", "4:1", "8:1"],
   },
   [manjuGeminiImageModelName]: {
+    qualities: ["1K", "2K"],
+    ratios: manjuGeminiImageRatios,
+  },
+  [manjuNanoBanana2ImageModelName]: {
     qualities: ["1K", "2K"],
     ratios: manjuGeminiImageRatios,
   },
@@ -120,6 +127,10 @@ export function isManjuGeminiImageModel(model: string) {
   return model === manjuGeminiImageModelName
 }
 
+export function isManjuNanoBanana2ImageModel(model: string) {
+  return model === manjuNanoBanana2ImageModelName
+}
+
 export function isYunwuGptImageModel(model: string) {
   return model === gptImage2AllModelName
 }
@@ -149,7 +160,7 @@ export function isVectorEngineImageModel(model: string) {
 }
 
 export function isManjuImageModel(model: string) {
-  return isManjuGeminiImageModel(model)
+  return isManjuGeminiImageModel(model) || isManjuNanoBanana2ImageModel(model)
 }
 
 export function isGptImage2Restricted4K(quality: string, model: string) {

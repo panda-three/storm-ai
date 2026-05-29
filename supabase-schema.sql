@@ -778,6 +778,10 @@ values ('image', 'gemini-3.0-pro-image-manju', 'Gemini 3.0 Pro Image · Manju', 
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+values ('image', 'nano-banana-2-manju', 'Nano Banana 2 · Manju', false, false, 19)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
 values ('image', 'gpt-image-2-all', 'GPT Image 2', true, false, 20)
 on conflict (type, model) do nothing;
 

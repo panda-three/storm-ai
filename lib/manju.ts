@@ -1,14 +1,32 @@
 import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-types"
-import { manjuGeminiImageApiModelName } from "@/lib/model-options"
+import {
+  manjuGeminiImageApiModelName,
+  manjuGeminiImageModelName,
+  manjuNanoBanana2ImageApiModelName,
+  manjuNanoBanana2ImageModelName,
+} from "@/lib/model-options"
 
 const MANJU_BASE_URL = process.env.MANJU_BASE_URL ?? "https://manjuapi.com"
 const manjuRequestTimeoutMs = 60_000
 
 interface ManjuImageRequest {
+  model: string
   prompt: string
   quality: string
   ratio: string
   referenceImages?: string[]
+}
+
+export interface ManjuUpstreamTask {
+  error?: string
+  id: string
+  pollUrl?: string
+  resultUrls?: string[]
+}
+
+interface ManjuUpstreamTaskEnvelope {
+  provider: "manju"
+  tasks: ManjuUpstreamTask[]
 }
 
 interface ManjuTaskResponse {
@@ -28,6 +46,8 @@ export async function createManjuGeminiImageTask(request: ManjuImageRequest): Pr
   const payload = buildManjuChatImagePayload(request)
 
   logManju("image.submit.input", {
+    model: request.model,
+    apiModel: getManjuImageApiModel(request.model),
     promptLength: request.prompt.length,
     quality: request.quality,
     ratio: request.ratio,
@@ -110,9 +130,52 @@ export function assertManjuConfigured() {
   }
 }
 
+export function buildManjuUpstreamTaskId(tasks: ManjuUpstreamTask[]) {
+  const normalizedTasks = tasks
+    .map((task) => ({
+      error: task.error || undefined,
+      id: task.id,
+      pollUrl: task.pollUrl || undefined,
+      resultUrls: task.resultUrls && task.resultUrls.length > 0 ? task.resultUrls : undefined,
+    }))
+    .filter((task) => task.id || task.pollUrl)
+
+  if (normalizedTasks.length === 1) return normalizedTasks[0].pollUrl || normalizedTasks[0].id
+
+  const envelope: ManjuUpstreamTaskEnvelope = {
+    provider: "manju",
+    tasks: normalizedTasks,
+  }
+  return JSON.stringify(envelope)
+}
+
+export function parseManjuUpstreamTaskId(value: string): ManjuUpstreamTask[] {
+  if (!value) return []
+
+  try {
+    const parsed = JSON.parse(value) as Partial<ManjuUpstreamTaskEnvelope>
+    if (parsed?.provider === "manju" && Array.isArray(parsed.tasks)) {
+      return parsed.tasks
+        .map((task) => ({
+          error: typeof task?.error === "string" ? task.error : undefined,
+          id: typeof task?.id === "string" ? task.id : "",
+          pollUrl: typeof task?.pollUrl === "string" ? task.pollUrl : undefined,
+          resultUrls: Array.isArray(task?.resultUrls)
+            ? task.resultUrls.filter((url): url is string => typeof url === "string" && url.length > 0)
+            : undefined,
+        }))
+        .filter((task) => task.id || task.pollUrl)
+    }
+  } catch {
+    return [{ id: extractManjuTaskId(value), pollUrl: normalizeManjuPollUrl(value) || undefined }]
+  }
+
+  return [{ id: extractManjuTaskId(value), pollUrl: normalizeManjuPollUrl(value) || undefined }]
+}
+
 function buildManjuChatImagePayload(request: ManjuImageRequest) {
   return {
-    model: manjuGeminiImageApiModelName,
+    model: getManjuImageApiModel(request.model),
     stream: false,
     aspect_ratio: request.ratio,
     output_resolution: normalizeManjuImageResolution(request.quality),
@@ -138,6 +201,12 @@ function buildManjuChatImagePayload(request: ManjuImageRequest) {
 
 function normalizeManjuImageResolution(quality: string) {
   return quality.trim().toUpperCase() === "2K" ? "2K" : "1K"
+}
+
+function getManjuImageApiModel(model: string) {
+  if (model === manjuGeminiImageModelName) return manjuGeminiImageApiModelName
+  if (model === manjuNanoBanana2ImageModelName) return manjuNanoBanana2ImageApiModelName
+  return model
 }
 
 function getManjuTaskStatusPath(taskIdOrPollUrl: string) {
