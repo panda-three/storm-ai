@@ -295,7 +295,7 @@ async function manjuRequest(pathOrUrl: string, method: "GET" | "POST", body?: Re
 }
 
 function extractManjuError(value: unknown) {
-  return findStringValue(value, ["message", "error_message", "error", "detail", "details"])
+  return findStringValue(value, ["fail_reason", "failure_reason", "message", "error_message", "error", "detail", "details"])
 }
 
 function findStringValue(value: unknown, keys: string[]): string {
@@ -342,7 +342,24 @@ function extractManjuImageUrls(value: unknown) {
   return uniqueUrls(
     extractMediaUrls(
       value,
-      ["image_url", "image_urls", "final_url", "result_url", "download_url", "url", "content", "data"],
+      [
+        "detail_url",
+        "download_url",
+        "file_url",
+        "final_url",
+        "image",
+        "image_url",
+        "image_urls",
+        "images",
+        "output",
+        "output_url",
+        "result",
+        "result_url",
+        "url",
+        "urls",
+        "content",
+        "data",
+      ],
       ["jpg", "jpeg", "png", "webp", "gif", "avif"]
     )
   )

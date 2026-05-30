@@ -32,6 +32,7 @@ const baseRetryMs = 60 * 1000
 const maxRetryMs = 30 * 60 * 1000
 const interactiveMinCheckMs = 10 * 1000
 const interactiveLockMs = 45 * 1000
+const imageMissingResultRetryMs = 90 * 1000
 
 export interface SyncManjuGenerationJobResult {
   job: GenerationJob
@@ -92,8 +93,23 @@ export async function syncManjuGenerationJob(
         continue
       }
 
-      if (result.status === "failed" || result.status === "completed") {
-        taskErrors.push(result.taskError || (result.status === "completed" ? "任务已完成，但接口没有返回图片地址。" : "Manju 图片生成失败。"))
+      if (result.status === "completed") {
+        if (!shouldStopWaitingForImageUrl(lockedJob)) {
+          hasPendingTask = true
+          syncedTasks.push(task)
+          continue
+        }
+
+        taskErrors.push(result.taskError || "任务已完成，但接口没有返回图片地址。")
+        syncedTasks.push({
+          ...task,
+          error: result.taskError || "任务已完成，但接口没有返回图片地址。",
+        })
+        continue
+      }
+
+      if (result.status === "failed") {
+        taskErrors.push(result.taskError || "Manju 图片生成失败。")
         syncedTasks.push({
           ...task,
           error: result.taskError || "Manju 图片生成失败。",
@@ -115,7 +131,8 @@ export async function syncManjuGenerationJob(
     })
     const resultUrls = persisted.resultUrls
     const isFinished = !hasPendingTask
-    const missingResultError = isFinished && resultUrls.length === 0 ? "任务已完成，但接口没有返回图片地址。" : ""
+    const missingResultError =
+      isFinished && resultUrls.length === 0 && taskErrors.length === 0 ? "任务已完成，但接口没有返回图片地址。" : ""
     const isPartialImageResult = isFinished && resultUrls.length > 0 && resultUrls.length < expectedResultCount
     const partialResultError = isPartialImageResult
       ? buildPartialImageMessage({
@@ -124,9 +141,9 @@ export async function syncManjuGenerationJob(
           successCount: resultUrls.length,
         })
       : ""
-    const taskError = missingResultError || partialResultError || persisted.error || taskErrors.join("；")
+    const taskError = taskErrors.join("；") || missingResultError || partialResultError || persisted.error || ""
     const status: GenerationJobStatus =
-      missingResultError
+      isFinished && resultUrls.length === 0
         ? "failed"
         : isPartialImageResult
           ? "partial_completed"
@@ -238,6 +255,10 @@ export function shouldSyncManjuJobInteractively(job: GenerationJob) {
 
 function isManjuAsyncImageJob(job: GenerationJob) {
   return job.provider === "manju" && job.type === "image" && Boolean(job.upstream_task_id)
+}
+
+function shouldStopWaitingForImageUrl(job: GenerationJob) {
+  return Date.now() - Date.parse(job.created_at) >= imageMissingResultRetryMs
 }
 
 async function persistResultUrls({
