@@ -10,12 +10,11 @@ import { formatLedgerDateTime } from "@/lib/date-time"
 import { formatLedgerCodeForDisplay } from "@/lib/ledger-display"
 import { formatModelNameForDisplay } from "@/lib/model-display"
 import {
-  apimartGptImage2ModelName,
   getImageRatiosForSelection,
   imageModelSettings,
   isGrokImagineImageModel,
   isApimartImageModel,
-  manjuGeminiImageModelName,
+  isManjuImageModel,
   videoModelSettings,
   yunwuSeedance15ProVideoModelName,
   yunwuVeo31FastVideoModelName,
@@ -884,11 +883,13 @@ function getFailedTaskPollDelayMs(attempts: number, task?: TaskStatusResponse) {
   return Math.min(5 * 60 * 1000, 15000 * 2 ** Math.min(attempts, 4))
 }
 
-function getMaxTaskPollAttempts(taskProjects: ProjectItem[]) {
-  if (taskProjects.some((item) => item.model === apimartGptImage2ModelName)) return 180
-  if (taskProjects.some((item) => item.model === manjuGeminiImageModelName)) return 180
-  if (taskProjects.some((item) => item.model === "image2-Toa通道")) return 180
-  return taskProjects.some((item) => item.type === "视频") ? 160 : 72
+function getTaskPollWindowMs(taskProjects: ProjectItem[]) {
+  if (taskProjects.some((item) => item.model && isManjuImageModel(item.model))) return 30 * 60 * 1000
+  if (taskProjects.some((item) => item.type === "视频")) return 60 * 60 * 1000
+  if (taskProjects.some((item) => item.model === "image2-M通道" || item.model === "image2-Toa通道")) {
+    return 60 * 60 * 1000
+  }
+  return 30 * 60 * 1000
 }
 
 function normalizeGenerationProgress(value: unknown, fallback = 0) {
@@ -966,9 +967,20 @@ export function ChatArea({
 }: ChatAreaProps) {
   const meta = sectionMeta[activeSection]
   const modelDisplayNames = Object.fromEntries(modelConfigs.map((config) => [config.model, config.display_name]))
+  const projectsRef = useRef(projects)
+  const taskPollingStateRef = useRef(new Map<string, { attempts: number; startedAt: number }>())
+  const pendingTaskIds = projects
+    .filter((project) => project.status === "生成中" && project.taskId && !isOptimisticTaskId(project.taskId))
+    .map((project) => project.taskId as string)
+    .sort()
+  const pendingTaskIdsKey = Array.from(new Set(pendingTaskIds)).join("\u001f")
 
   useEffect(() => {
-    const pendingProjects = projects.filter((project) => project.status === "生成中" && project.taskId && !isOptimisticTaskId(project.taskId))
+    projectsRef.current = projects
+  }, [projects])
+
+  useEffect(() => {
+    const pendingProjects = projectsRef.current.filter((project) => project.status === "生成中" && project.taskId && !isOptimisticTaskId(project.taskId))
     const projectsByTaskId = new Map<string, ProjectItem[]>()
     let active = true
     const timers: number[] = []
@@ -977,12 +989,19 @@ export function ChatArea({
       if (!project.taskId) return
       projectsByTaskId.set(project.taskId, [...(projectsByTaskId.get(project.taskId) ?? []), project])
     })
+    taskPollingStateRef.current.forEach((_, taskId) => {
+      if (!projectsByTaskId.has(taskId)) {
+        taskPollingStateRef.current.delete(taskId)
+      }
+    })
 
     projectsByTaskId.forEach((taskProjects, taskId) => {
-      let attempts = 0
-      const maxAttempts = getMaxTaskPollAttempts(taskProjects)
+      const pollingState = taskPollingStateRef.current.get(taskId) ?? { attempts: 0, startedAt: Date.now() }
+      taskPollingStateRef.current.set(taskId, pollingState)
+      const pollWindowMs = getTaskPollWindowMs(taskProjects)
+      const getCurrentTaskProjects = () => projectsRef.current.filter((item) => item.taskId === taskId)
       const stopTaskProjects = (taskError: string) => {
-        taskProjects.forEach((item) => {
+        getCurrentTaskProjects().forEach((item) => {
           onProjectUpdate({
             ...item,
             status: "失败",
@@ -997,7 +1016,11 @@ export function ChatArea({
       }
 
       const reconcile = () => {
-        attempts += 1
+        if (Date.now() - pollingState.startedAt >= pollWindowMs) {
+          return
+        }
+
+        pollingState.attempts += 1
         getCurrentAccessToken()
           .then((accessToken) =>
             fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
@@ -1024,13 +1047,16 @@ export function ChatArea({
               throw new Error(getTaskStatusError(task))
             }
 
+            const currentTaskProjects = getCurrentTaskProjects()
+            const currentProject = currentTaskProjects[0]
+            if (!currentProject) return
             const resolved =
-              taskProjects[0].type === "视频"
-                ? resolveVideoTaskProject(task, taskProjects[0].previewUrl)
-                : resolveImageTaskProject(task, taskProjects[0].previewUrl)
+              currentProject.type === "视频"
+                ? resolveVideoTaskProject(task, currentProject.previewUrl)
+                : resolveImageTaskProject(task, currentProject.previewUrl)
 
             if (resolved.status === "生成中") {
-              taskProjects.forEach((item) => {
+              currentTaskProjects.forEach((item) => {
                 onProjectUpdate({
                   ...item,
                   progress: Math.max(item.progress ?? 0, resolved.progress),
@@ -1039,16 +1065,16 @@ export function ChatArea({
                 })
               })
 
-              if (attempts < maxAttempts) {
-                timers.push(window.setTimeout(reconcile, getPendingTaskPollDelayMs(attempts, task)))
+              if (Date.now() - pollingState.startedAt < pollWindowMs) {
+                timers.push(window.setTimeout(reconcile, getPendingTaskPollDelayMs(pollingState.attempts, task)))
               }
               return
             }
 
             onProjectUpdate({
-              ...taskProjects[0],
+              ...currentProject,
               status: resolved.status,
-              imageUrls: "imageUrls" in resolved ? resolved.imageUrls : taskProjects[0].imageUrls,
+              imageUrls: "imageUrls" in resolved ? resolved.imageUrls : currentProject.imageUrls,
               progress: resolved.progress,
               previewUrl: resolved.previewUrl,
               stage: resolved.stage,
@@ -1068,8 +1094,8 @@ export function ChatArea({
               taskId,
             })
 
-            if (active && attempts < maxAttempts && !isLegacyUpstreamTaskId(taskId)) {
-              timers.push(window.setTimeout(reconcile, getFailedTaskPollDelayMs(attempts)))
+            if (active && Date.now() - pollingState.startedAt < pollWindowMs && !isLegacyUpstreamTaskId(taskId)) {
+              timers.push(window.setTimeout(reconcile, getFailedTaskPollDelayMs(pollingState.attempts)))
             }
           })
       }
@@ -1081,7 +1107,7 @@ export function ChatArea({
       active = false
       timers.forEach((timer) => window.clearTimeout(timer))
     }
-  }, [onProjectUpdate, projects])
+  }, [onProjectUpdate, pendingTaskIdsKey])
 
   const handleImageGenerated = (result: ImageResult) => {
     onProjectAdd({

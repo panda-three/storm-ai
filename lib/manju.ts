@@ -1,7 +1,11 @@
 import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-types"
 import {
+  manjuGemini4KImageApiModelName,
+  manjuGemini4KImageModelName,
   manjuGeminiImageApiModelName,
   manjuGeminiImageModelName,
+  manjuNanoBanana24KImageApiModelName,
+  manjuNanoBanana24KImageModelName,
   manjuNanoBanana2ImageApiModelName,
   manjuNanoBanana2ImageModelName,
 } from "@/lib/model-options"
@@ -200,12 +204,16 @@ function buildManjuChatImagePayload(request: ManjuImageRequest) {
 }
 
 function normalizeManjuImageResolution(quality: string) {
-  return quality.trim().toUpperCase() === "2K" ? "2K" : "1K"
+  const normalized = quality.trim().toUpperCase()
+  if (normalized === "4K") return "4K"
+  return normalized === "2K" ? "2K" : "1K"
 }
 
 function getManjuImageApiModel(model: string) {
   if (model === manjuGeminiImageModelName) return manjuGeminiImageApiModelName
+  if (model === manjuGemini4KImageModelName) return manjuGemini4KImageApiModelName
   if (model === manjuNanoBanana2ImageModelName) return manjuNanoBanana2ImageApiModelName
+  if (model === manjuNanoBanana24KImageModelName) return manjuNanoBanana24KImageApiModelName
   return model
 }
 

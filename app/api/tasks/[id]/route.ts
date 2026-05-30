@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server"
 import {
-  failGenerationJobWithRefund,
   deleteGenerationJobForUser,
-  getGenerationJobExpiresAt,
   loadGenerationJobForUser,
-  updateActiveGenerationJob,
   normalizeJobTaskStatus,
   recoverStaleGenerationJob,
   isTerminalGenerationJobStatus,
@@ -16,13 +13,9 @@ import {
 } from "@/lib/generation-jobs"
 import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
 import { syncManjuGenerationJob } from "@/lib/manju-task-sync"
-import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 import { syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
 import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
 import { getServerErrorStatus, requireAuthenticatedUser } from "@/lib/server-supabase"
-import { buildGenerationFailureRefundReason } from "@/lib/generation-ledger"
-
-const videoMissingResultRetryMs = 90 * 1000
 
 export async function GET(
   request: Request,
@@ -53,66 +46,6 @@ export async function GET(
 
     if (!recoveredJob.upstream_task_id) {
       return NextResponse.json(normalizeJobTaskStatus(recoveredJob))
-    }
-
-    if (recoveredJob.provider === "yunwu" && recoveredJob.type === "video") {
-      const result = await getYunwuVideoTaskStatus(recoveredJob.upstream_task_id, recoveredJob.model).catch(async (error) => {
-        const message = error instanceof Error ? error.message : "任务状态查询失败。"
-        return updateActiveGenerationJob(recoveredJob.id, {
-          last_checked_at: new Date().toISOString(),
-          last_sync_error: message,
-          sync_locked_until: null,
-        })
-      })
-
-      if (!result || "id" in result) {
-        return NextResponse.json(normalizeJobTaskStatus(result ?? recoveredJob))
-      }
-
-      const resultUrls = result.videoUrl ? [result.videoUrl] : []
-      const missingResultError =
-        result.status === "completed" && resultUrls.length === 0 && shouldStopWaitingForVideoUrl(recoveredJob)
-          ? "任务已完成，但接口没有返回视频地址。"
-          : ""
-      const shouldRetryMissingVideoResult = result.status === "completed" && resultUrls.length === 0 && !missingResultError
-      const taskError = result.taskError || missingResultError
-      const status = taskError && result.status === "completed" ? "failed" : shouldRetryMissingVideoResult ? "processing" : result.status
-
-      if (shouldRetryMissingVideoResult) {
-        console.warn("[Tasks] video completed without url, retrying", {
-          jobId: recoveredJob.id,
-          provider: recoveredJob.provider,
-          upstreamTaskId: recoveredJob.upstream_task_id,
-        })
-      }
-
-      if (status === "failed") {
-        const failedJob = await failGenerationJobWithRefund({
-          jobId: recoveredJob.id,
-          reason: buildGenerationFailureRefundReason({
-            error: taskError,
-            model: recoveredJob.model,
-            provider: recoveredJob.provider,
-            type: recoveredJob.type,
-          }),
-        })
-        return NextResponse.json(normalizeJobTaskStatus(failedJob))
-      }
-
-      const completedAt = status === "completed" ? recoveredJob.completed_at ?? new Date().toISOString() : recoveredJob.completed_at
-      const nextJob = await updateActiveGenerationJob(recoveredJob.id, {
-        completed_at: completedAt,
-        expires_at: status === "completed" && completedAt ? recoveredJob.expires_at ?? getGenerationJobExpiresAt(completedAt) : recoveredJob.expires_at,
-        last_checked_at: new Date().toISOString(),
-        last_sync_error: null,
-        next_check_at: status === "completed" ? new Date().toISOString() : recoveredJob.next_check_at,
-        result_urls: resultUrls.length > 0 ? resultUrls : recoveredJob.result_urls,
-        status,
-        sync_locked_until: null,
-        task_error: taskError || null,
-      })
-
-      return NextResponse.json(normalizeJobTaskStatus(nextJob ?? recoveredJob))
     }
 
     if (recoveredJob.provider === "toapis") {
@@ -166,10 +99,6 @@ export async function GET(
       { status: getServerErrorStatus(error) }
     )
   }
-}
-
-function shouldStopWaitingForVideoUrl(job: GenerationJob) {
-  return Date.now() - Date.parse(job.created_at) >= videoMissingResultRetryMs
 }
 
 export async function DELETE(

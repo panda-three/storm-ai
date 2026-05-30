@@ -20,7 +20,7 @@ import { buildGenerationFailureRefundReason } from "@/lib/generation-ledger"
 
 const baseRetryMs = 60 * 1000
 const maxRetryMs = 30 * 60 * 1000
-const interactiveMinCheckMs = 4 * 1000
+const interactiveMinCheckMs = 10 * 1000
 const interactiveLockMs = 45 * 1000
 
 export interface SyncApimartGenerationJobResult {

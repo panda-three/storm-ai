@@ -20,8 +20,12 @@ export const vectorEngineGeminiImageApiModelName = yunwuGeminiImageModelName
 export const vectorEngineImageProviderName = "vectorengine"
 export const manjuGeminiImageModelName = "gemini-3.0-pro-image-manju"
 export const manjuGeminiImageApiModelName = "gemini-3.0-pro-image"
+export const manjuGemini4KImageModelName = "gemini-3.0-pro-image-4k-manju"
+export const manjuGemini4KImageApiModelName = "gemini-3.0-pro-image 4K"
 export const manjuNanoBanana2ImageModelName = "nano-banana-2-manju"
 export const manjuNanoBanana2ImageApiModelName = "Nano Banana 2"
+export const manjuNanoBanana24KImageModelName = "nano-banana-2-4k-manju"
+export const manjuNanoBanana24KImageApiModelName = "Nano Banana 2 4K"
 export const manjuImageProviderName = "manju"
 export const manjuGeminiImageRatios = ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"]
 export const grokImagineImageModelName = "grok-imagine-image"
@@ -43,6 +47,8 @@ export const imageModelOptions = [
   vectorEngineGeminiImageModelName,
   manjuGeminiImageModelName,
   manjuNanoBanana2ImageModelName,
+  manjuGemini4KImageModelName,
+  manjuNanoBanana24KImageModelName,
   gptImage2AllModelName,
   apimartGptImage2ModelName,
   toaGptImage2ModelName,
@@ -79,6 +85,14 @@ export const imageModelSettings: Record<
   },
   [manjuNanoBanana2ImageModelName]: {
     qualities: ["1K", "2K"],
+    ratios: manjuGeminiImageRatios,
+  },
+  [manjuGemini4KImageModelName]: {
+    qualities: ["4K"],
+    ratios: manjuGeminiImageRatios,
+  },
+  [manjuNanoBanana24KImageModelName]: {
+    qualities: ["4K"],
     ratios: manjuGeminiImageRatios,
   },
   [yunwuSeedream5ImageModelName]: {
@@ -124,11 +138,11 @@ export function isVectorEngineGeminiImageModel(model: string) {
 }
 
 export function isManjuGeminiImageModel(model: string) {
-  return model === manjuGeminiImageModelName
+  return model === manjuGeminiImageModelName || model === manjuGemini4KImageModelName
 }
 
 export function isManjuNanoBanana2ImageModel(model: string) {
-  return model === manjuNanoBanana2ImageModelName
+  return model === manjuNanoBanana2ImageModelName || model === manjuNanoBanana24KImageModelName
 }
 
 export function isYunwuGptImageModel(model: string) {
