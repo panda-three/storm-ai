@@ -111,7 +111,7 @@ export async function POST(request: Request) {
     const model = String(getValue("model") ?? yunwuGeminiImageModelName)
     jobModel = model
     const quality = String(getValue("quality") ?? "2K")
-    const ratio = String(getValue("ratio") ?? "1:1")
+    const rawRatio = String(getValue("ratio") ?? "1:1")
     const imageCount = parseImageCount(getValue("imageCount"))
     clientRequestId = String(getValue("clientRequestId") ?? "").trim()
     const referenceFiles = body instanceof FormData ? body.getAll("referenceImages").filter(isImageFile) : []
@@ -126,7 +126,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "请选择当前模型支持的图片清晰度。" }, { status: 400 })
     }
 
-    if (!isValidImageRatioForQuality(model, quality, ratio)) {
+    if (!isValidImageRatioForQuality(model, quality, rawRatio)) {
       return NextResponse.json(
         {
           ok: false,
@@ -136,9 +136,11 @@ export async function POST(request: Request) {
       )
     }
 
-    if (!modelSettings.ratios.includes(ratio)) {
+    if (!modelSettings.ratios.includes(rawRatio)) {
       return NextResponse.json({ ok: false, error: "请选择当前模型支持的图片比例。" }, { status: 400 })
     }
+
+    const ratio = normalizeImageRatioForSubmission(model, rawRatio)
 
     stage = "validate_reference_images"
     validateReferenceFiles(referenceFiles)
@@ -852,6 +854,13 @@ function parseImageCount(value: FormDataEntryValue | unknown) {
   }
 
   return parsed
+}
+
+function normalizeImageRatioForSubmission(model: string, ratio: string) {
+  if (!isManjuImageModel(model)) return ratio
+
+  const value = ratio.trim()
+  return value && value !== "默认" && value !== "auto" ? value : "1:1"
 }
 
 function calculatePartialRefundAmount(amount: number, successCount: number, expectedResultCount: number) {

@@ -181,7 +181,7 @@ function buildManjuChatImagePayload(request: ManjuImageRequest) {
   return {
     model: getManjuImageApiModel(request.model),
     stream: false,
-    aspect_ratio: request.ratio,
+    aspect_ratio: normalizeManjuImageRatio(request.ratio),
     output_resolution: normalizeManjuImageResolution(request.quality),
     messages: [
       {
@@ -201,6 +201,11 @@ function buildManjuChatImagePayload(request: ManjuImageRequest) {
       },
     ],
   }
+}
+
+function normalizeManjuImageRatio(ratio: string) {
+  const value = ratio.trim()
+  return value && value !== "默认" && value !== "auto" ? value : "1:1"
 }
 
 function normalizeManjuImageResolution(quality: string) {
