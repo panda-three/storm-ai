@@ -11,7 +11,9 @@ import {
 } from "@/lib/model-options"
 
 const MANJU_BASE_URL = process.env.MANJU_BASE_URL ?? "https://manjuapi.com"
-const manjuRequestTimeoutMs = 60_000
+const manjuRequestTimeoutMs = getPositiveEnvNumber("MANJU_REQUEST_TIMEOUT_MS", 60_000)
+const manjuImageSubmitTimeoutMs = getPositiveEnvNumber("MANJU_IMAGE_SUBMIT_TIMEOUT_MS", 360_000)
+const manjuImage4KSubmitTimeoutMs = getPositiveEnvNumber("MANJU_IMAGE_4K_SUBMIT_TIMEOUT_MS", 600_000)
 
 interface ManjuImageRequest {
   model: string
@@ -58,7 +60,10 @@ export async function createManjuGeminiImageTask(request: ManjuImageRequest): Pr
     referenceImages: request.referenceImages?.length ?? 0,
   })
 
-  const data = await manjuRequest("/v1/chat/completions", "POST", payload) as ManjuTaskResponse
+  const data = await manjuRequest("/v1/chat/completions", "POST", payload, {
+    timeoutMessage: buildManjuImageSubmitTimeoutMessage(request),
+    timeoutMs: getManjuImageSubmitTimeoutMs(request),
+  }) as ManjuTaskResponse
   const taskId = findStringValue(data, ["task_id", "taskId", "id"])
 
   if (!taskId) {
@@ -260,7 +265,18 @@ function normalizeManjuPollUrl(value: string) {
   return url.toString()
 }
 
-async function manjuRequest(pathOrUrl: string, method: "GET" | "POST", body?: Record<string, unknown>) {
+async function manjuRequest(
+  pathOrUrl: string,
+  method: "GET" | "POST",
+  body?: Record<string, unknown>,
+  {
+    timeoutMessage = "Manju 请求等待超时，请稍后重试。",
+    timeoutMs = manjuRequestTimeoutMs,
+  }: {
+    timeoutMessage?: string
+    timeoutMs?: number
+  } = {}
+) {
   const apiKey = process.env.MANJU_API_KEY
   const url = new URL(pathOrUrl, MANJU_BASE_URL)
   let response: Response
@@ -273,9 +289,12 @@ async function manjuRequest(pathOrUrl: string, method: "GET" | "POST", body?: Re
         ...(body ? { "Content-Type": "application/json" } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(manjuRequestTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (error) {
+    if (isTimeoutError(error)) {
+      throw new Error(timeoutMessage, { cause: error })
+    }
     throw new Error(`无法连接 Manju：${error instanceof Error ? error.message : "网络请求失败。"}`, { cause: error })
   }
 
@@ -292,6 +311,46 @@ async function manjuRequest(pathOrUrl: string, method: "GET" | "POST", body?: Re
   }
 
   return data
+}
+
+function getManjuImageSubmitTimeoutMs(request: ManjuImageRequest) {
+  if (isManju4KImageRequest(request)) return manjuImage4KSubmitTimeoutMs
+  return manjuImageSubmitTimeoutMs
+}
+
+function buildManjuImageSubmitTimeoutMessage(request: ManjuImageRequest) {
+  if (isManju4KImageRequest(request)) {
+    return "Manju 4K 生图提交等待超时，请稍后重试，或降低清晰度、减少参考图后再试。"
+  }
+
+  return "Manju 生图提交等待超时，请稍后重试，或减少参考图后再试。"
+}
+
+function isManju4KImageRequest(request: ManjuImageRequest) {
+  return (
+    request.quality.trim().toUpperCase() === "4K" ||
+    request.model === manjuGemini4KImageModelName ||
+    request.model === manjuNanoBanana24KImageModelName
+  )
+}
+
+function getPositiveEnvNumber(key: string, fallback: number) {
+  const value = Number.parseInt(process.env[key] ?? "", 10)
+  if (!Number.isFinite(value) || value <= 0) return fallback
+  return value
+}
+
+function isTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) return false
+
+  const message = error.message.toLowerCase()
+  return (
+    error.name === "AbortError" ||
+    error.name === "TimeoutError" ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("operation was aborted")
+  )
 }
 
 function extractManjuError(value: unknown) {
