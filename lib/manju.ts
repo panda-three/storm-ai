@@ -59,6 +59,7 @@ export async function createManjuGeminiImageTask(request: ManjuImageRequest): Pr
     ratio: request.ratio,
     referenceImages: request.referenceImages?.length ?? 0,
   })
+  logManju("image.submit.payload", summarizeManjuImagePayload(payload))
 
   const data = await manjuRequest("/v1/chat/completions", "POST", payload, {
     timeoutMessage: buildManjuImageSubmitTimeoutMessage(request),
@@ -205,6 +206,22 @@ function buildManjuChatImagePayload(request: ManjuImageRequest) {
         ],
       },
     ],
+  }
+}
+
+function summarizeManjuImagePayload(payload: ReturnType<typeof buildManjuChatImagePayload>) {
+  const content = payload.messages[0]?.content ?? []
+  const imageUrlCount = content.filter((item) => item.type === "image_url").length
+  const textCount = content.filter((item) => item.type === "text").length
+
+  return {
+    aspect_ratio: payload.aspect_ratio,
+    contentItems: content.length,
+    imageUrlCount,
+    model: payload.model,
+    output_resolution: payload.output_resolution,
+    stream: payload.stream,
+    textCount,
   }
 }
 
