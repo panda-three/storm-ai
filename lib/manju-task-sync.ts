@@ -1,6 +1,7 @@
 import {
   buildManjuUpstreamTaskId,
   getManjuImageTaskStatus,
+  getManjuVideoTaskStatus,
   isManjuRateLimitError,
   parseManjuUpstreamTaskId,
   type ManjuUpstreamTask,
@@ -33,6 +34,7 @@ const maxRetryMs = 30 * 60 * 1000
 const interactiveMinCheckMs = 10 * 1000
 const interactiveLockMs = 45 * 1000
 const imageMissingResultRetryMs = 90 * 1000
+const videoMissingResultRetryMs = 90 * 1000
 
 export interface SyncManjuGenerationJobResult {
   job: GenerationJob
@@ -44,7 +46,7 @@ export async function syncManjuGenerationJob(
   job: GenerationJob,
   { mode = "scheduled" }: { mode?: "interactive" | "scheduled" } = {}
 ): Promise<SyncManjuGenerationJobResult> {
-  if (!isManjuAsyncImageJob(job) || isTerminalGenerationJobStatus(job.status)) {
+  if (!isManjuAsyncJob(job) || isTerminalGenerationJobStatus(job.status)) {
     return { job, locked: false, status: "skipped" }
   }
 
@@ -71,7 +73,7 @@ export async function syncManjuGenerationJob(
   })
 
   try {
-    const expectedResultCount = Math.max(1, lockedJob.expected_result_count)
+    const expectedResultCount = lockedJob.type === "image" ? Math.max(1, lockedJob.expected_result_count) : 1
     const tasks = parseManjuUpstreamTaskId(lockedJob.upstream_task_id)
     const syncedTasks: ManjuUpstreamTask[] = []
     const taskErrors: string[] = []
@@ -83,36 +85,41 @@ export async function syncManjuGenerationJob(
         continue
       }
 
-      const result = await getManjuImageTaskStatus(task.pollUrl || task.id)
-      if (result.status === "completed" && result.imageUrls.length > 0) {
+      const result = lockedJob.type === "video"
+        ? await getManjuVideoTaskStatus(task.pollUrl || task.id)
+        : await getManjuImageTaskStatus(task.pollUrl || task.id)
+      const resultUrls = lockedJob.type === "video" ? result.videoUrl ? [result.videoUrl] : [] : result.imageUrls
+      if (result.status === "completed" && resultUrls.length > 0) {
         syncedTasks.push({
           ...task,
           id: task.id || result.taskId,
-          resultUrls: result.imageUrls,
+          resultUrls,
         })
         continue
       }
 
       if (result.status === "completed") {
-        if (!shouldStopWaitingForImageUrl(lockedJob)) {
+        if (!shouldStopWaitingForResultUrl(lockedJob)) {
           hasPendingTask = true
           syncedTasks.push(task)
           continue
         }
 
-        taskErrors.push(result.taskError || "任务已完成，但接口没有返回图片地址。")
+        const message = result.taskError || (lockedJob.type === "video" ? "任务已完成，但接口没有返回视频地址。" : "任务已完成，但接口没有返回图片地址。")
+        taskErrors.push(message)
         syncedTasks.push({
           ...task,
-          error: result.taskError || "任务已完成，但接口没有返回图片地址。",
+          error: message,
         })
         continue
       }
 
       if (result.status === "failed") {
-        taskErrors.push(result.taskError || "Manju 图片生成失败。")
+        const message = result.taskError || (lockedJob.type === "video" ? "Manju 视频生成失败。" : "Manju 图片生成失败。")
+        taskErrors.push(message)
         syncedTasks.push({
           ...task,
-          error: result.taskError || "Manju 图片生成失败。",
+          error: message,
         })
         continue
       }
@@ -125,15 +132,23 @@ export async function syncManjuGenerationJob(
       ...lockedJob.result_urls,
       ...syncedTasks.flatMap((task) => task.resultUrls ?? []),
     ]).slice(0, expectedResultCount)
-    const persisted = await persistResultUrls({
-      job: lockedJob,
-      urls: upstreamResultUrls,
-    })
+    const persisted = lockedJob.type === "image"
+      ? await persistResultUrls({
+          job: lockedJob,
+          urls: upstreamResultUrls,
+        })
+      : {
+          error: null,
+          resultUrls: upstreamResultUrls,
+          storageUrls: [] as string[],
+        }
     const resultUrls = persisted.resultUrls
     const isFinished = !hasPendingTask
     const missingResultError =
-      isFinished && resultUrls.length === 0 && taskErrors.length === 0 ? "任务已完成，但接口没有返回图片地址。" : ""
-    const isPartialImageResult = isFinished && resultUrls.length > 0 && resultUrls.length < expectedResultCount
+      isFinished && resultUrls.length === 0 && taskErrors.length === 0
+        ? lockedJob.type === "video" ? "任务已完成，但接口没有返回视频地址。" : "任务已完成，但接口没有返回图片地址。"
+        : ""
+    const isPartialImageResult = lockedJob.type === "image" && isFinished && resultUrls.length > 0 && resultUrls.length < expectedResultCount
     const partialResultError = isPartialImageResult
       ? buildPartialImageMessage({
           amount: lockedJob.amount,
@@ -214,7 +229,7 @@ export async function syncManjuGenerationJob(
     }
 
     logManjuSync(status === "partial_completed" ? "partial_completed" : status === "completed" ? "completed" : "output", {
-      imageUrls: resultUrls.length,
+      resultUrls: resultUrls.length,
       jobId: updatedJob.id,
       status,
       upstreamTaskId: updatedJob.upstream_task_id,
@@ -247,18 +262,19 @@ export async function syncManjuGenerationJob(
 }
 
 export function shouldSyncManjuJobInteractively(job: GenerationJob) {
-  if (isTerminalGenerationJobStatus(job.status) || !isManjuAsyncImageJob(job)) return false
+  if (isTerminalGenerationJobStatus(job.status) || !isManjuAsyncJob(job)) return false
   if (job.last_sync_error && job.next_check_at && Date.parse(job.next_check_at) > Date.now()) return false
   if (!job.last_checked_at) return true
   return Date.now() - Date.parse(job.last_checked_at) >= interactiveMinCheckMs
 }
 
-function isManjuAsyncImageJob(job: GenerationJob) {
-  return job.provider === "manju" && job.type === "image" && Boolean(job.upstream_task_id)
+function isManjuAsyncJob(job: GenerationJob) {
+  return job.provider === "manju" && (job.type === "image" || job.type === "video") && Boolean(job.upstream_task_id)
 }
 
-function shouldStopWaitingForImageUrl(job: GenerationJob) {
-  return Date.now() - Date.parse(job.created_at) >= imageMissingResultRetryMs
+function shouldStopWaitingForResultUrl(job: GenerationJob) {
+  const waitMs = job.type === "video" ? videoMissingResultRetryMs : imageMissingResultRetryMs
+  return Date.now() - Date.parse(job.created_at) >= waitMs
 }
 
 async function persistResultUrls({

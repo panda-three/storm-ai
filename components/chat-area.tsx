@@ -14,6 +14,7 @@ import {
   imageModelSettings,
   isGrokImagineImageModel,
   isApimartImageModel,
+  manjuGrokImagineVideoModelName,
   isManjuImageModel,
   videoModelSettings,
   yunwuSeedance15ProVideoModelName,
@@ -706,6 +707,7 @@ function getMaxVideoReferenceImages(model: string) {
 }
 
 function getVideoReferenceHelperText(model: string) {
+  if (model === manjuGrokImagineVideoModelName) return "0张文生；1-4张参考图，可用 @Image 1/@Image 2 指代"
   if (model === yunwuSeedance15ProVideoModelName) return "0张文生；1张首帧；2张首尾帧"
   return ""
 }

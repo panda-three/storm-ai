@@ -2,6 +2,7 @@ import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-
 import {
   manjuGemini4KImageApiModelName,
   manjuGemini4KImageModelName,
+  manjuGrokImagineVideoModelName,
   manjuGeminiImageApiModelName,
   manjuGeminiImageModelName,
   manjuGptImage2ApiModelName,
@@ -16,12 +17,22 @@ const MANJU_BASE_URL = process.env.MANJU_BASE_URL ?? "https://manjuapi.com"
 const manjuRequestTimeoutMs = getPositiveEnvNumber("MANJU_REQUEST_TIMEOUT_MS", 60_000)
 const manjuImageSubmitTimeoutMs = getPositiveEnvNumber("MANJU_IMAGE_SUBMIT_TIMEOUT_MS", 360_000)
 const manjuImage4KSubmitTimeoutMs = getPositiveEnvNumber("MANJU_IMAGE_4K_SUBMIT_TIMEOUT_MS", 600_000)
+const manjuVideoSubmitTimeoutMs = getPositiveEnvNumber("MANJU_VIDEO_SUBMIT_TIMEOUT_MS", 120_000)
 
 interface ManjuImageRequest {
   model: string
   prompt: string
   quality: string
   ratio: string
+  referenceImages?: string[]
+}
+
+interface ManjuVideoRequest {
+  aspectRatio: string
+  durationSeconds: number
+  model: string
+  prompt: string
+  quality: string
   referenceImages?: string[]
 }
 
@@ -131,6 +142,88 @@ export async function getManjuImageTaskStatus(taskIdOrPollUrl: string): Promise<
   }
 }
 
+export async function createManjuGrokImagineVideoTask(request: ManjuVideoRequest): Promise<GenerationResponse> {
+  assertManjuConfigured()
+
+  const payload = buildManjuGrokImagineVideoPayload(request)
+  const referenceCount = request.referenceImages?.length ?? 0
+
+  logManju("video.submit.input", {
+    aspectRatio: request.aspectRatio,
+    durationSeconds: request.durationSeconds,
+    model: request.model,
+    promptLength: request.prompt.length,
+    quality: request.quality,
+    referenceImages: referenceCount,
+  })
+  logManju("video.submit.payload", summarizeManjuVideoPayload(payload))
+
+  const data = await manjuRequest("/v1/chat/completions", "POST", payload, {
+    timeoutMessage: "Manju 视频任务提交等待超时，请稍后重试。",
+    timeoutMs: manjuVideoSubmitTimeoutMs,
+  }) as ManjuTaskResponse
+  const taskId = findStringValue(data, ["task_id", "taskId", "id"])
+
+  if (!taskId) {
+    throw new Error("Manju 视频接口未返回有效任务 ID。")
+  }
+
+  const status = normalizeManjuStatus(findStringValue(data, ["status"]) || "queued")
+  const pollUrl = normalizeManjuPollUrl(findStringValue(data, ["poll_url", "pollUrl"]))
+  const progress = findNumberValue(data, ["progress", "percentage"]) ?? (status === "completed" || status === "failed" ? 100 : 0)
+  const taskError = status === "failed" ? extractManjuError(data) || "Manju 视频生成失败。" : ""
+
+  logManju("video.submit.output", {
+    pollUrl: Boolean(pollUrl),
+    progress,
+    referenceCount: findNumberValue(data, ["reference_count", "referenceCount"]),
+    status,
+    taskId,
+    taskError,
+  })
+
+  return {
+    ok: true,
+    mode: "manju",
+    pollUrl,
+    progress,
+    raw: data,
+    taskId,
+    taskError,
+    status,
+    type: "video",
+  }
+}
+
+export async function getManjuVideoTaskStatus(taskIdOrPollUrl: string): Promise<NormalizedTaskStatus> {
+  const taskId = extractManjuTaskId(taskIdOrPollUrl)
+  const response = await manjuRequest(getManjuVideoTaskStatusPath(taskIdOrPollUrl), "GET") as ManjuTaskResponse
+  const status = normalizeManjuStatus(findStringValue(response, ["status"]) || "processing")
+  const videoUrl = status === "completed" ? extractManjuVideoUrls(response)[0] ?? "" : ""
+  const taskError = status === "failed" ? extractManjuError(response) || "Manju 视频生成失败。" : ""
+  const progress = findNumberValue(response, ["progress", "percentage"]) ?? (status === "completed" || status === "failed" ? 100 : 0)
+
+  logManju("video.sync.output", {
+    progress,
+    status,
+    taskError,
+    taskId,
+    videoUrl: Boolean(videoUrl),
+  })
+
+  return {
+    ok: true,
+    mode: "manju",
+    taskId,
+    status,
+    progress,
+    imageUrls: [],
+    videoUrl,
+    taskError,
+    raw: response,
+  }
+}
+
 export function isManjuRateLimitError(message: string) {
   const normalized = message.toLowerCase()
   return normalized.includes("rate limit") || normalized.includes("too many requests") || normalized.includes("429")
@@ -211,6 +304,45 @@ function buildManjuChatImagePayload(request: ManjuImageRequest) {
   }
 }
 
+function buildManjuGrokImagineVideoPayload(request: ManjuVideoRequest): Record<string, unknown> {
+  const referenceImages = request.referenceImages ?? []
+  const common = {
+    model: manjuGrokImagineVideoModelName,
+    duration: normalizeManjuVideoDuration(request.durationSeconds),
+    aspect_ratio: normalizeManjuVideoRatio(request.aspectRatio),
+    resolution: normalizeManjuVideoResolution(request.quality),
+  }
+
+  if (referenceImages.length === 0) {
+    return {
+      ...common,
+      prompt: request.prompt,
+    }
+  }
+
+  return {
+    ...common,
+    stream: false,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: request.prompt,
+          },
+          ...referenceImages.map((url) => ({
+            type: "image_url",
+            image_url: {
+              url,
+            },
+          })),
+        ],
+      },
+    ],
+  }
+}
+
 function summarizeManjuImagePayload(payload: ReturnType<typeof buildManjuChatImagePayload>) {
   const content = payload.messages[0]?.content ?? []
   const imageUrlCount = content.filter((item) => item.type === "image_url").length
@@ -227,6 +359,26 @@ function summarizeManjuImagePayload(payload: ReturnType<typeof buildManjuChatIma
   }
 }
 
+function summarizeManjuVideoPayload(payload: Record<string, unknown>) {
+  const messages = Array.isArray(payload.messages) ? payload.messages : []
+  const firstMessage = messages[0] && typeof messages[0] === "object" ? messages[0] as Record<string, unknown> : {}
+  const content = Array.isArray(firstMessage.content) ? firstMessage.content : []
+  const imageUrlCount = content.filter((item) => item && typeof item === "object" && (item as Record<string, unknown>).type === "image_url").length
+  const textCount = content.filter((item) => item && typeof item === "object" && (item as Record<string, unknown>).type === "text").length
+
+  return {
+    aspect_ratio: payload.aspect_ratio,
+    contentItems: content.length,
+    duration: payload.duration,
+    imageUrlCount,
+    model: payload.model,
+    promptLength: typeof payload.prompt === "string" ? payload.prompt.length : 0,
+    resolution: payload.resolution,
+    stream: payload.stream,
+    textCount,
+  }
+}
+
 function normalizeManjuImageRatio(ratio: string) {
   const value = ratio.trim()
   return value && value !== "默认" && value !== "auto" ? value : "1:1"
@@ -236,6 +388,24 @@ function normalizeManjuImageResolution(quality: string) {
   const normalized = quality.trim().toUpperCase()
   if (normalized === "4K") return "4K"
   return normalized === "2K" ? "2K" : "1K"
+}
+
+function normalizeManjuVideoDuration(durationSeconds: number) {
+  if (!Number.isFinite(durationSeconds)) return "6"
+  return String(Math.trunc(durationSeconds) || 6)
+}
+
+function normalizeManjuVideoRatio(ratio: string) {
+  const normalized = ratio.trim()
+  if (normalized === "9:16" || normalized === "1:1") return normalized
+  return "16:9"
+}
+
+function normalizeManjuVideoResolution(quality: string) {
+  const normalized = quality.trim().toUpperCase()
+  if (normalized === "480P") return "480p"
+  if (normalized === "1080P") return "1080p"
+  return "720p"
 }
 
 function getManjuImageApiModel(model: string) {
@@ -251,6 +421,12 @@ function getManjuTaskStatusPath(taskIdOrPollUrl: string) {
   const pollUrl = normalizeManjuPollUrl(taskIdOrPollUrl)
   if (pollUrl) return pollUrl
   return `/api/tasks/${encodeURIComponent(taskIdOrPollUrl)}`
+}
+
+function getManjuVideoTaskStatusPath(taskIdOrPollUrl: string) {
+  const pollUrl = normalizeManjuPollUrl(taskIdOrPollUrl)
+  if (pollUrl) return pollUrl
+  return `/v1/videos/${encodeURIComponent(taskIdOrPollUrl)}`
 }
 
 function extractManjuTaskId(taskIdOrPollUrl: string) {
@@ -281,7 +457,7 @@ function normalizeManjuPollUrl(value: string) {
     return ""
   }
 
-  if (!url.pathname.startsWith("/api/tasks/")) return ""
+  if (!url.pathname.startsWith("/api/tasks/") && !url.pathname.startsWith("/v1/videos/")) return ""
   return url.toString()
 }
 
@@ -444,16 +620,41 @@ function extractManjuImageUrls(value: unknown) {
   )
 }
 
+function extractManjuVideoUrls(value: unknown) {
+  return uniqueUrls(
+    extractMediaUrls(
+      value,
+      [
+        "download_url",
+        "file_url",
+        "final_url",
+        "output",
+        "output_url",
+        "result",
+        "url",
+        "urls",
+        "video",
+        "video_url",
+        "video_urls",
+        "videos",
+        "content",
+        "data",
+      ],
+      ["mp4", "mov", "webm", "m3u8"]
+    )
+  )
+}
+
 function extractMediaUrls(value: unknown, preferredKeys: string[], extensions: string[]) {
   const keyedUrls = new Set<string>()
   collectKeyedUrls(value, keyedUrls, preferredKeys)
 
-  const preferred = Array.from(keyedUrls).filter(isImageUrlCandidate)
+  const preferred = Array.from(keyedUrls).map(normalizeManjuMediaUrl).filter(isMediaUrlCandidate)
   if (preferred.length > 0) return preferred
 
   const urls = new Set<string>()
   collectUrls(value, urls)
-  return Array.from(urls).filter((url) => hasExtension(url, extensions))
+  return Array.from(urls).map(normalizeManjuMediaUrl).filter((url) => hasExtension(url, extensions))
 }
 
 function collectKeyedUrls(value: unknown, urls: Set<string>, preferredKeys: string[]) {
@@ -483,6 +684,9 @@ function collectUrls(value: unknown, urls: Set<string>) {
     for (const url of extractUrlsFromString(value)) {
       urls.add(url)
     }
+    if (value.startsWith("/")) {
+      urls.add(value)
+    }
     return
   }
 
@@ -502,9 +706,19 @@ function hasExtension(url: string, extensions: string[]) {
   return extensions.some((extension) => normalized.endsWith(`.${extension}`))
 }
 
-function isImageUrlCandidate(url: string) {
+function isMediaUrlCandidate(url: string) {
   if (url.startsWith("data:image/")) return true
   return /^https?:\/\//i.test(url)
+}
+
+function normalizeManjuMediaUrl(url: string) {
+  if (!url.startsWith("/")) return url
+
+  try {
+    return new URL(url, MANJU_BASE_URL).toString()
+  } catch {
+    return url
+  }
 }
 
 function extractUrlsFromString(value: string) {

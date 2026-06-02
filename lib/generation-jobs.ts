@@ -3,6 +3,7 @@ import { deleteGeneratedImageByPublicUrl, describeServerError, getGeneratedStora
 import type { GenerationKind, NormalizedTaskStatus } from "@/lib/generation-types"
 import { buildGenerationFailureRefundReason } from "@/lib/generation-ledger"
 import type { ProjectReferenceImage } from "@/lib/reference-images"
+import { getManjuVideoTaskStatus } from "@/lib/manju"
 import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 
 export type GenerationJobStatus = "submitted" | "processing" | "completed" | "failed" | "partial_completed"
@@ -465,7 +466,6 @@ export async function loadDueManjuGenerationJobs({ limit = 20 } = {}) {
     .from("generation_jobs")
     .select(generationJobSelect)
     .eq("provider", "manju")
-    .eq("type", "image")
     .in("status", ["submitted", "processing"])
     .not("upstream_task_id", "is", null)
     .lte("next_check_at", now)
@@ -675,7 +675,7 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
     })
   }
 
-  if ((job.provider === "toapis" || job.provider === "apimart" || job.provider === "manju") && job.type === "image") {
+  if ((job.provider === "toapis" || job.provider === "apimart") && job.type === "image") {
     return updateGenerationJob(job.id, {
       last_checked_at: new Date().toISOString(),
       last_sync_error: generationTimeoutMessage,
@@ -685,7 +685,7 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
   }
 
   try {
-    if (job.provider !== "yunwu" || job.type !== "video") {
+    if ((job.provider !== "yunwu" && job.provider !== "manju") || job.type !== "video") {
       return updateGenerationJob(job.id, {
         last_checked_at: new Date().toISOString(),
         last_sync_error: "旧上游任务已停止自动查询。",
@@ -694,7 +694,9 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
       })
     }
 
-    const result = await getYunwuVideoTaskStatus(job.upstream_task_id, job.model)
+    const result = job.provider === "manju"
+      ? await getManjuVideoTaskStatus(job.upstream_task_id)
+      : await getYunwuVideoTaskStatus(job.upstream_task_id, job.model)
     const resultUrls = result.videoUrl ? [result.videoUrl] : []
     const missingResultError =
       result.status === "completed" && resultUrls.length === 0 && shouldStopWaitingForVideoUrl(job)

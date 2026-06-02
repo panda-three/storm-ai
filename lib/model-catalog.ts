@@ -8,6 +8,7 @@ import {
   imageModelOptions,
   manjuGemini4KImageApiModelName,
   manjuGemini4KImageModelName,
+  manjuGrokImagineVideoModelName,
   manjuGeminiImageApiModelName,
   manjuGeminiImageModelName,
   manjuGptImage2ApiModelName,
@@ -128,6 +129,13 @@ export const modelCatalog: ModelCatalogEntry[] = [
     defaultDisplayName: "VEO 3.1 Fast",
     model: yunwuVeo31FastVideoModelName,
     provider: "yunwu",
+    type: "video",
+  },
+  {
+    apiModel: manjuGrokImagineVideoModelName,
+    defaultDisplayName: "Grok Imagine Video · Manju",
+    model: manjuGrokImagineVideoModelName,
+    provider: "manju",
     type: "video",
   },
   {

@@ -4,6 +4,7 @@ import {
   failGenerationJobWithRefund,
   updateActiveGenerationJob,
 } from "@/lib/generation-jobs"
+import { createManjuGrokImagineVideoTask } from "@/lib/manju"
 import { createYunwuVideo } from "@/lib/yunwu"
 import { calculatePricingCredits, type ModelPricing } from "@/lib/supabase"
 import {
@@ -14,7 +15,9 @@ import {
   uploadGeneratedImage,
 } from "@/lib/server-supabase"
 import {
+  isManjuVideoModel,
   isSelectableVideoModel,
+  isYunwuVideoModel,
   videoModelSettings,
   yunwuSeedance15ProVideoModelName,
   yunwuVeo31FastVideoModelName,
@@ -90,6 +93,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "请选择当前模型支持的视频比例。" }, { status: 400 })
     }
 
+    const isManjuVideo = isManjuVideoModel(model)
+    const isYunwuVideo = isYunwuVideoModel(model)
+
+    if (!isYunwuVideo && !isManjuVideo) {
+      return NextResponse.json({ ok: false, error: "请选择有效视频模型。" }, { status: 400 })
+    }
+
     const maxReferenceImages = getMaxVideoReferenceImages(model)
     validateReferenceFiles(referenceFiles, maxReferenceImages)
     validateStoredReferenceImages(storedReferenceImages, userId, maxReferenceImages)
@@ -113,7 +123,7 @@ export async function POST(request: Request) {
     const billingAmount = calculatePricingCredits(pricing)
     const billingReference = `generate_video_${Date.now()}_${crypto.randomUUID()}`
     const billingReason = `AI 视频 · ${model} · ${duration} · ${quality} · ${aspectRatio}`
-    jobProvider = "yunwu"
+    jobProvider = isManjuVideo ? "manju" : "yunwu"
 
     logGenerateVideo("input", {
       contentType: body instanceof FormData ? "multipart/form-data" : "application/json",
@@ -139,7 +149,7 @@ export async function POST(request: Request) {
       clientRequestId,
       model,
       prompt,
-      provider: "yunwu",
+      provider: jobProvider,
       quality,
       aspectRatio,
       durationSeconds: normalizeVideoDuration(duration),
@@ -163,7 +173,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         ok: true,
-        mode: "yunwu",
+        mode: jobProvider,
         status: job.status,
         taskId: job.id,
         upstreamTaskId: job.upstream_task_id ?? "",
@@ -195,9 +205,21 @@ export async function POST(request: Request) {
       quality,
       aspectRatio,
     }
-    logGenerateVideo("yunwu generation input", generationInput)
+    logGenerateVideo(`${jobProvider} generation input`, generationInput)
 
-    const result = await createYunwuVideo(generationInput)
+    const result = isManjuVideo
+      ? await createManjuGrokImagineVideoTask({
+          aspectRatio,
+          durationSeconds: normalizeVideoDuration(duration),
+          model,
+          prompt,
+          quality,
+          referenceImages: imageUrls,
+        })
+      : await createYunwuVideo(generationInput)
+    if (result.status === "failed") {
+      throw new Error(result.taskError || "视频任务提交失败。")
+    }
     upstreamTaskId = result.taskId
     const nextJob = await updateActiveGenerationJob(job.id, {
       next_check_at: new Date(Date.now() + 5000).toISOString(),
@@ -238,7 +260,7 @@ export async function POST(request: Request) {
         if (recoveredJob) {
           return NextResponse.json({
             ok: true,
-            mode: "yunwu",
+            mode: jobProvider || "yunwu",
             status: recoveredJob.status,
             taskId: recoveredJob.id,
             upstreamTaskId,

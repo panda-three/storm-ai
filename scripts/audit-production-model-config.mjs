@@ -26,6 +26,7 @@ const supported = new Set([
   "image:doubao-seedream-5-0-260128",
   "image:grok-imagine-image",
   "video:veo_3_1-fast",
+  "video:grok-imagine-video",
   "video:grok-video-3",
   "video:grok-video-3-10s",
   "video:doubao-seedance-1-5-pro-251215",

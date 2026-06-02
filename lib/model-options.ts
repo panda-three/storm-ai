@@ -40,6 +40,7 @@ export const yunwuVeo31FastVideoModelName = "veo_3_1-fast"
 export const apimartVeo31FastVideoModelName = yunwuVeo31FastVideoModelName
 export const legacyApimartVeoVideoModelName = "Gemini Veo 3.1 Fast"
 export const grokImagineVideoModelName = "Grok Imagine Video"
+export const manjuGrokImagineVideoModelName = "grok-imagine-video"
 export const grokVideo3ModelName = "grok-video-3"
 export const grokVideo310sModelName = "grok-video-3-10s"
 export const yunwuSeedance15ProVideoModelName = "doubao-seedance-1-5-pro-251215"
@@ -213,6 +214,7 @@ export function getToapisImageRatiosForQuality(quality: string) {
 
 export const videoModelOptions = [
   yunwuVeo31FastVideoModelName,
+  manjuGrokImagineVideoModelName,
   grokVideo3ModelName,
   grokVideo310sModelName,
   yunwuSeedance15ProVideoModelName,
@@ -242,10 +244,10 @@ export const videoModelSettings: Record<
     durations: ["8 秒"],
     qualities: ["720P", "1080P", "4K"],
   },
-  [grokImagineVideoModelName]: {
-    aspectRatios: ["16:9", "9:16", "1:1", "3:2", "2:3"],
-    durations: ["6 秒", "10 秒", "15 秒", "30 秒"],
-    qualities: ["480P", "720P"],
+  [manjuGrokImagineVideoModelName]: {
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    durations: ["6 秒", "10 秒", "12 秒", "16 秒", "20 秒"],
+    qualities: ["720P", "480P", "1080P"],
   },
   [grokVideo3ModelName]: {
     aspectRatios: ["1:1", "2:3", "3:2"],
@@ -275,6 +277,10 @@ export function isYunwuVideoModel(model: string) {
     model === grokVideo310sModelName ||
     model === yunwuSeedance15ProVideoModelName
   )
+}
+
+export function isManjuVideoModel(model: string) {
+  return model === manjuGrokImagineVideoModelName
 }
 
 export function isSelectableImageModel(model: string) {
