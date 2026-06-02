@@ -2,6 +2,8 @@ import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-
 import {
   manjuGemini4KImageApiModelName,
   manjuGemini4KImageModelName,
+  manjuGrokImagineImageProApiModelName,
+  manjuGrokImagineImageProModelName,
   manjuGrokImagineVideoModelName,
   manjuGeminiImageApiModelName,
   manjuGeminiImageModelName,
@@ -414,6 +416,7 @@ function getManjuImageApiModel(model: string) {
   if (model === manjuNanoBanana2ImageModelName) return manjuNanoBanana2ImageApiModelName
   if (model === manjuNanoBanana24KImageModelName) return manjuNanoBanana24KImageApiModelName
   if (model === manjuGptImage2ModelName) return manjuGptImage2ApiModelName
+  if (model === manjuGrokImagineImageProModelName) return manjuGrokImagineImageProApiModelName
   return model
 }
 
