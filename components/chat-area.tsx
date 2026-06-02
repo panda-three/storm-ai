@@ -1680,7 +1680,7 @@ function ImageWorkspace({
                   aria-invalid={error === "请先输入生图提示词。"}
                   onChange={(event) => handlePromptChange(event.target.value)}
                   className={cn(
-                    "min-h-[116px] w-full resize-none bg-transparent text-xl leading-8 outline-none placeholder:text-slate-400 sm:text-[22px]",
+                    "min-h-[150px] max-h-[50vh] w-full resize-y overflow-y-auto bg-transparent text-xl leading-8 outline-none placeholder:text-slate-400 sm:text-[22px]",
                     error === "请先输入生图提示词。" ? "text-rose-700" : "text-slate-800"
                   )}
                   placeholder="描述你想生成的图片，例如：现代极简客餐厅，浅木色地板，隐藏灯带，适合小户型。"
@@ -2172,7 +2172,7 @@ function VideoWorkspace({
                   aria-invalid={error === "请先输入视频提示词。"}
                   onChange={(event) => handlePromptChange(event.target.value)}
                   className={cn(
-                    "min-h-[116px] w-full resize-none bg-transparent text-xl leading-8 outline-none placeholder:text-slate-400 sm:text-[22px]",
+                    "min-h-[150px] max-h-[50vh] w-full resize-y overflow-y-auto bg-transparent text-xl leading-8 outline-none placeholder:text-slate-400 sm:text-[22px]",
                     error === "请先输入视频提示词。" ? "text-rose-700" : "text-slate-800"
                   )}
                   placeholder="描述你想生成的视频，例如：从客厅入口推进到餐厅，镜头平稳，展示灯光和材质。"
