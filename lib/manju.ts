@@ -4,6 +4,8 @@ import {
   manjuGemini4KImageModelName,
   manjuGeminiImageApiModelName,
   manjuGeminiImageModelName,
+  manjuGptImage2ApiModelName,
+  manjuGptImage2ModelName,
   manjuNanoBanana24KImageApiModelName,
   manjuNanoBanana24KImageModelName,
   manjuNanoBanana2ImageApiModelName,
@@ -241,6 +243,7 @@ function getManjuImageApiModel(model: string) {
   if (model === manjuGemini4KImageModelName) return manjuGemini4KImageApiModelName
   if (model === manjuNanoBanana2ImageModelName) return manjuNanoBanana2ImageApiModelName
   if (model === manjuNanoBanana24KImageModelName) return manjuNanoBanana24KImageApiModelName
+  if (model === manjuGptImage2ModelName) return manjuGptImage2ApiModelName
   return model
 }
 

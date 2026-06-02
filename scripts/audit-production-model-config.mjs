@@ -19,6 +19,7 @@ const supported = new Set([
   "image:nano-banana-2-manju",
   "image:gemini-3.0-pro-image-4k-manju",
   "image:nano-banana-2-4k-manju",
+  "image:gpt-image-2-manju",
   "image:gpt-image-2-all",
   "image:image2-M通道",
   "image:image2-Toa通道",

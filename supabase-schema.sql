@@ -790,6 +790,10 @@ values ('image', 'nano-banana-2-4k-manju', 'Nano Banana 2 4K · Manju', false, f
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+values ('image', 'gpt-image-2-manju', 'GPT Image 2 · Manju', false, false, 23)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
 values ('image', 'gpt-image-2-all', 'GPT Image 2', true, false, 20)
 on conflict (type, model) do nothing;
 
