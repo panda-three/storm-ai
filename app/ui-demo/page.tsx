@@ -28,10 +28,13 @@ import {
 } from "lucide-react"
 import {
   getImageRatiosForSelection,
+  grokVideo310sModelName,
+  grokVideo3ModelName,
   imageModelOptions,
   imageModelSettings,
   videoModelOptions,
   videoModelSettings,
+  yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 import {
   DropdownMenu,
@@ -167,12 +170,12 @@ const initialModelConfigs: DemoModelConfig[] = [
     ],
   },
   {
-    apiModel: videoModelOptions[0],
+    apiModel: yunwuVeo31FastVideoModelName,
     displayName: "VEO 3.1 Fast",
     id: "video-yunwu-veo",
     type: "video",
     provider: "云雾",
-    model: videoModelOptions[0],
+    model: yunwuVeo31FastVideoModelName,
     frontendEnabled: true,
     defaultModel: true,
     sortOrder: 1,
@@ -183,12 +186,12 @@ const initialModelConfigs: DemoModelConfig[] = [
     ],
   },
   {
-    apiModel: videoModelOptions[1],
+    apiModel: grokVideo3ModelName,
     displayName: "Grok Video 3",
     id: "video-yunwu-grok",
     type: "video",
     provider: "云雾",
-    model: videoModelOptions[1],
+    model: grokVideo3ModelName,
     frontendEnabled: true,
     defaultModel: false,
     sortOrder: 2,
@@ -197,12 +200,12 @@ const initialModelConfigs: DemoModelConfig[] = [
     ],
   },
   {
-    apiModel: videoModelOptions[2],
+    apiModel: grokVideo310sModelName,
     displayName: "Grok Video 3 10s",
     id: "video-yunwu-grok-10s",
     type: "video",
     provider: "云雾",
-    model: videoModelOptions[2],
+    model: grokVideo310sModelName,
     frontendEnabled: false,
     defaultModel: false,
     sortOrder: 3,

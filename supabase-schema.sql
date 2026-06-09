@@ -826,6 +826,10 @@ values ('video', 'grok-imagine-video', 'Grok Imagine Video · Manju', false, fal
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+values ('video', 'Veo 3.1 Fast 1080p', 'Veo 3.1 Fast 1080p · Manju', false, false, 16)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
 values ('video', 'grok-video-3', 'Grok Video 3', true, false, 20)
 on conflict (type, model) do nothing;
 

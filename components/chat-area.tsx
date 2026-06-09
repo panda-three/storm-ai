@@ -15,6 +15,7 @@ import {
   isGrokImagineImageModel,
   isApimartImageModel,
   manjuGrokImagineVideoModelName,
+  manjuVeo31Fast1080pVideoModelName,
   isManjuImageModel,
   videoModelSettings,
   yunwuSeedance15ProVideoModelName,
@@ -702,12 +703,14 @@ function ReferenceImageThumb({ image, index }: { image: ReferenceImage; index: n
 
 function getMaxVideoReferenceImages(model: string) {
   if (model === yunwuVeo31FastVideoModelName) return 3
+  if (model === manjuVeo31Fast1080pVideoModelName) return 3
   if (model === yunwuSeedance15ProVideoModelName) return 2
   return maxReferenceImages
 }
 
 function getVideoReferenceHelperText(model: string) {
   if (model === manjuGrokImagineVideoModelName) return "0张文生；1-4张参考图，可用 @Image 1/@Image 2 指代"
+  if (model === manjuVeo31Fast1080pVideoModelName) return "0张文生；1-3张参考图"
   if (model === yunwuSeedance15ProVideoModelName) return "0张文生；1张首帧；2张首尾帧"
   return ""
 }
@@ -2621,7 +2624,7 @@ function HistoryDetailPanel({
         <DetailRow label="模型" value={item.model ? formatModelNameForDisplay(item.model, undefined, modelDisplayNames) : "未记录"} />
         {item.status === "生成中" && <DetailRow label="当前阶段" value={getPendingStageLabel(item)} />}
         <DetailRow label="任务 ID" value={item.taskId ?? "示例项目无任务 ID"} />
-        {item.taskError && <DetailRow label="失败原因" value={item.taskError} />}
+        {item.taskError && <DetailRow label={item.status === "部分完成" ? "部分完成说明" : "失败原因"} value={item.taskError} />}
         <DetailRow label="提示词" value={item.prompt ?? "未记录提示词"} />
       </div>
 

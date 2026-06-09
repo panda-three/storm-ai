@@ -61,7 +61,7 @@ function getProjectType(task: TaskStatusResponse | null): ProjectType {
 function getProjectStatus(task: TaskStatusResponse | null): ProjectStatus {
   if (task?.status === "completed") return "已完成"
   if (task?.status === "partial_completed") return "部分完成"
-  if (task?.status === "failed" || task?.taskError || task?.error) return "失败"
+  if (task?.status === "failed" || task?.error) return "失败"
   return "生成中"
 }
 
@@ -371,7 +371,11 @@ export default function TaskResultPage() {
                 <span>{model}</span>
                 <span>{progress}%</span>
               </div>
-              {task?.taskError && <p className="text-sm text-rose-600">{task.taskError}</p>}
+              {task?.taskError && (
+                <p className={cn("text-sm", status === "部分完成" ? "text-amber-700" : "text-rose-600")}>
+                  {task.taskError}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-2">

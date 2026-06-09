@@ -4,7 +4,7 @@ import {
   failGenerationJobWithRefund,
   updateActiveGenerationJob,
 } from "@/lib/generation-jobs"
-import { createManjuGrokImagineVideoTask } from "@/lib/manju"
+import { createManjuVideoTask } from "@/lib/manju"
 import { createYunwuVideo } from "@/lib/yunwu"
 import { calculatePricingCredits, type ModelPricing } from "@/lib/supabase"
 import {
@@ -18,6 +18,7 @@ import {
   isManjuVideoModel,
   isSelectableVideoModel,
   isYunwuVideoModel,
+  manjuVeo31Fast1080pVideoModelName,
   videoModelSettings,
   yunwuSeedance15ProVideoModelName,
   yunwuVeo31FastVideoModelName,
@@ -208,7 +209,7 @@ export async function POST(request: Request) {
     logGenerateVideo(`${jobProvider} generation input`, generationInput)
 
     const result = isManjuVideo
-      ? await createManjuGrokImagineVideoTask({
+      ? await createManjuVideoTask({
           aspectRatio,
           durationSeconds: normalizeVideoDuration(duration),
           model,
@@ -362,7 +363,7 @@ function parseStoredReferenceImages(value: unknown): StoredReferenceImage[] {
 }
 
 function getMaxVideoReferenceImages(model: string) {
-  return model === yunwuVeo31FastVideoModelName
+  return model === yunwuVeo31FastVideoModelName || model === manjuVeo31Fast1080pVideoModelName
     ? maxYunwuVeoComponentsReferenceImages
     : model === yunwuSeedance15ProVideoModelName
       ? maxYunwuSeedance15ProReferenceImages

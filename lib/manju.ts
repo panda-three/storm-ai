@@ -13,6 +13,7 @@ import {
   manjuNanoBanana24KImageModelName,
   manjuNanoBanana2ImageApiModelName,
   manjuNanoBanana2ImageModelName,
+  manjuVeo31Fast1080pVideoModelName,
 } from "@/lib/model-options"
 
 const MANJU_BASE_URL = process.env.MANJU_BASE_URL ?? "https://manjuapi.com"
@@ -144,15 +145,16 @@ export async function getManjuImageTaskStatus(taskIdOrPollUrl: string): Promise<
   }
 }
 
-export async function createManjuGrokImagineVideoTask(request: ManjuVideoRequest): Promise<GenerationResponse> {
+export async function createManjuVideoTask(request: ManjuVideoRequest): Promise<GenerationResponse> {
   assertManjuConfigured()
 
-  const payload = buildManjuGrokImagineVideoPayload(request)
+  const payload = buildManjuVideoPayload(request)
   const referenceCount = request.referenceImages?.length ?? 0
 
   logManju("video.submit.input", {
     aspectRatio: request.aspectRatio,
     durationSeconds: request.durationSeconds,
+    apiModel: getManjuVideoApiModel(request.model),
     model: request.model,
     promptLength: request.prompt.length,
     quality: request.quality,
@@ -196,6 +198,8 @@ export async function createManjuGrokImagineVideoTask(request: ManjuVideoRequest
     type: "video",
   }
 }
+
+export const createManjuGrokImagineVideoTask = createManjuVideoTask
 
 export async function getManjuVideoTaskStatus(taskIdOrPollUrl: string): Promise<NormalizedTaskStatus> {
   const taskId = extractManjuTaskId(taskIdOrPollUrl)
@@ -306,10 +310,10 @@ function buildManjuChatImagePayload(request: ManjuImageRequest) {
   }
 }
 
-function buildManjuGrokImagineVideoPayload(request: ManjuVideoRequest): Record<string, unknown> {
+function buildManjuVideoPayload(request: ManjuVideoRequest): Record<string, unknown> {
   const referenceImages = request.referenceImages ?? []
   const common = {
-    model: manjuGrokImagineVideoModelName,
+    model: getManjuVideoApiModel(request.model),
     duration: normalizeManjuVideoDuration(request.durationSeconds),
     aspect_ratio: normalizeManjuVideoRatio(request.aspectRatio),
     resolution: normalizeManjuVideoResolution(request.quality),
@@ -417,6 +421,12 @@ function getManjuImageApiModel(model: string) {
   if (model === manjuNanoBanana24KImageModelName) return manjuNanoBanana24KImageApiModelName
   if (model === manjuGptImage2ModelName) return manjuGptImage2ApiModelName
   if (model === manjuGrokImagineImageProModelName) return manjuGrokImagineImageProApiModelName
+  return model
+}
+
+function getManjuVideoApiModel(model: string) {
+  if (model === manjuGrokImagineVideoModelName) return manjuGrokImagineVideoModelName
+  if (model === manjuVeo31Fast1080pVideoModelName) return manjuVeo31Fast1080pVideoModelName
   return model
 }
 

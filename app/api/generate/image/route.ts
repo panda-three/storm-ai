@@ -542,6 +542,7 @@ export async function POST(request: Request) {
                 amount: billingAmount,
                 expectedResultCount: imageCount,
                 successCount: imageUrls.length,
+                sourceLabel: "Manju 即时结果",
                 upstreamErrors: [...submitErrors, ...persistedImmediateError],
               })
             : [...submitErrors, ...persistedImmediateError].join("；") || null
@@ -736,6 +737,7 @@ export async function POST(request: Request) {
             amount: billingAmount,
             expectedResultCount: imageCount,
             successCount: imageUrls.length,
+            sourceLabel: isVectorEngineImage ? "VectorEngine 返回结果" : "yw 返回结果",
             upstreamErrors,
           })
         : upstreamErrors.length > 0
@@ -876,19 +878,24 @@ function buildPartialRefundReference(reference: string, successCount: number, ex
 function buildPartialImageMessage({
   amount,
   expectedResultCount,
+  sourceLabel = "上游返回结果",
   successCount,
   upstreamErrors = [],
 }: {
   amount: number
   expectedResultCount: number
+  sourceLabel?: string
   successCount: number
   upstreamErrors?: string[]
 }) {
   const failedCount = Math.max(0, expectedResultCount - successCount)
   const refundAmount = calculatePartialRefundAmount(amount, successCount, expectedResultCount)
   const refundText = refundAmount > 0 ? `已退还 ${refundAmount.toLocaleString()} 点。` : "本次未扣点，无需退款。"
-  const errorText = upstreamErrors.length > 0 ? `失败原因：${upstreamErrors.join("；")}` : ""
-  return [`已生成 ${successCount}/${expectedResultCount} 张，失败 ${failedCount} 张，${refundText}`, errorText]
+  const details =
+    upstreamErrors.length > 0
+      ? `具体原因：${upstreamErrors.join("；")}`
+      : `${sourceLabel}只得到 ${successCount}/${expectedResultCount} 个可用图片地址；如果上游后台显示已全部生成，通常是返回字段未被解析或有图片地址缺失。`
+  return [`已生成 ${successCount}/${expectedResultCount} 张，失败 ${failedCount} 张，${refundText}`, details]
     .filter(Boolean)
     .join(" ")
 }

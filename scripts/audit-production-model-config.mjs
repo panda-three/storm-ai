@@ -28,6 +28,7 @@ const supported = new Set([
   "image:grok-imagine-image",
   "video:veo_3_1-fast",
   "video:grok-imagine-video",
+  "video:Veo 3.1 Fast 1080p",
   "video:grok-video-3",
   "video:grok-video-3-10s",
   "video:doubao-seedance-1-5-pro-251215",

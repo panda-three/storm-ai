@@ -200,7 +200,7 @@ function extractMediaUrls(value: unknown, preferredKeys: string[], extensions: s
   const keyedUrls = new Set<string>()
   collectKeyedUrls(value, keyedUrls, preferredKeys)
 
-  const preferred = Array.from(keyedUrls).filter((url) => hasExtension(url, extensions))
+  const preferred = Array.from(keyedUrls).filter(isPreferredMediaUrl)
   if (preferred.length > 0) return preferred
 
   const urls = new Set<string>()
@@ -252,6 +252,11 @@ function hasExtension(url: string, extensions: string[]) {
   if (url.startsWith("data:image/")) return true
   const normalized = url.split("?")[0].toLowerCase()
   return extensions.some((extension) => normalized.endsWith(`.${extension}`))
+}
+
+function isPreferredMediaUrl(url: string) {
+  if (url.startsWith("data:image/")) return true
+  return /^https?:\/\//i.test(url)
 }
 
 function extractUrlsFromString(value: string) {

@@ -154,9 +154,11 @@ export async function syncManjuGenerationJob(
           amount: lockedJob.amount,
           expectedResultCount,
           successCount: resultUrls.length,
+          sourceLabel: "Manju 子任务已结束后",
+          upstreamErrors: [...taskErrors, persisted.error].filter((error): error is string => Boolean(error)),
         })
       : ""
-    const taskError = taskErrors.join("；") || missingResultError || partialResultError || persisted.error || ""
+    const taskError = missingResultError || partialResultError || taskErrors.join("；") || persisted.error || ""
     const status: GenerationJobStatus =
       isFinished && resultUrls.length === 0
         ? "failed"
@@ -349,16 +351,24 @@ function buildPartialRefundReference(reference: string, successCount: number, ex
 function buildPartialImageMessage({
   amount,
   expectedResultCount,
+  sourceLabel = "上游任务完成后",
   successCount,
+  upstreamErrors = [],
 }: {
   amount: number
   expectedResultCount: number
+  sourceLabel?: string
   successCount: number
+  upstreamErrors?: string[]
 }) {
   const failedCount = Math.max(0, expectedResultCount - successCount)
   const refundAmount = calculatePartialRefundAmount(amount, successCount, expectedResultCount)
   const refundText = refundAmount > 0 ? `已退还 ${refundAmount.toLocaleString()} 点。` : "本次未扣点，无需退款。"
-  return `已生成 ${successCount}/${expectedResultCount} 张，失败 ${failedCount} 张，${refundText}`
+  const details =
+    upstreamErrors.length > 0
+      ? `具体原因：${upstreamErrors.join("；")}`
+      : `${sourceLabel}只解析到 ${successCount}/${expectedResultCount} 个图片地址；如果上游后台显示已全部生成，通常是返回字段未被解析或图片地址缺失。`
+  return `已生成 ${successCount}/${expectedResultCount} 张，失败 ${failedCount} 张，${refundText} ${details}`
 }
 
 async function refundJobCredits({
