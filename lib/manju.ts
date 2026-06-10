@@ -18,8 +18,8 @@ import {
 
 const MANJU_BASE_URL = process.env.MANJU_BASE_URL ?? "https://manjuapi.com"
 const manjuRequestTimeoutMs = getPositiveEnvNumber("MANJU_REQUEST_TIMEOUT_MS", 60_000)
-const manjuImageSubmitTimeoutMs = getPositiveEnvNumber("MANJU_IMAGE_SUBMIT_TIMEOUT_MS", 360_000)
-const manjuImage4KSubmitTimeoutMs = getPositiveEnvNumber("MANJU_IMAGE_4K_SUBMIT_TIMEOUT_MS", 600_000)
+const manjuImageSubmitTimeoutMs = getPositiveEnvNumber("MANJU_IMAGE_SUBMIT_TIMEOUT_MS", 420_000)
+const manjuImage4KSubmitTimeoutMs = getPositiveEnvNumber("MANJU_IMAGE_4K_SUBMIT_TIMEOUT_MS", 420_000)
 const manjuVideoSubmitTimeoutMs = getPositiveEnvNumber("MANJU_VIDEO_SUBMIT_TIMEOUT_MS", 120_000)
 
 interface ManjuImageRequest {

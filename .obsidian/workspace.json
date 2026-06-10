@@ -94,6 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
+                "file": "docs/scripts-manual.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "反向链接"
+              "title": "scripts-manual 的反向链接列表"
             }
           },
           {
@@ -166,8 +167,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -183,11 +183,13 @@
   },
   "active": "ea90ea45f167b345",
   "lastOpenFiles": [
+    "release-checklist.md",
+    "docs/release-checklist.md",
+    "docs/scripts-manual.md",
     "docs/operations-costs.md",
     "docs/manual-release.md",
     "docs/logging.md",
     "docs/linux-deployment.md",
-    "docs/scripts-manual.md",
     "lib/manju-task-sync.ts",
     "lib/studio-options.ts",
     "app/api/image-preview",
@@ -209,7 +211,6 @@
     "problem/slow-query.md",
     "problem/slow-query~.md",
     "problem/需求文档.md",
-    "release-checklist.md",
     "docs/storm-ai-conversation-index.md",
     "docs/storm-ai-conversations.md",
     "develop1.md",

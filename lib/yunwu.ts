@@ -11,10 +11,10 @@ import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-
 
 const YUNWU_BASE_URL = process.env.YUNWU_BASE_URL ?? "https://yunwu.ai"
 const yunwuDefaultTimeoutMs = 60_000
-const yunwuGeminiImageTimeoutMs = 360_000
-const yunwuGptImageTimeoutMs = 360_000
-const yunwuSeedreamImageTimeoutMs = 360_000
-const yunwuGrokImagineImageTimeoutMs = 360_000
+const yunwuGeminiImageTimeoutMs = 420_000
+const yunwuGptImageTimeoutMs = 420_000
+const yunwuSeedreamImageTimeoutMs = 420_000
+const yunwuGrokImagineImageTimeoutMs = 420_000
 const yunwuVeo31FastApiModel = "veo3.1-fast"
 const yunwuSeedance15ProApiModel = yunwuSeedance15ProVideoModelName
 

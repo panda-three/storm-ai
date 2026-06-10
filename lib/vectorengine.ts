@@ -2,7 +2,7 @@ import { vectorEngineGeminiImageApiModelName } from "@/lib/model-options"
 
 const VECTORENGINE_BASE_URL = process.env.VECTORENGINE_BASE_URL ?? "https://api.vectorengine.cn"
 const vectorEngineDefaultTimeoutMs = 60_000
-const vectorEngineGeminiImageTimeoutMs = 360_000
+const vectorEngineGeminiImageTimeoutMs = 420_000
 
 export interface VectorEngineReferenceImage {
   buffer: Buffer
