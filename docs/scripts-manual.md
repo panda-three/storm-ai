@@ -250,6 +250,54 @@ pnpm check:supabase:selfhosted
 node scripts/check-self-hosted-supabase.mjs
 ```
 
+### `pnpm cleanup:storage:orphans`
+
+手动批量清理 Supabase Storage 孤儿对象。脚本默认是 dry-run，只会输出候选对象和报告文件，不会删除文件。真正删除必须显式加 `--apply`。
+
+```bash
+pnpm cleanup:storage:orphans
+```
+
+首次真实删除建议小批量执行：
+
+```bash
+pnpm cleanup:storage:orphans -- --apply --limit=10
+```
+
+确认无异常后再扩大批量：
+
+```bash
+pnpm cleanup:storage:orphans -- --apply --limit=100
+```
+
+可选参数：
+
+```bash
+pnpm cleanup:storage:orphans -- --bucket=generated-images
+pnpm cleanup:storage:orphans -- --older-than-hours=24
+pnpm cleanup:storage:orphans -- --batch-size=50
+```
+
+当前脚本会检查以下 bucket：
+
+- `generated-images`
+- `canvas-assets`
+- `canvas-thumbnails`
+
+安全规则：
+
+- 删除动作走 Supabase Storage API，不直接删除 `storage.objects` 表。
+- `generated-images` 对象如果仍被 `generation_jobs`、活跃画布或 `user_accounts.projects` 引用，会跳过。
+- `canvas-assets` 对象如果仍被 `canvas_assets.storage_url` 引用，会跳过。
+- `canvas-thumbnails` 对象如果仍被 `canvas_documents.thumbnail_url` 引用，会跳过。
+- URL 解析失败或路径不安全时不会进入删除候选。
+
+报告默认写入：
+
+```text
+/usr/storm-ai/backups/storage-cleanup
+```
+
 默认配置：
 
 ```text
@@ -512,4 +560,3 @@ pnpm migrate:supabase:storage
 ```
 
 确认 dry run 输出没问题后，再追加 `-- --apply` 执行写入。
-
