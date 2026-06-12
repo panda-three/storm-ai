@@ -82,7 +82,7 @@ import {
   createCanvasLabCloudDocument,
   createCanvasLabAssetUpload,
   createCanvasBinaryImageFile,
-  createCanvasImageGenerationTaskWithStoredReferenceImages,
+  createCanvasImageGenerationTask,
   createCanvasLabAssetBinding,
   createCanvasLabThumbnailUpload,
   createCanvasTaskPlaceholderElements,
@@ -118,7 +118,6 @@ import {
   saveCanvasLabCloudDocument,
   saveCanvasLabDocument,
   saveCanvasLabPrefs,
-  uploadCanvasLabReferenceImagesForGeneration,
   shouldSuppressCanvasLabLink,
   restoreCanvasLabVersion,
   stripCanvasLabFileData,
@@ -1112,23 +1111,21 @@ function CanvasLabWorkspace({
 
       const result = mode === "image"
         ? await (async () => {
-            const storedReferenceImages = await uploadCanvasLabReferenceImagesForGeneration(
-              referenceFiles.map((reference, index) => ({
-                file: reference.file,
-                name: reference.file.name || `canvas-reference-${index + 1}.webp`,
-                size: reference.file.size,
-              }))
-            )
+            const formData = new FormData()
+            formData.set("prompt", trimmedPrompt)
+            formData.set("model", model)
+            formData.set("quality", quality)
+            formData.set("imageCount", String(Number.parseInt(imageCount, 10) || 1))
+            formData.set("ratio", ratio)
+            formData.set("clientRequestId", clientRequestId)
+            formData.set("sourceCanvasId", activeDocument?.id ?? "")
+            formData.set("sourceElementIds", JSON.stringify(referenceElementIds))
 
-            return createCanvasImageGenerationTaskWithStoredReferenceImages({
-              clientRequestId,
-              imageCount: Number.parseInt(imageCount, 10) || 1,
-              model,
-              prompt: trimmedPrompt,
-              quality,
-              ratio,
-              referenceImages: storedReferenceImages,
+            referenceFiles.forEach((reference) => {
+              formData.append("referenceImages", reference.file)
             })
+
+            return createCanvasImageGenerationTask(formData)
           })()
         : await (async () => {
             const formData = new FormData()

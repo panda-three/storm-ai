@@ -1,4 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+import {
+  getReferenceImageBucket,
+  getReferenceImageExtension,
+  getReferenceImagePathPrefix,
+  validateReferenceImageMetadata,
+} from "@/lib/reference-images"
 import { fetchSafeRemoteResource, parseSafeRemoteUrl } from "@/lib/safe-fetch-url"
 
 export interface AuthenticatedRequestUser {
@@ -305,6 +311,45 @@ export async function uploadGeneratedImage({
   }
 }
 
+export async function uploadReferenceImage({
+  buffer,
+  contentType,
+  name,
+  userId,
+}: {
+  buffer: Buffer
+  contentType: string
+  name: string
+  userId: string
+}) {
+  validateReferenceImageMetadata({ size: buffer.byteLength, type: contentType })
+
+  const bucket = getReferenceImageBucket()
+  const extension = getReferenceImageExtension(contentType)
+  const path = `${getReferenceImagePathPrefix(userId)}${Date.now()}-${crypto.randomUUID()}.${extension}`
+  const supabase = getSupabaseServerClient()
+  const { error } = await supabase.storage.from(bucket).upload(path, buffer, {
+    contentType,
+    upsert: false,
+  })
+
+  if (error) throw error
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path)
+  if (!data.publicUrl) {
+    throw new Error("参考图已上传，但未取得公开访问 URL。")
+  }
+
+  return {
+    bucket,
+    name,
+    path,
+    publicUrl: data.publicUrl,
+    size: buffer.byteLength,
+    type: contentType,
+  }
+}
+
 export function getGeneratedStorageObjectPath(publicUrl: string) {
   const bucket = process.env.SUPABASE_GENERATED_IMAGES_BUCKET ?? "generated-images"
   const marker = `/storage/v1/object/public/${bucket}/`
@@ -331,17 +376,18 @@ export async function deleteGeneratedImageByPublicUrl(publicUrl: string) {
 }
 
 export function getReferenceStorageObjectPath(publicUrl: string) {
-  const bucket = process.env.SUPABASE_REFERENCE_IMAGES_BUCKET ?? "reference-images"
+  const bucket = getReferenceImageBucket()
   const marker = `/storage/v1/object/public/${bucket}/`
   const markerIndex = publicUrl.indexOf(marker)
 
   if (markerIndex === -1) return ""
 
-  return decodeURIComponent(publicUrl.slice(markerIndex + marker.length).split("?")[0] ?? "")
+  const path = decodeURIComponent(publicUrl.slice(markerIndex + marker.length).split("?")[0] ?? "")
+  return path.startsWith("users/") && path.includes("/reference-images/") ? path : ""
 }
 
 export async function deleteReferenceImageByPublicUrl(publicUrl: string) {
-  const bucket = process.env.SUPABASE_REFERENCE_IMAGES_BUCKET ?? "reference-images"
+  const bucket = getReferenceImageBucket()
   const path = getReferenceStorageObjectPath(publicUrl)
   if (!path) return
 

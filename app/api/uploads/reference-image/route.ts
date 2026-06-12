@@ -1,43 +1,35 @@
 import { NextResponse } from "next/server"
-import {
-  getReferenceImageBucket,
-  getReferenceImageExtension,
-  getReferenceImagePathPrefix,
-  validateReferenceImageMetadata,
-} from "@/lib/reference-images"
-import { describeServerError, getServerErrorStatus, getSupabaseServerClient, requireAuthenticatedUser } from "@/lib/server-supabase"
+import { validateReferenceImageMetadata } from "@/lib/reference-images"
+import { describeServerError, getServerErrorStatus, requireAuthenticatedUser, uploadReferenceImage } from "@/lib/server-supabase"
 
 export async function POST(request: Request) {
   try {
     const auth = await requireAuthenticatedUser(request)
-    const body = await request.json().catch(() => ({}))
-    const name = String(body.name ?? "reference-image").trim()
-    const type = String(body.type ?? "").trim()
-    const size = Number(body.size)
-
-    validateReferenceImageMetadata({ size, type })
-
-    const bucket = getReferenceImageBucket()
-    const extension = getReferenceImageExtension(type)
-    const path = `${getReferenceImagePathPrefix(auth.userId)}${Date.now()}-${crypto.randomUUID()}.${extension}`
-    const { data, error } = await getSupabaseServerClient()
-      .storage
-      .from(bucket)
-      .createSignedUploadUrl(path)
-
-    if (error) {
-      throw new Error(describeServerError(error, "创建参考图上传地址失败。"), { cause: error })
+    const contentType = request.headers.get("content-type") ?? ""
+    if (!contentType.includes("multipart/form-data")) {
+      throw new Error("参考图上传请求格式无效。")
     }
+
+    const body = await request.formData()
+    const file = body.get("file")
+    if (!(file instanceof File) || file.size <= 0) {
+      throw new Error("参考图文件无效。")
+    }
+
+    validateReferenceImageMetadata({ size: file.size, type: file.type })
+    const uploaded = await uploadReferenceImage({
+      buffer: Buffer.from(await file.arrayBuffer()),
+      contentType: file.type,
+      name: file.name || "reference-image",
+      userId: auth.userId,
+    })
 
     return NextResponse.json({
       ok: true,
-      bucket,
-      name,
-      path,
-      token: data.token,
+      ...uploaded,
     })
   } catch (error) {
-    const message = describeServerError(error, "创建参考图上传地址失败。")
+    const message = describeServerError(error, "参考图上传失败。")
 
     return NextResponse.json(
       {

@@ -31,6 +31,7 @@ import {
   refundGenerationCredits,
   requireAuthenticatedUser,
   persistRemoteGeneratedImage,
+  uploadReferenceImage,
   uploadGeneratedImage,
 } from "@/lib/server-supabase"
 import {
@@ -77,6 +78,7 @@ import {
 
 interface PreparedReferenceImage {
   buffer: Buffer
+  cleanupEligible: boolean
   mimeType: string
   name: string
   path?: string
@@ -320,6 +322,9 @@ export async function POST(request: Request) {
     jobId = job.id
 
     if (job.already_exists) {
+      await cleanupStoredReferenceImages(preparedReferenceImages)
+      cleanupPreparedReferenceImages = false
+
       if (job.status === "failed") {
         return NextResponse.json({
           ok: false,
@@ -336,6 +341,7 @@ export async function POST(request: Request) {
         status: job.status,
         type: "image",
         imageUrls: job.result_urls,
+        referenceImages: job.input_reference_images,
         clientRequestId: job.client_request_id ?? clientRequestId,
         progress: job.status === "completed" || job.status === "partial_completed" ? 100 : 0,
         taskError: job.task_error ?? "",
@@ -381,6 +387,7 @@ export async function POST(request: Request) {
         status: nextJob.status,
         type: "image",
         imageUrls: [],
+        referenceImages: inputReferenceImages,
         clientRequestId,
         progress: 0,
         taskError: "",
@@ -424,6 +431,7 @@ export async function POST(request: Request) {
         status: nextJob.status,
         type: "image",
         imageUrls: [],
+        referenceImages: inputReferenceImages,
         clientRequestId,
         progress: 0,
         taskError: "",
@@ -525,6 +533,7 @@ export async function POST(request: Request) {
           status: nextJob.status,
           type: "image",
           imageUrls: persistedImmediate.resultUrls,
+          referenceImages: inputReferenceImages,
           clientRequestId,
           progress: persistedImmediate.resultUrls.length >= imageCount ? 100 : 0,
           taskError: nextJob.task_error ?? "",
@@ -532,7 +541,6 @@ export async function POST(request: Request) {
       }
 
       if (persistedImmediate.resultUrls.length > 0) {
-        cleanupPreparedReferenceImages = true
         stage = "complete_manju_job"
         const imageUrls = persistedImmediate.resultUrls.slice(0, imageCount)
         const status: GenerationJobStatus = imageUrls.length < imageCount ? "partial_completed" : "completed"
@@ -594,13 +602,13 @@ export async function POST(request: Request) {
           status: nextJob.status,
           type: "image",
           imageUrls,
+          referenceImages: inputReferenceImages,
           clientRequestId,
           progress: 100,
           taskError: taskError ?? "",
         })
       }
 
-      cleanupPreparedReferenceImages = true
       const taskError = submitErrors.join("；") || "Manju 图片生成失败。"
       const failedJob = await failGenerationJobWithRefund({
         jobId: job.id,
@@ -620,6 +628,7 @@ export async function POST(request: Request) {
         status: failedJob.status,
         type: "image",
         imageUrls: [],
+        referenceImages: inputReferenceImages,
         clientRequestId,
         progress: 0,
         taskError,
@@ -784,6 +793,7 @@ export async function POST(request: Request) {
       status,
       type: "image",
       imageUrls,
+      referenceImages: inputReferenceImages,
       clientRequestId,
       progress: 100,
       taskError: taskError ?? "",
@@ -816,6 +826,7 @@ export async function POST(request: Request) {
             status: recoveredJob.status,
             type: "image",
             imageUrls: recoveredJob.result_urls,
+            referenceImages: recoveredJob.input_reference_images,
             clientRequestId,
             progress: 0,
             taskError: failureMessage,
@@ -1144,11 +1155,25 @@ async function prepareReferenceImages({
 }): Promise<PreparedReferenceImage[]> {
   if (referenceFiles.length > 0) {
     return Promise.all(
-      referenceFiles.map(async (image) => ({
-        buffer: Buffer.from(await image.arrayBuffer()),
-        mimeType: image.type,
-        name: image.name,
-      }))
+      referenceFiles.map(async (image) => {
+        const buffer = Buffer.from(await image.arrayBuffer())
+        const uploaded = await uploadReferenceImage({
+          buffer,
+          contentType: image.type,
+          name: image.name,
+          userId,
+        })
+
+        return {
+          bucket: uploaded.bucket,
+          buffer,
+          cleanupEligible: true,
+          mimeType: image.type,
+          name: image.name,
+          path: uploaded.path,
+          publicUrl: uploaded.publicUrl,
+        }
+      })
     )
   }
 
@@ -1172,6 +1197,7 @@ async function prepareReferenceImages({
       return {
         bucket: image.bucket,
         buffer,
+        cleanupEligible: false,
         mimeType: image.type,
         name: image.name,
         path: image.path,
@@ -1260,7 +1286,7 @@ async function prepareManjuReferenceImageUrls(referenceImages: PreparedReference
 }
 
 async function cleanupStoredReferenceImages(referenceImages: PreparedReferenceImage[]) {
-  const storedImages = referenceImages.filter((image) => image.bucket && image.path)
+  const storedImages = referenceImages.filter((image) => image.cleanupEligible && image.bucket && image.path)
   if (storedImages.length === 0) return
 
   const pathsByBucket = new Map<string, string[]>()

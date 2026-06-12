@@ -283,68 +283,12 @@ async function getCurrentAccessToken() {
   return token
 }
 
-async function uploadReferenceImagesForGeneration(referenceImages: ReferenceImage[], accessToken: string) {
-  const storedImages = referenceImages.map((image) => image.stored).filter((image): image is ProjectReferenceImage => Boolean(image))
-  const fileImages = referenceImages.filter((image): image is ReferenceImage & { file: File } => Boolean(image.file))
-  if (storedImages.length === 0 && fileImages.length === 0) return []
+function getStoredReferenceImages(referenceImages: ReferenceImage[]) {
+  return referenceImages.map((image) => image.stored).filter((image): image is ProjectReferenceImage => Boolean(image))
+}
 
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error("Supabase 未配置。")
-  }
-
-  const uploadedImages = await Promise.all(
-    fileImages.map(async (image) => {
-      const signResponse = await fetch("/api/uploads/reference-image", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: image.name,
-          size: image.size,
-          type: image.file.type,
-        }),
-      }).catch((error) => {
-        throw new Error(`参考图上传准备失败：${getErrorMessage(error, "请检查网络连接。")}`)
-      })
-      const signData = await signResponse.json().catch(() => ({}))
-
-      if (!signResponse.ok || !signData.ok) {
-        throw new Error(getErrorMessage(signData, "参考图上传准备失败。"))
-      }
-
-      const bucket = typeof signData.bucket === "string" ? signData.bucket : ""
-      const path = typeof signData.path === "string" ? signData.path : ""
-      const token = typeof signData.token === "string" ? signData.token : ""
-
-      if (!bucket || !path || !token) {
-        throw new Error("参考图上传准备失败：服务端未返回有效上传凭证。")
-      }
-
-      const { error } = await supabase.storage.from(bucket).uploadToSignedUrl(path, token, image.file, {
-        contentType: image.file.type,
-      })
-
-      if (error) {
-        throw new Error(`参考图上传失败：${error.message}`)
-      }
-
-      const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(path)
-
-      return {
-        bucket,
-        name: image.name,
-        path,
-        publicUrl: publicData.publicUrl,
-        size: image.size,
-        type: image.file.type,
-      } satisfies ProjectReferenceImage
-    })
-  )
-
-  return [...storedImages, ...uploadedImages]
+function getFileReferenceImages(referenceImages: ReferenceImage[]) {
+  return referenceImages.filter((image): image is ReferenceImage & { file: File } => Boolean(image.file))
 }
 
 function buildReferenceImagesFromStoredReferences(referenceImages: ProjectReferenceImage[] | undefined, maxCount: number) {
@@ -1549,23 +1493,48 @@ function ImageWorkspace({
 
     try {
       const accessToken = await getCurrentAccessToken()
-      const storedReferenceImages = await uploadReferenceImagesForGeneration(referenceImages, accessToken)
+      const storedReferenceImages = getStoredReferenceImages(referenceImages)
+      const fileReferenceImages = getFileReferenceImages(referenceImages)
+      const hasFileReferenceImages = fileReferenceImages.length > 0
 
+      if (hasFileReferenceImages && storedReferenceImages.length > 0) {
+        throw new Error("请不要同时提交本地参考图和历史参考图。")
+      }
+
+      const body = hasFileReferenceImages
+        ? (() => {
+            const formData = new FormData()
+            formData.set("prompt", trimmedPrompt)
+            formData.set("model", model)
+            formData.set("quality", quality)
+            formData.set("imageCount", String(effectiveImageCount))
+            formData.set("clientRequestId", clientRequestId)
+            formData.set("ratio", resolvedRatio)
+            fileReferenceImages.forEach((image) => {
+              formData.append("referenceImages", image.file)
+            })
+            return formData
+          })()
+        : JSON.stringify({
+            prompt: trimmedPrompt,
+            model,
+            quality,
+            imageCount: effectiveImageCount,
+            clientRequestId,
+            ratio: resolvedRatio,
+            referenceImages: storedReferenceImages,
+          })
       const response = await fetch("/api/generate/image", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
+        headers: hasFileReferenceImages
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
         method: "POST",
-        body: JSON.stringify({
-          prompt: trimmedPrompt,
-          model,
-          quality,
-          imageCount: effectiveImageCount,
-          clientRequestId,
-          ratio: resolvedRatio,
-          referenceImages: storedReferenceImages,
-        }),
+        body,
       }).catch((error) => {
         throw new Error(`生图接口请求失败：${getErrorMessage(error, "请检查本地服务或网络连接。")}`)
       })
@@ -1577,6 +1546,9 @@ function ImageWorkspace({
 
       const imageUrls = Array.isArray(data.imageUrls) ? data.imageUrls.filter((url: unknown) => typeof url === "string") : []
       const isCompleted = (data.status === "completed" || data.status === "partial_completed") && imageUrls.length > 0
+      const responseReferenceImages = Array.isArray(data.referenceImages)
+        ? data.referenceImages.filter((image: unknown): image is ProjectReferenceImage => Boolean(image && typeof image === "object"))
+        : storedReferenceImages
       const initialStatus: ProjectStatus =
         data.status === "partial_completed" && imageUrls.length > 0
           ? "部分完成"
@@ -1599,7 +1571,7 @@ function ImageWorkspace({
         status: initialStatus,
         taskId: data.taskId,
         progress: isCompleted ? 100 : 0,
-        referenceImages: storedReferenceImages.filter((image): image is ProjectReferenceImage => "publicUrl" in image && Boolean(image.publicUrl)),
+        referenceImages: responseReferenceImages.filter((image: ProjectReferenceImage): image is ProjectReferenceImage => "publicUrl" in image && Boolean(image.publicUrl)),
         taskError: typeof data.taskError === "string" ? data.taskError : "",
       }
 
@@ -2048,23 +2020,48 @@ function VideoWorkspace({
 
     try {
       const accessToken = await getCurrentAccessToken()
-      const storedReferenceImages = await uploadReferenceImagesForGeneration(referenceImages, accessToken)
+      const storedReferenceImages = getStoredReferenceImages(referenceImages)
+      const fileReferenceImages = getFileReferenceImages(referenceImages)
+      const hasFileReferenceImages = fileReferenceImages.length > 0
 
+      if (hasFileReferenceImages && storedReferenceImages.length > 0) {
+        throw new Error("请不要同时提交本地参考图和历史参考图。")
+      }
+
+      const body = hasFileReferenceImages
+        ? (() => {
+            const formData = new FormData()
+            formData.set("prompt", trimmedPrompt)
+            formData.set("model", model)
+            formData.set("duration", duration)
+            formData.set("quality", quality)
+            formData.set("aspectRatio", aspectRatio)
+            formData.set("clientRequestId", clientRequestId)
+            fileReferenceImages.forEach((image) => {
+              formData.append("referenceImages", image.file)
+            })
+            return formData
+          })()
+        : JSON.stringify({
+            prompt: trimmedPrompt,
+            model,
+            duration,
+            quality,
+            aspectRatio,
+            clientRequestId,
+            referenceImages: storedReferenceImages,
+          })
       const response = await fetch("/api/generate/video", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
+        headers: hasFileReferenceImages
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
         method: "POST",
-        body: JSON.stringify({
-          prompt: trimmedPrompt,
-          model,
-          duration,
-          quality,
-          aspectRatio,
-          clientRequestId,
-          referenceImages: storedReferenceImages,
-        }),
+        body,
       }).catch((error) => {
         throw new Error(`视频接口请求失败：${getErrorMessage(error, "请检查本地服务或网络连接。")}`)
       })
@@ -2074,6 +2071,9 @@ function VideoWorkspace({
         throw new Error(getErrorMessage(data, "视频任务提交失败。"))
       }
 
+      const responseReferenceImages = Array.isArray(data.referenceImages)
+        ? data.referenceImages.filter((image: unknown): image is ProjectReferenceImage => Boolean(image && typeof image === "object"))
+        : storedReferenceImages
       const generatedResult: VideoResult = {
         id: typeof data.taskId === "string" && data.taskId ? data.taskId : optimisticId,
         clientRequestId: typeof data.clientRequestId === "string" ? data.clientRequestId : clientRequestId,
@@ -2089,7 +2089,7 @@ function VideoWorkspace({
         status: "生成中",
         taskId: data.taskId,
         progress: 0,
-        referenceImages: storedReferenceImages,
+        referenceImages: responseReferenceImages,
         taskError: "",
         videoUrl: "",
       }

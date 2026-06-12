@@ -39,6 +39,7 @@ const maxYunwuVeoComponentsReferenceImages = 3
 interface PreparedVideoReferenceImage {
   bucket?: string
   buffer: Buffer
+  cleanupEligible: boolean
   mimeType: string
   name: string
   path?: string
@@ -163,6 +164,9 @@ export async function POST(request: Request) {
     jobId = job.id
 
     if (job.already_exists) {
+      await cleanupStoredReferenceImages(preparedReferenceImages)
+      cleanupPreparedReferenceImages = false
+
       if (job.status === "failed") {
         return NextResponse.json({
           ok: false,
@@ -179,6 +183,7 @@ export async function POST(request: Request) {
         taskId: job.id,
         upstreamTaskId: job.upstream_task_id ?? "",
         type: "video",
+        referenceImages: job.input_reference_images,
         clientRequestId: job.client_request_id ?? clientRequestId,
         taskError: job.task_error ?? "",
       })
@@ -238,6 +243,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ...result,
       clientRequestId,
+      referenceImages: inputReferenceImages,
       taskId: job.id,
       upstreamTaskId: result.taskId,
     })
@@ -266,6 +272,7 @@ export async function POST(request: Request) {
             taskId: recoveredJob.id,
             upstreamTaskId,
             type: "video",
+            referenceImages: recoveredJob.input_reference_images,
             clientRequestId,
             taskError: message,
           })
@@ -423,6 +430,7 @@ async function prepareReferenceImages({
         return {
           bucket: uploaded.bucket,
           buffer,
+          cleanupEligible: true,
           mimeType: image.type,
           name: image.name,
           path: uploaded.path,
@@ -451,6 +459,7 @@ async function prepareReferenceImages({
       return {
         bucket: image.bucket,
         buffer,
+        cleanupEligible: false,
         mimeType: image.type,
         name: image.name,
         path: image.path,
@@ -471,7 +480,7 @@ function getPreparedReferencePublicUrls(referenceImages: PreparedVideoReferenceI
 }
 
 async function cleanupStoredReferenceImages(referenceImages: PreparedVideoReferenceImage[]) {
-  const storedImages = referenceImages.filter((image) => image.bucket && image.path)
+  const storedImages = referenceImages.filter((image) => image.cleanupEligible && image.bucket && image.path)
   if (storedImages.length === 0) return
 
   const pathsByBucket = new Map<string, string[]>()

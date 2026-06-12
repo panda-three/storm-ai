@@ -356,69 +356,6 @@ async function getCurrentAccessToken() {
   return token
 }
 
-export async function uploadCanvasLabReferenceImagesForGeneration(referenceImages: {
-  file: File
-  name: string
-  size: number
-}[]) {
-  if (referenceImages.length === 0) return []
-
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error("Supabase 未配置。")
-  }
-
-  const token = await getCurrentAccessToken()
-
-  return Promise.all(
-    referenceImages.map(async (image) => {
-      const signResponse = await fetch("/api/uploads/reference-image", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: image.name,
-          size: image.size,
-          type: image.file.type,
-        }),
-      }).catch((error) => {
-        throw new Error(`参考图上传准备失败：${getApiErrorMessage(error, "请检查网络连接。")}`)
-      })
-      const signData = await signResponse.json().catch(() => ({}))
-
-      if (!signResponse.ok || !signData.ok) {
-        throw new Error(getApiErrorMessage(signData, "参考图上传准备失败。"))
-      }
-
-      const bucket = typeof signData.bucket === "string" ? signData.bucket : ""
-      const path = typeof signData.path === "string" ? signData.path : ""
-      const uploadToken = typeof signData.token === "string" ? signData.token : ""
-
-      if (!bucket || !path || !uploadToken) {
-        throw new Error("参考图上传准备失败：服务端未返回有效上传凭证。")
-      }
-
-      const { error } = await supabase.storage.from(bucket).uploadToSignedUrl(path, uploadToken, image.file, {
-        contentType: image.file.type,
-      })
-
-      if (error) {
-        throw new Error(`参考图上传失败：${error.message}`)
-      }
-
-      return {
-        bucket,
-        name: image.name,
-        path,
-        size: image.size,
-        type: image.file.type,
-      } satisfies StoredReferenceImage
-    })
-  )
-}
-
 function getApiErrorMessage(payload: unknown, fallback: string) {
   if (typeof payload === "object" && payload !== null && "error" in payload) {
     const error = (payload as { error?: unknown }).error
