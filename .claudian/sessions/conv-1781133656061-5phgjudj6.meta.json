@@ -1,0 +1,25 @@
+{
+  "id": "conv-1781133656061-5phgjudj6",
+  "providerId": "codex",
+  "title": "# Storm AI Development\n\n(I'm ready to help with...",
+  "titleGenerationStatus": "success",
+  "createdAt": 1781133656063,
+  "updatedAt": 1781133667381,
+  "lastResponseAt": 1781133667381,
+  "sessionId": "019eb3d6-c0c6-7cd0-a398-0e1bd8711be4",
+  "providerState": {
+    "threadId": "019eb3d6-c0c6-7cd0-a398-0e1bd8711be4",
+    "sessionFilePath": "/Users/panda/.codex/sessions/2026/06/11/rollout-2026-06-11T07-20-56-019eb3d6-c0c6-7cd0-a398-0e1bd8711be4.jsonl",
+    "transcriptRootPath": "/Users/panda/.codex/sessions"
+  },
+  "usage": {
+    "inputTokens": 12551,
+    "cacheCreationInputTokens": 0,
+    "cacheReadInputTokens": 11317,
+    "contextWindow": 258400,
+    "contextWindowIsAuthoritative": true,
+    "contextTokens": 12551,
+    "percentage": 5,
+    "model": "gpt-5.5"
+  }
+}

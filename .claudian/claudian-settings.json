@@ -1,0 +1,104 @@
+{
+  "userName": "",
+  "permissionMode": "yolo",
+  "model": "haiku",
+  "thinkingBudget": "off",
+  "effortLevel": "high",
+  "serviceTier": "default",
+  "enableAutoTitleGeneration": true,
+  "titleGenerationModel": "",
+  "excludedTags": [],
+  "mediaFolder": "",
+  "systemPrompt": "",
+  "persistentExternalContextPaths": [],
+  "sharedEnvironmentVariables": "",
+  "envSnippets": [],
+  "customContextLimits": {},
+  "customModelAliases": {},
+  "keyboardNavigation": {
+    "scrollUpKey": "w",
+    "scrollDownKey": "s",
+    "focusInputKey": "i"
+  },
+  "requireCommandOrControlEnterToSend": false,
+  "locale": "zh-CN",
+  "providerConfigs": {
+    "claude": {
+      "safeMode": "acceptEdits",
+      "cliPath": "",
+      "cliPathsByHost": {},
+      "loadUserSettings": true,
+      "enableChrome": false,
+      "enableBangBash": false,
+      "enableOpus1M": false,
+      "enableSonnet1M": false,
+      "customModels": "",
+      "lastModel": "haiku",
+      "environmentVariables": "",
+      "environmentHash": ""
+    },
+    "codex": {
+      "enabled": true,
+      "safeMode": "workspace-write",
+      "cliPath": "",
+      "cliPathsByHost": {},
+      "customModels": "gpt-5.5",
+      "reasoningSummary": "detailed",
+      "environmentVariables": "OPENAI_API_KEY=sk-acw-4075937e-46ef0d97493ce516\nOPENAI_BASE_URL=https://api.aicodewith.com/chatgpt/v1\nOPENAI_MODEL=gpt-5.5\nCODEX_SANDBOX=workspace-write",
+      "environmentHash": "OPENAI_API_KEY=sk-acw-4075937e-46ef0d97493ce516|OPENAI_BASE_URL=https://api.aicodewith.com/chatgpt/v1|OPENAI_MODEL=gpt-5.5",
+      "installationMethodsByHost": {
+        "device:4a6b7eff-7414-4212-91c7-8c41f744d39f": "native-windows"
+      },
+      "wslDistroOverridesByHost": {}
+    },
+    "opencode": {
+      "cliPath": "",
+      "cliPathsByHost": {},
+      "enabled": false,
+      "environmentHash": "",
+      "environmentVariables": "OPENCODE_ENABLE_EXA=1",
+      "modelAliases": {},
+      "preferredThinkingByModel": {},
+      "selectedMode": "",
+      "thinkingOptionsByModel": {},
+      "visibleModels": []
+    },
+    "pi": {
+      "cliPath": "",
+      "cliPathsByHost": {},
+      "discoveredModels": [],
+      "enabled": false,
+      "environmentHash": "",
+      "environmentVariables": "",
+      "modelAliases": {},
+      "preferredThinkingByModel": {},
+      "toolMode": "all",
+      "visibleModels": []
+    }
+  },
+  "settingsProvider": "claude",
+  "savedProviderModel": {
+    "claude": "haiku",
+    "codex": "gpt-5.5"
+  },
+  "savedProviderEffort": {
+    "claude": "high",
+    "codex": "medium"
+  },
+  "savedProviderServiceTier": {
+    "codex": "default"
+  },
+  "savedProviderThinkingBudget": {},
+  "savedProviderPermissionMode": {
+    "claude": "yolo",
+    "codex": "yolo"
+  },
+  "lastCustomModel": "",
+  "maxTabs": 3,
+  "tabBarPosition": "input",
+  "enableAutoScroll": true,
+  "deferMathRenderingDuringStreaming": true,
+  "expandFileEditsByDefault": false,
+  "chatViewPlacement": "right-sidebar",
+  "hiddenProviderCommands": {}
+}

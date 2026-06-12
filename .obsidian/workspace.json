@@ -155,19 +155,31 @@
             "state": {
               "type": "outline",
               "state": {
+                "file": "docs/scripts-manual.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "大纲"
+              "title": "scripts-manual 的大纲"
+            }
+          },
+          {
+            "id": "4387157d2060fd13",
+            "type": "leaf",
+            "state": {
+              "type": "claudian-view",
+              "state": {},
+              "icon": "bot",
+              "title": "Claudian"
             }
           }
-        ]
+        ],
+        "currentTab": 5
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 633.5
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -178,10 +190,11 @@
       "templates:插入模板": false,
       "command-palette:打开命令面板": false,
       "bases:新建数据库": false,
-      "vscode-editor:新建代码文件": false
+      "vscode-editor:新建代码文件": false,
+      "realclaudian:Open Claudian": false
     }
   },
-  "active": "ea90ea45f167b345",
+  "active": "4387157d2060fd13",
   "lastOpenFiles": [
     "release-checklist.md",
     "docs/release-checklist.md",
