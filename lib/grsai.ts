@@ -14,7 +14,7 @@ export async function createGrsaiNanoBanana2ImageTask(request: GrsaiImageGenerat
   const payload = {
     model: grsaiNanoBanana2ImageApiModelName,
     prompt: request.prompt,
-    quality: request.quality,
+    imageSize: request.quality,
     aspectRatio: request.ratio,
     replyType: "async",
     ...(request.referenceImages?.length ? { images: request.referenceImages } : {}),
@@ -31,7 +31,9 @@ export async function createGrsaiNanoBanana2ImageTask(request: GrsaiImageGenerat
   const taskId = extractGrsaiTaskId(response)
 
   if (!taskId) {
-    throw new Error("GrsAi 未返回有效任务 ID。")
+    const summary = summarizeGrsaiResponse(response)
+    logGrsai("submit.invalid_response", summary)
+    throw new Error(`GrsAi 未返回有效任务 ID。响应摘要：${JSON.stringify(summary)}`)
   }
 
   const status = normalizeGrsaiStatus(findStringValue(response, ["status", "state"]) || "submitted")
@@ -150,6 +152,21 @@ function extractGrsaiError(value: unknown): string {
   return findStringValue(value, ["message", "error_message", "error", "detail", "details", "reason"])
 }
 
+function summarizeGrsaiResponse(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return {
+      type: typeof value,
+    }
+  }
+
+  const record = value as Record<string, unknown>
+  return {
+    error: truncateString(extractGrsaiError(record), 300),
+    keys: Object.keys(record).slice(0, 20),
+    status: truncateString(findStringValue(record, ["status", "state"]), 80),
+  }
+}
+
 function findStringValue(value: unknown, keys: string[]): string {
   if (!value || typeof value !== "object") return ""
 
@@ -243,8 +260,13 @@ function uniqueUrls(urls: string[]) {
   return Array.from(new Set(urls.filter(Boolean)))
 }
 
+function truncateString(value: string, maxLength: number) {
+  if (!value || value.length <= maxLength) return value
+  return `${value.slice(0, maxLength)}...`
+}
+
 function logGrsai(label: string, value: unknown) {
-  if (label.includes("error") || label.includes("failed")) {
+  if (label.includes("error") || label.includes("failed") || label.includes("invalid")) {
     console.warn(`[GrsAi] ${label}`, value)
     return
   }

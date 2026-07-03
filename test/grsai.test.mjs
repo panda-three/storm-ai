@@ -25,12 +25,103 @@ function loadTypeScriptModule(path, mocks = {}) {
 }
 
 const {
+  createGrsaiNanoBanana2ImageTask,
   normalizeGrsaiStatus,
   normalizeGrsaiTaskStatus,
 } = loadTypeScriptModule("lib/grsai.ts", {
   "@/lib/model-options": {
     grsaiNanoBanana2ImageApiModelName: "nano-banana-2",
   },
+})
+
+test("GrsAi image task submission uses Apifox payload contract", async () => {
+  const originalApiKey = process.env.GRSAI_API_KEY
+  const originalFetch = global.fetch
+  let requestBody = null
+
+  process.env.GRSAI_API_KEY = "test-key"
+  global.fetch = async (_url, init) => {
+    requestBody = JSON.parse(String(init.body))
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({ id: "6-task", status: "running" }),
+    }
+  }
+
+  try {
+    const result = await createGrsaiNanoBanana2ImageTask({
+      prompt: "test prompt",
+      quality: "1K",
+      ratio: "auto",
+      referenceImages: ["https://example.com/reference.png"],
+    })
+
+    assert.equal(result.taskId, "6-task")
+    assert.deepEqual(requestBody, {
+      model: "nano-banana-2",
+      prompt: "test prompt",
+      imageSize: "1K",
+      aspectRatio: "auto",
+      replyType: "async",
+      images: ["https://example.com/reference.png"],
+    })
+  } finally {
+    if (originalApiKey === undefined) {
+      delete process.env.GRSAI_API_KEY
+    } else {
+      process.env.GRSAI_API_KEY = originalApiKey
+    }
+    global.fetch = originalFetch
+  }
+})
+
+test("GrsAi image task submission reports safe response summary when task id is missing", async () => {
+  const originalApiKey = process.env.GRSAI_API_KEY
+  const originalFetch = global.fetch
+  const originalWarn = console.warn
+  const warnings = []
+
+  process.env.GRSAI_API_KEY = "test-key"
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    json: async () => ({
+      data: { detail: "upstream accepted no task" },
+      message: "missing task",
+      status: "failed",
+    }),
+  })
+  console.warn = (...args) => {
+    warnings.push(args)
+  }
+
+  try {
+    await assert.rejects(
+      createGrsaiNanoBanana2ImageTask({
+        prompt: "test prompt",
+        quality: "1K",
+        ratio: "auto",
+      }),
+      /GrsAi 未返回有效任务 ID。响应摘要：/
+    )
+    assert.equal(warnings[0][0], "[GrsAi] submit.invalid_response")
+    assert.deepEqual(warnings[0][1], {
+      error: "upstream accepted no task",
+      keys: ["data", "message", "status"],
+      status: "failed",
+    })
+  } finally {
+    if (originalApiKey === undefined) {
+      delete process.env.GRSAI_API_KEY
+    } else {
+      process.env.GRSAI_API_KEY = originalApiKey
+    }
+    global.fetch = originalFetch
+    console.warn = originalWarn
+  }
 })
 
 test("GrsAi status mapping covers submitted, running, succeeded, failed, and violation", () => {

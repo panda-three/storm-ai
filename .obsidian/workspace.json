@@ -196,6 +196,8 @@
   },
   "active": "f886516434839f9f",
   "lastOpenFiles": [
+    "docs/specs/grsai.md",
+    "docs/specs",
     "docs/无限画布_需求文档.md",
     "CLAUDE.md",
     "AGENTS.md",
@@ -212,7 +214,6 @@
     "components/upscale-prototype.tsx",
     "docs/scripts-manual.md",
     "未命名.md",
-    "scripts/cleanup-storage-orphans.mjs",
     "docs/production-disk-maintenance.md",
     "docs/manual-release.md",
     "release-checklist.md",
@@ -230,7 +231,6 @@
     "docs/git-sync-workflow.md",
     "problem/slow-query.md",
     "problem/slow-query~.md",
-    "problem/需求文档.md",
-    "docs/storm-ai-conversation-index.md"
+    "problem/需求文档.md"
   ]
 }
