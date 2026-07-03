@@ -2,6 +2,7 @@ import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-
 import { grsaiNanoBanana2ImageApiModelName } from "@/lib/model-options"
 
 const GRSAI_BASE_URL = process.env.GRSAI_BASE_URL ?? "https://grsaiapi.com"
+const grsaiResponseMetaKey = "_grsaiResponseMeta"
 
 interface GrsaiImageGenerationRequest {
   prompt: string
@@ -122,13 +123,19 @@ async function grsaiRequest(path: string, method: "GET" | "POST", body?: Record<
     throw new Error(`无法连接 GrsAi：${error instanceof Error ? error.message : "网络请求失败。"}`, { cause: error })
   }
 
-  const data = await response.json().catch(() => ({}))
+  const bodyText = await response.text().catch(() => "")
+  const data = parseGrsaiResponseBody(bodyText)
+  const responseData = attachGrsaiResponseMeta(data, {
+    bodyPreview: truncateString(bodyText.trim(), 300),
+    contentType: response.headers.get("content-type") ?? "",
+    httpStatus: response.status,
+  })
 
   if (!response.ok) {
-    throw new Error(`GrsAi 请求失败：HTTP ${response.status} ${extractGrsaiError(data) || response.statusText}`)
+    throw new Error(`GrsAi 请求失败：HTTP ${response.status} ${extractGrsaiError(responseData) || response.statusText}`)
   }
 
-  return data
+  return responseData
 }
 
 function getGrsaiApiKey() {
@@ -152,6 +159,51 @@ function extractGrsaiError(value: unknown): string {
   return findStringValue(value, ["message", "error_message", "error", "detail", "details", "reason"])
 }
 
+function parseGrsaiResponseBody(value: string): unknown {
+  const text = value.trim()
+  if (!text) return {}
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    const eventData = parseServerSentEventJson(text)
+    return eventData ?? {}
+  }
+}
+
+function parseServerSentEventJson(value: string): unknown {
+  const dataLines = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trim())
+    .filter((line) => line && line !== "[DONE]")
+
+  for (const line of dataLines) {
+    try {
+      return JSON.parse(line)
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
+function attachGrsaiResponseMeta(value: unknown, meta: Record<string, unknown>) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      value,
+      [grsaiResponseMetaKey]: meta,
+    }
+  }
+
+  return {
+    ...(value as Record<string, unknown>),
+    [grsaiResponseMetaKey]: meta,
+  }
+}
+
 function summarizeGrsaiResponse(value: unknown) {
   if (!value || typeof value !== "object") {
     return {
@@ -160,9 +212,16 @@ function summarizeGrsaiResponse(value: unknown) {
   }
 
   const record = value as Record<string, unknown>
+  const meta = record[grsaiResponseMetaKey] && typeof record[grsaiResponseMetaKey] === "object"
+    ? record[grsaiResponseMetaKey] as Record<string, unknown>
+    : {}
+
   return {
+    bodyPreview: typeof meta.bodyPreview === "string" ? meta.bodyPreview : "",
+    contentType: typeof meta.contentType === "string" ? meta.contentType : "",
     error: truncateString(extractGrsaiError(record), 300),
-    keys: Object.keys(record).slice(0, 20),
+    httpStatus: typeof meta.httpStatus === "number" ? meta.httpStatus : null,
+    keys: Object.keys(record).filter((key) => key !== grsaiResponseMetaKey).slice(0, 20),
     status: truncateString(findStringValue(record, ["status", "state"]), 80),
   }
 }

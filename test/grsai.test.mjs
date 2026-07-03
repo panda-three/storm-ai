@@ -43,10 +43,13 @@ test("GrsAi image task submission uses Apifox payload contract", async () => {
   global.fetch = async (_url, init) => {
     requestBody = JSON.parse(String(init.body))
     return {
+      headers: {
+        get: () => "application/json",
+      },
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({ id: "6-task", status: "running" }),
+      text: async () => JSON.stringify({ id: "6-task", status: "running" }),
     }
   }
 
@@ -85,10 +88,13 @@ test("GrsAi image task submission reports safe response summary when task id is 
 
   process.env.GRSAI_API_KEY = "test-key"
   global.fetch = async () => ({
+    headers: {
+      get: () => "application/json",
+    },
     ok: true,
     status: 200,
     statusText: "OK",
-    json: async () => ({
+    text: async () => JSON.stringify({
       data: { detail: "upstream accepted no task" },
       message: "missing task",
       status: "failed",
@@ -109,7 +115,10 @@ test("GrsAi image task submission reports safe response summary when task id is 
     )
     assert.equal(warnings[0][0], "[GrsAi] submit.invalid_response")
     assert.deepEqual(warnings[0][1], {
+      bodyPreview: "{\"data\":{\"detail\":\"upstream accepted no task\"},\"message\":\"missing task\",\"status\":\"failed\"}",
+      contentType: "application/json",
       error: "upstream accepted no task",
+      httpStatus: 200,
       keys: ["data", "message", "status"],
       status: "failed",
     })
@@ -121,6 +130,88 @@ test("GrsAi image task submission reports safe response summary when task id is 
     }
     global.fetch = originalFetch
     console.warn = originalWarn
+  }
+})
+
+test("GrsAi image task submission reports HTTP metadata when response body is not JSON", async () => {
+  const originalApiKey = process.env.GRSAI_API_KEY
+  const originalFetch = global.fetch
+  const originalWarn = console.warn
+  const warnings = []
+
+  process.env.GRSAI_API_KEY = "test-key"
+  global.fetch = async () => ({
+    headers: {
+      get: (key) => key.toLowerCase() === "content-type" ? "text/plain; charset=utf-8" : null,
+    },
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    text: async () => "accepted but empty task id",
+  })
+  console.warn = (...args) => {
+    warnings.push(args)
+  }
+
+  try {
+    await assert.rejects(
+      createGrsaiNanoBanana2ImageTask({
+        prompt: "test prompt",
+        quality: "1K",
+        ratio: "auto",
+      }),
+      /accepted but empty task id/
+    )
+    assert.deepEqual(warnings[0][1], {
+      bodyPreview: "accepted but empty task id",
+      contentType: "text/plain; charset=utf-8",
+      error: "",
+      httpStatus: 200,
+      keys: [],
+      status: "",
+    })
+  } finally {
+    if (originalApiKey === undefined) {
+      delete process.env.GRSAI_API_KEY
+    } else {
+      process.env.GRSAI_API_KEY = originalApiKey
+    }
+    global.fetch = originalFetch
+    console.warn = originalWarn
+  }
+})
+
+test("GrsAi response parser accepts server-sent event JSON payloads", async () => {
+  const originalApiKey = process.env.GRSAI_API_KEY
+  const originalFetch = global.fetch
+
+  process.env.GRSAI_API_KEY = "test-key"
+  global.fetch = async () => ({
+    headers: {
+      get: () => "text/event-stream",
+    },
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    text: async () => "event: message\ndata: {\"id\":\"6-sse-task\",\"status\":\"running\"}\n\n",
+  })
+
+  try {
+    const result = await createGrsaiNanoBanana2ImageTask({
+      prompt: "test prompt",
+      quality: "1K",
+      ratio: "auto",
+    })
+
+    assert.equal(result.taskId, "6-sse-task")
+    assert.equal(result.status, "processing")
+  } finally {
+    if (originalApiKey === undefined) {
+      delete process.env.GRSAI_API_KEY
+    } else {
+      process.env.GRSAI_API_KEY = originalApiKey
+    }
+    global.fetch = originalFetch
   }
 })
 
