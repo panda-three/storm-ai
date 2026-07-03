@@ -12,7 +12,6 @@ import {
   LogOut,
   MessageCircle,
   RefreshCcw,
-  ScanLine,
   Sparkles,
 } from "lucide-react"
 
@@ -61,14 +60,6 @@ const navItems: Array<SidebarNavItem | SidebarLinkItem> = [
     description: "查看生成记录",
     icon: History,
     match: ["history"],
-  },
-  {
-    id: "upscale",
-    kind: "section",
-    label: "高清放大器",
-    description: "单图 AI 超分放大",
-    icon: ScanLine,
-    match: ["upscale"],
   },
   {
     href: "/canvas-lab",
