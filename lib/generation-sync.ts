@@ -1,10 +1,12 @@
 import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
+import { syncGrsaiGenerationJob } from "@/lib/grsai-task-sync"
 import { syncManjuGenerationJob } from "@/lib/manju-task-sync"
 import { mirrorYunwuImageResults, syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
 import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
 import {
   cleanupExpiredGenerationJobs,
   loadDueApimartGenerationJobs,
+  loadDueGrsaiGenerationJobs,
   loadDueManjuGenerationJobs,
   loadDueToapisGenerationJobs,
   loadDueYunwuGenerationJobs,
@@ -93,6 +95,26 @@ export async function syncGenerationJobs({ limit = 20 } = {}) {
       synced: 0,
     }
   )
+  const grsaiJobs = await loadDueGrsaiGenerationJobs({ limit })
+  const grsaiResults = await Promise.allSettled(grsaiJobs.map((job) => syncGrsaiGenerationJob(job)))
+  const grsai = grsaiResults.reduce(
+    (current, result) => {
+      if (result.status === "rejected") {
+        current.errors += 1
+        return current
+      }
+
+      current[result.value.status] += 1
+      return current
+    },
+    {
+      checked: grsaiJobs.length,
+      errors: 0,
+      retryable_error: 0,
+      skipped: 0,
+      synced: 0,
+    }
+  )
   const manjuJobs = await loadDueManjuGenerationJobs({ limit })
   const manjuResults = await Promise.allSettled(manjuJobs.map((job) => syncManjuGenerationJob(job)))
   const manju = manjuResults.reduce(
@@ -119,6 +141,7 @@ export async function syncGenerationJobs({ limit = 20 } = {}) {
   return {
     apimart,
     cleanup,
+    grsai,
     manju,
     ok: true,
     mirrors,

@@ -12,7 +12,8 @@
     "lua",
     "php",
     "cs",
-    "sql"
+    "txt",
+    "json"
   ],
   "folding": true,
   "lineNumbers": true,

@@ -24,6 +24,7 @@ const supported = new Set([
   "image:gpt-image-2-all",
   "image:image2-M通道",
   "image:image2-Toa通道",
+  "image:nano-banana-2-grsai",
   "image:doubao-seedream-5-0-260128",
   "image:grok-imagine-image",
   "video:veo_3_1-fast",

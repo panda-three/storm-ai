@@ -1,1 +1,1 @@
-export type WorkspaceSection = "image" | "video" | "history" | "credits"
+export type WorkspaceSection = "image" | "video" | "upscale" | "history" | "credits"

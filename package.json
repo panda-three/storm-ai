@@ -18,7 +18,8 @@
     "start": "next start",
     "start:production": "node scripts/check-production-env.mjs && next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "0.18.1",

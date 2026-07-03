@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server"
 import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
+import { syncGrsaiGenerationJob } from "@/lib/grsai-task-sync"
 import { syncManjuGenerationJob } from "@/lib/manju-task-sync"
 import { syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
 import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
 import {
   loadGenerationJobsForUser,
   loadInteractiveApimartGenerationJobsForUser,
+  loadInteractiveGrsaiGenerationJobsForUser,
   loadInteractiveManjuGenerationJobsForUser,
   loadInteractiveToapisGenerationJobsForUser,
   loadInteractiveYunwuGenerationJobsForUser,
@@ -17,20 +19,23 @@ import { getServerErrorStatus, requireAuthenticatedUser } from "@/lib/server-sup
 export async function GET(request: Request) {
   try {
     const auth = await requireAuthenticatedUser(request)
-    const [yunwuJobsToSync, toapisJobsToSync, apimartJobsToSync, manjuJobsToSync] = await Promise.all([
+    const [yunwuJobsToSync, toapisJobsToSync, apimartJobsToSync, grsaiJobsToSync, manjuJobsToSync] = await Promise.all([
       loadInteractiveYunwuGenerationJobsForUser({ userId: auth.userId }),
       loadInteractiveToapisGenerationJobsForUser({ userId: auth.userId }),
       loadInteractiveApimartGenerationJobsForUser({ userId: auth.userId }),
+      loadInteractiveGrsaiGenerationJobsForUser({ userId: auth.userId }),
       loadInteractiveManjuGenerationJobsForUser({ userId: auth.userId }),
     ])
-    const [yunwuResults, toapisResults, apimartResults, manjuResults] = await Promise.all([
+    const [yunwuResults, toapisResults, apimartResults, grsaiResults, manjuResults] = await Promise.all([
       Promise.allSettled(yunwuJobsToSync.map((job) => syncYunwuGenerationJob(job, { mode: "interactive" }))),
       Promise.allSettled(toapisJobsToSync.map((job) => syncToapisGenerationJob(job, { mode: "interactive" }))),
       Promise.allSettled(apimartJobsToSync.map((job) => syncApimartGenerationJob(job, { mode: "interactive" }))),
+      Promise.allSettled(grsaiJobsToSync.map((job) => syncGrsaiGenerationJob(job, { mode: "interactive" }))),
       Promise.allSettled(manjuJobsToSync.map((job) => syncManjuGenerationJob(job, { mode: "interactive" }))),
     ])
     logHistorySync("interactive", {
       apimart: summarizeSettledSync(apimartJobsToSync.length, apimartResults),
+      grsai: summarizeSettledSync(grsaiJobsToSync.length, grsaiResults),
       manju: summarizeSettledSync(manjuJobsToSync.length, manjuResults),
       toapis: summarizeSettledSync(toapisJobsToSync.length, toapisResults),
       yunwu: summarizeSettledSync(yunwuJobsToSync.length, yunwuResults),

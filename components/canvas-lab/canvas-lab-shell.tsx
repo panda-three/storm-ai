@@ -64,6 +64,7 @@ import {
   getImageRatiosForSelection,
   imageModelSettings,
   isApimartImageModel,
+  isGrsaiImageModel,
   videoModelSettings,
   yunwuGeminiImageModelName,
   yunwuVeo31FastVideoModelName,
@@ -1753,8 +1754,9 @@ function CanvasStudioPanel({
   const [imageCount, setImageCount] = useState("3")
   const qualityOptions = mode === "image" ? availableImageQualities : availableVideoVariants.qualities
   const isApimartImage = mode === "image" && isApimartImageModel(model)
+  const isSingleImageCountModel = isApimartImage || (mode === "image" && isGrsaiImageModel(model))
   const imageRatioOptions = mode === "image" ? getImageRatiosForSelection(model, quality) : imageSettings.ratios
-  const effectiveImageCount = isApimartImage ? "1" : imageCount
+  const effectiveImageCount = isSingleImageCountModel ? "1" : imageCount
   const currentPricing = findModelPricing(modelPricing, {
     duration,
     model,
@@ -1792,10 +1794,10 @@ function CanvasStudioPanel({
     if (mode === "video" && !availableVideoVariants.durations.includes(duration)) {
       setDuration(getPreferredVideoDuration(model, availableVideoVariants))
     }
-    if (isApimartImage && imageCount !== "1") {
+    if (isSingleImageCountModel && imageCount !== "1") {
       setImageCount("1")
     }
-  }, [availableImageQualities, availableVideoVariants, duration, imageCount, imageRatioOptions, isApimartImage, mode, model, quality, qualityOptions, ratio, videoSettings.aspectRatios])
+  }, [availableImageQualities, availableVideoVariants, duration, imageCount, imageRatioOptions, isSingleImageCountModel, mode, model, quality, qualityOptions, ratio, videoSettings.aspectRatios])
 
   const handleModeChange = (nextMode: "image" | "video") => {
     setMode(nextMode)
@@ -1824,7 +1826,7 @@ function CanvasStudioPanel({
       const nextQuality = getPreferredImageQuality(value, getAvailableQualities(modelPricing, "image", value))
       setQuality(nextQuality)
       setRatio(getImageRatiosForSelection(value, nextQuality)[0])
-      if (isApimartImageModel(value)) {
+      if (isApimartImageModel(value) || isGrsaiImageModel(value)) {
         setImageCount("1")
       }
       return
@@ -1931,8 +1933,8 @@ function CanvasStudioPanel({
             <CanvasStudioSelect
               icon={ImageIcon}
               label="生成张数"
-              onChange={isApimartImage ? () => undefined : setImageCount}
-              options={(isApimartImage ? ["1"] : ["1", "2", "3", "4"]).map((option) => ({ label: `${option} 张`, value: option }))}
+              onChange={isSingleImageCountModel ? () => undefined : setImageCount}
+              options={(isSingleImageCountModel ? ["1"] : ["1", "2", "3", "4"]).map((option) => ({ label: `${option} 张`, value: option }))}
               value={effectiveImageCount}
             />
           ) : (

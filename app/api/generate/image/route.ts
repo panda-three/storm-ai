@@ -36,9 +36,11 @@ import {
 } from "@/lib/server-supabase"
 import {
   apimartImageProviderName,
+  grsaiImageProviderName,
   gptImage2Supported4KRatios,
   imageModelSettings,
   isApimartImageModel,
+  isGrsaiImageModel,
   isGrokImagineImageModel,
   isManjuImageModel,
   isSelectableImageModel,
@@ -64,6 +66,7 @@ import {
   validateReferenceImageMetadata,
 } from "@/lib/reference-images"
 import { assertApimartConfigured, createApimartGptImage2Task } from "@/lib/apimart"
+import { assertGrsaiConfigured, createGrsaiNanoBanana2ImageTask } from "@/lib/grsai"
 import { assertToapisConfigured, createToapisGptImageTask } from "@/lib/toapis"
 import {
   assertManjuConfigured,
@@ -114,7 +117,7 @@ export async function POST(request: Request) {
     jobModel = model
     const quality = String(getValue("quality") ?? "2K")
     const rawRatio = String(getValue("ratio") ?? "1:1")
-    const imageCount = parseImageCount(getValue("imageCount"))
+    let imageCount = parseImageCount(getValue("imageCount"))
     clientRequestId = String(getValue("clientRequestId") ?? "").trim()
     const referenceFiles = body instanceof FormData ? body.getAll("referenceImages").filter(isImageFile) : []
     const storedReferenceImages = body instanceof FormData ? [] : parseStoredReferenceImages(getValue("referenceImages"))
@@ -202,20 +205,24 @@ export async function POST(request: Request) {
     const isYunwuImage = isYunwuImageModel(model)
     const isApimartImage = isApimartImageModel(model)
     const isToapisImage = isToapisImageModel(model)
+    const isGrsaiImage = isGrsaiImageModel(model)
     const isVectorEngineImage = isVectorEngineImageModel(model)
     const isManjuImage = isManjuImageModel(model)
     const provider = isApimartImage
       ? apimartImageProviderName
       : isToapisImage
         ? toapisImageProviderName
-        : isVectorEngineImage
-          ? vectorEngineImageProviderName
-          : isManjuImage
-            ? manjuImageProviderName
-            : "yunwu"
+        : isGrsaiImage
+          ? grsaiImageProviderName
+          : isVectorEngineImage
+            ? vectorEngineImageProviderName
+            : isManjuImage
+              ? manjuImageProviderName
+              : "yunwu"
     jobProvider = provider
     logGenerateImage("provider route", {
       isApimartImage,
+      isGrsaiImage,
       isToapisImage,
       isVectorEngineImage,
       isManjuImage,
@@ -223,12 +230,18 @@ export async function POST(request: Request) {
       model,
       provider,
     })
-    if (!isYunwuImage && !isToapisImage && !isApimartImage && !isVectorEngineImage && !isManjuImage) {
+    if (!isYunwuImage && !isToapisImage && !isGrsaiImage && !isApimartImage && !isVectorEngineImage && !isManjuImage) {
       return NextResponse.json({ ok: false, error: "当前图片模型暂不支持该上游。" }, { status: 400 })
     }
 
     if (isApimartImage && imageCount !== 1) {
       return NextResponse.json({ ok: false, error: "image2-M通道暂时仅支持单张生成。" }, { status: 400 })
+    }
+
+    if (isGrsaiImage) {
+      imageCount = 1
+      billingAmount = isFree ? 0 : calculatePricingCredits(pricing)
+      billingReason = `AI 生图 · ${model} · ${quality} · 1 张${isFree ? " · 会员免费" : ""}`
     }
 
     if (isApimartImage) {
@@ -239,6 +252,11 @@ export async function POST(request: Request) {
     if (isToapisImage) {
       stage = "check_toapis_config"
       assertToapisConfigured()
+    }
+
+    if (isGrsaiImage) {
+      stage = "check_grsai_config"
+      assertGrsaiConfigured()
     }
 
     if (isVectorEngineImage) {
@@ -288,6 +306,11 @@ export async function POST(request: Request) {
     const toapisReferenceImageUrls = isToapisImage
       ? await prepareToapisReferenceImageUrls(preparedReferenceImages, () => {
           stage = "prepare_toapis_references"
+        })
+      : []
+    const grsaiReferenceImageUrls = isGrsaiImage
+      ? await prepareToapisReferenceImageUrls(preparedReferenceImages, () => {
+          stage = "prepare_grsai_references"
         })
       : []
     const apimartReferenceImageUrls = isApimartImage
@@ -382,6 +405,50 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         mode: "toapis",
+        taskId: job.id,
+        upstreamTaskId: result.taskId,
+        status: nextJob.status,
+        type: "image",
+        imageUrls: [],
+        referenceImages: inputReferenceImages,
+        clientRequestId,
+        progress: 0,
+        taskError: "",
+      })
+    }
+
+    if (isGrsaiImage) {
+      stage = "submit_grsai_generation"
+      const result = await createGrsaiNanoBanana2ImageTask({
+        prompt,
+        quality,
+        ratio,
+        referenceImages: grsaiReferenceImageUrls,
+      })
+      upstreamTaskId = result.taskId
+      cleanupPreparedReferenceImages = false
+
+      stage = "record_grsai_task"
+      const nextJob = await updateActiveGenerationJob(job.id, {
+        next_check_at: new Date(Date.now() + 5000).toISOString(),
+        status: result.status === "submitted" ? "submitted" : "processing",
+        storage_urls: grsaiReferenceImageUrls,
+        upstream_task_id: result.taskId,
+      })
+
+      if (!nextJob) {
+        throw new Error("生成任务已结束，不能提交 GrsAi 上游任务。")
+      }
+
+      logGenerateImage("grsai output", {
+        jobId: job.id,
+        status: nextJob.status,
+        upstreamTaskId: maskId(result.taskId),
+      })
+
+      return NextResponse.json({
+        ok: true,
+        mode: "grsai",
         taskId: job.id,
         upstreamTaskId: result.taskId,
         status: nextJob.status,
@@ -1003,6 +1070,10 @@ function getFailureStageLabel(stage: string) {
   if (stage === "submit_toapis_generation") return "ToAPIs 图片生成提交失败"
   if (stage === "record_toapis_task") return "ToAPIs 图片任务记录失败"
   if (stage === "prepare_toapis_references") return "ToAPIs 参考图处理失败"
+  if (stage === "check_grsai_config") return "GrsAi 配置检查失败"
+  if (stage === "submit_grsai_generation") return "GrsAi 图片生成提交失败"
+  if (stage === "record_grsai_task") return "GrsAi 图片任务记录失败"
+  if (stage === "prepare_grsai_references") return "GrsAi 参考图处理失败"
   if (stage === "prepare_reference_images" || stage === "validate_reference_images") return "参考图处理失败"
   if (stage === "parse_input") return "图片参数处理失败"
   if (stage === "load_pricing") return "价格读取失败"
@@ -1014,6 +1085,7 @@ function getFailureStageLabel(stage: string) {
 function getImageResponseMode(provider: string) {
   if (provider === "apimart") return "apimart"
   if (provider === "manju") return "manju"
+  if (provider === "grsai") return "grsai"
   if (provider === "toapis") return "toapis"
   if (provider === "vectorengine") return "vectorengine"
   return "yunwu"

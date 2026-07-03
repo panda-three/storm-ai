@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "266278c439d15914",
+        "id": "1115d57df09010d0",
         "type": "tabs",
         "children": [
           {
-            "id": "ea90ea45f167b345",
+            "id": "f886516434839f9f",
             "type": "leaf",
             "state": {
               "type": "markdown",
@@ -194,26 +194,33 @@
       "realclaudian:Open Claudian": false
     }
   },
-  "active": "4387157d2060fd13",
+  "active": "f886516434839f9f",
   "lastOpenFiles": [
+    "docs/无限画布_需求文档.md",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "components/upscale-workspace.tsx",
+    "app/api/upscale/route.ts",
+    "app/api/upscale",
+    "lib/upscale-quota.ts",
+    "lib/fal-upscale.ts",
+    "lib/upscale-policy.ts",
+    "test/upscale-policy.test.mjs",
+    "test",
+    "CONTEXT.md",
+    "docs/handoff-upscale-prototype-0616.md",
+    "components/upscale-prototype.tsx",
+    "docs/scripts-manual.md",
+    "未命名.md",
+    "scripts/cleanup-storage-orphans.mjs",
+    "docs/production-disk-maintenance.md",
+    "docs/manual-release.md",
     "release-checklist.md",
     "docs/release-checklist.md",
-    "docs/scripts-manual.md",
     "docs/operations-costs.md",
-    "docs/manual-release.md",
     "docs/logging.md",
     "docs/linux-deployment.md",
-    "lib/manju-task-sync.ts",
-    "lib/studio-options.ts",
-    "app/api/image-preview",
     "docs/无限画布_develop.md",
-    "app/api/canvas-documents/[id]/thumbnail/route.ts",
-    "app/api/canvas-documents/[id]/thumbnail",
-    "app/canvas-lab/page.tsx",
-    "app/canvas-lab/layout.tsx",
-    "app/canvas-lab",
-    "components/canvas-lab/canvas-lab-shell.tsx",
-    "components/canvas-lab",
     "docs/self-hosted-supabase.md",
     "docs/vercel-error-troubleshooting.md",
     "docs/vercel-usage-metrics.md",
@@ -224,11 +231,6 @@
     "problem/slow-query.md",
     "problem/slow-query~.md",
     "problem/需求文档.md",
-    "docs/storm-ai-conversation-index.md",
-    "docs/storm-ai-conversations.md",
-    "develop1.md",
-    "需求文档.md",
-    "AGENTS.md",
-    "develop.md"
+    "docs/storm-ai-conversation-index.md"
   ]
 }

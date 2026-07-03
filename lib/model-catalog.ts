@@ -2,6 +2,8 @@ import {
   apimartGptImage2ApiModelName,
   apimartGptImage2ModelName,
   gptImage2AllModelName,
+  grsaiNanoBanana2ImageApiModelName,
+  grsaiNanoBanana2ImageModelName,
   grokImagineImageModelName,
   grokVideo310sModelName,
   grokVideo3ModelName,
@@ -32,7 +34,7 @@ import {
 } from "@/lib/model-options"
 
 export type ModelKind = "image" | "video"
-export type ModelProvider = "apimart" | "manju" | "toapis" | "vectorengine" | "yunwu"
+export type ModelProvider = "apimart" | "grsai" | "manju" | "toapis" | "vectorengine" | "yunwu"
 
 export interface ModelCatalogEntry {
   apiModel: string
@@ -132,6 +134,13 @@ export const modelCatalog: ModelCatalogEntry[] = [
     defaultDisplayName: "GPT Image 2 · ToA通道",
     model: toaGptImage2ModelName,
     provider: "toapis",
+    type: "image",
+  },
+  {
+    apiModel: grsaiNanoBanana2ImageApiModelName,
+    defaultDisplayName: "Nano Banana 2 · GrsAi",
+    model: grsaiNanoBanana2ImageModelName,
+    provider: "grsai",
     type: "image",
   },
   {

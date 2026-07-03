@@ -14,6 +14,7 @@ import {
   imageModelSettings,
   isGrokImagineImageModel,
   isApimartImageModel,
+  isGrsaiImageModel,
   manjuGrokImagineVideoModelName,
   manjuVeo31Fast1080pVideoModelName,
   isManjuImageModel,
@@ -21,6 +22,7 @@ import {
   yunwuSeedance15ProVideoModelName,
   yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
+import { UpscaleWorkspace } from "@/components/upscale-workspace"
 import {
   findModelPricing,
   getAvailableModelConfigs,
@@ -117,6 +119,10 @@ const sectionMeta: Record<
   video: {
     title: "季风创绘工作台",
     description: "图片和视频生成合并输入。",
+  },
+  upscale: {
+    title: "高清放大器",
+    description: "上传一张图片，生成临时 AI 超分结果。",
   },
   history: {
     title: "历史项目",
@@ -1171,6 +1177,7 @@ export function ChatArea({
               onVideoGenerated={handleVideoGenerated}
             />
           )}
+          {activeSection === "upscale" && <UpscaleWorkspace />}
           {activeSection === "history" && (
             <HistoryWorkspace
               items={projects}
@@ -1233,8 +1240,9 @@ function ImageWorkspace({
   const [imageCount, setImageCount] = useState(imageCountOptions[2])
   const parsedImageCount = parseImageCount(imageCount)
   const isApimartImage = isApimartImageModel(model)
+  const isSingleImageCountModel = isApimartImage || isGrsaiImageModel(model)
   const isGrokImagineImage = isGrokImagineImageModel(model)
-  const effectiveImageCount = isApimartImage ? 1 : parsedImageCount
+  const effectiveImageCount = isSingleImageCountModel ? 1 : parsedImageCount
   const ratioOptions = getImageRatiosForSelection(model, quality)
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState("")
@@ -1315,10 +1323,10 @@ function ImageWorkspace({
   }, [ratio, ratioOptions])
 
   useEffect(() => {
-    if (isApimartImage && imageCount !== "1") {
+    if (isSingleImageCountModel && imageCount !== "1") {
       setImageCount("1")
     }
-  }, [imageCount, isApimartImage])
+  }, [imageCount, isSingleImageCountModel])
 
   useEffect(() => {
     if (!isGrokImagineImage || referenceImages.length <= 1) return
@@ -1672,7 +1680,7 @@ function ImageWorkspace({
                         setModel(value)
                         setQuality(settings.qualities[1] ?? settings.qualities[0])
                         setRatio(settings.ratios[0])
-                        if (isApimartImageModel(value)) {
+                        if (isApimartImageModel(value) || isGrsaiImageModel(value)) {
                           setImageCount("1")
                         }
                       }}
@@ -1705,9 +1713,9 @@ function ImageWorkspace({
                     <WorkspaceDropdown
                       icon={ImageIcon}
                       label="生成张数"
-                      onChange={isApimartImage ? () => undefined : setImageCount}
-                      options={isApimartImage ? [{ label: "1 张", value: "1" }] : imageCountDropdownOptions}
-                      value={isApimartImage ? "1" : imageCount}
+                      onChange={isSingleImageCountModel ? () => undefined : setImageCount}
+                      options={isSingleImageCountModel ? [{ label: "1 张", value: "1" }] : imageCountDropdownOptions}
+                      value={isSingleImageCountModel ? "1" : imageCount}
                     />
                   </div>
 

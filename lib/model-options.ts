@@ -13,6 +13,10 @@ export const toapisImageProviderName = "toapis"
 export const toapisImage1KRatios = ["1:1", "3:2", "2:3"]
 export const toapisImage2KRatios = ["1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
 export const toapisImage4KRatios = ["16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
+export const grsaiNanoBanana2ImageModelName = "nano-banana-2-grsai"
+export const grsaiNanoBanana2ImageApiModelName = "nano-banana-2"
+export const grsaiImageProviderName = "grsai"
+export const grsaiNanoBanana2ImageRatios = ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "21:9", "1:4", "4:1", "1:8", "8:1"]
 export const mengfactoryGeminiImageModelName = "Gemini 3.1 Flash Image Preview"
 export const yunwuGeminiImageModelName = "gemini-3.1-flash-image-preview"
 export const vectorEngineGeminiImageModelName = "gemini-3.1-flash-image-preview-ve"
@@ -60,6 +64,7 @@ export const imageModelOptions = [
   gptImage2AllModelName,
   apimartGptImage2ModelName,
   toaGptImage2ModelName,
+  grsaiNanoBanana2ImageModelName,
   yunwuSeedream5ImageModelName,
   grokImagineImageModelName,
 ]
@@ -135,6 +140,10 @@ export const imageModelSettings: Record<
     qualities: ["1K", "2K", "4K"],
     ratios: toapisImage2KRatios,
   },
+  [grsaiNanoBanana2ImageModelName]: {
+    qualities: ["1K", "2K", "4K"],
+    ratios: grsaiNanoBanana2ImageRatios,
+  },
 }
 
 export function isGptImage2Model(model: string) {
@@ -189,6 +198,10 @@ export function isToapisImageModel(model: string) {
   return model === toaGptImage2ModelName
 }
 
+export function isGrsaiImageModel(model: string) {
+  return model === grsaiNanoBanana2ImageModelName
+}
+
 export function isApimartImageModel(model: string) {
   return model === apimartGptImage2ModelName
 }
@@ -213,12 +226,14 @@ export function isGptImage2Restricted4K(quality: string, model: string) {
 export function getImageRatiosForSelection(model: string, quality: string) {
   if (isApimartImageModel(model)) return apimartImageRatios
   if (isToapisImageModel(model)) return getToapisImageRatiosForQuality(quality)
+  if (isGrsaiImageModel(model)) return grsaiNanoBanana2ImageRatios
   return isGptImage2Restricted4K(quality, model) ? gptImage2Supported4KRatios : imageModelSettings[model].ratios
 }
 
 export function isValidImageRatioForQuality(model: string, quality: string, ratio: string) {
   if (isApimartImageModel(model)) return apimartImageRatios.includes(ratio)
   if (isToapisImageModel(model)) return getToapisImageRatiosForQuality(quality).includes(ratio)
+  if (isGrsaiImageModel(model)) return grsaiNanoBanana2ImageRatios.includes(ratio)
   return !isGptImage2Restricted4K(quality, model) || gptImage2Supported4KRatios.includes(ratio)
 }
 

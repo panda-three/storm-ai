@@ -71,6 +71,23 @@ alter table public.user_active_sessions add column if not exists updated_at time
 
 create index if not exists user_active_sessions_session_id_idx on public.user_active_sessions (session_id);
 
+create table if not exists public.upscale_daily_usage (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  usage_date date not null,
+  success_count integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, usage_date)
+);
+
+alter table public.upscale_daily_usage add column if not exists success_count integer not null default 0;
+alter table public.upscale_daily_usage add column if not exists created_at timestamptz not null default now();
+alter table public.upscale_daily_usage add column if not exists updated_at timestamptz not null default now();
+alter table public.upscale_daily_usage drop constraint if exists upscale_daily_usage_success_count_check;
+alter table public.upscale_daily_usage add constraint upscale_daily_usage_success_count_check check (success_count >= 0) not valid;
+
+create index if not exists upscale_daily_usage_user_date_idx on public.upscale_daily_usage (user_id, usage_date desc);
+
 create table if not exists public.canvas_documents (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -810,6 +827,10 @@ values ('image', 'image2-Toa通道', 'GPT Image 2 · ToA通道', true, false, 40
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+values ('image', 'nano-banana-2-grsai', 'Nano Banana 2 · GrsAi', false, false, 45)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
 values ('image', 'doubao-seedream-5-0-260128', 'Seedream 5.0', true, false, 50)
 on conflict (type, model) do nothing;
 
@@ -946,7 +967,7 @@ where status in ('submitted', 'processing');
 drop index if exists generation_jobs_sync_due_idx;
 create index if not exists generation_jobs_sync_due_idx
 on public.generation_jobs (next_check_at, created_at)
-where provider in ('apimart', 'yunwu', 'toapis')
+where provider in ('apimart', 'grsai', 'yunwu', 'toapis')
   and status in ('submitted', 'processing')
   and upstream_task_id is not null;
 
@@ -1029,6 +1050,7 @@ alter table public.model_configs enable row level security;
 alter table public.generation_jobs enable row level security;
 alter table public.site_settings enable row level security;
 alter table public.user_active_sessions enable row level security;
+alter table public.upscale_daily_usage enable row level security;
 alter table public.canvas_documents enable row level security;
 alter table public.canvas_assets enable row level security;
 alter table public.canvas_versions enable row level security;
@@ -1122,6 +1144,21 @@ using (auth.uid() = user_id or public.is_admin());
 drop policy if exists "Admins can manage active sessions" on public.user_active_sessions;
 create policy "Admins can manage active sessions"
 on public.user_active_sessions
+for all
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "Users can read own upscale daily usage" on public.upscale_daily_usage;
+create policy "Users can read own upscale daily usage"
+on public.upscale_daily_usage
+for select
+to authenticated
+using (auth.uid() = user_id or public.is_admin());
+
+drop policy if exists "Admins can manage upscale daily usage" on public.upscale_daily_usage;
+create policy "Admins can manage upscale daily usage"
+on public.upscale_daily_usage
 for all
 to authenticated
 using (public.is_admin())
@@ -2218,6 +2255,44 @@ begin
 end;
 $$;
 
+create or replace function public.increment_upscale_daily_success(
+  p_user_id uuid,
+  p_usage_date date,
+  p_limit integer
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_success_count integer;
+begin
+  if p_limit <= 0 then
+    raise exception '高清放大额度配置无效。';
+  end if;
+
+  insert into public.upscale_daily_usage (user_id, usage_date, success_count)
+  values (p_user_id, p_usage_date, 0)
+  on conflict (user_id, usage_date) do nothing;
+
+  update public.upscale_daily_usage
+  set
+    success_count = success_count + 1,
+    updated_at = now()
+  where user_id = p_user_id
+    and usage_date = p_usage_date
+    and success_count < p_limit
+  returning success_count into v_success_count;
+
+  if v_success_count is null then
+    raise exception '今日高清放大额度已用完。';
+  end if;
+
+  return v_success_count;
+end;
+$$;
+
 grant execute on function public.redeem_credit_code(text) to authenticated;
 grant execute on function public.is_username_available(text) to anon, authenticated;
 grant execute on function public.current_auth_session_id() to authenticated;
@@ -2236,6 +2311,7 @@ revoke execute on function public.create_generation_job_with_billing(uuid, integ
 revoke execute on function public.create_generation_job_with_billing(uuid, integer, text, text, text, text, text, text, integer, text, text, integer, boolean, text) from public, anon, authenticated;
 revoke execute on function public.create_generation_job_with_billing(uuid, integer, text, text, text, text, text, text, integer, text, text, integer, boolean, text, jsonb) from public, anon, authenticated;
 revoke execute on function public.fail_generation_job_with_refund(uuid, text) from public, anon, authenticated;
+revoke execute on function public.increment_upscale_daily_success(uuid, date, integer) from public, anon, authenticated;
 grant execute on function public.spend_generation_credits(uuid, integer, text, text) to service_role;
 grant execute on function public.record_free_generation_usage(uuid, text, text) to service_role;
 grant execute on function public.refund_generation_credits(uuid, integer, text, text) to service_role;
@@ -2244,3 +2320,4 @@ grant execute on function public.load_public_model_pricing() to authenticated;
 grant execute on function public.save_model_config_bundle(text, text, text, boolean, boolean, integer, jsonb) to authenticated;
 grant execute on function public.create_generation_job_with_billing(uuid, integer, text, text, text, text, text, text, integer, text, text, integer, boolean, text, jsonb) to service_role;
 grant execute on function public.fail_generation_job_with_refund(uuid, text) to service_role;
+grant execute on function public.increment_upscale_daily_success(uuid, date, integer) to service_role;

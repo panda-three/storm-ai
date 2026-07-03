@@ -12,6 +12,7 @@ import {
   type GenerationJob,
 } from "@/lib/generation-jobs"
 import { syncApimartGenerationJob } from "@/lib/apimart-task-sync"
+import { syncGrsaiGenerationJob } from "@/lib/grsai-task-sync"
 import { syncManjuGenerationJob } from "@/lib/manju-task-sync"
 import { syncYunwuGenerationJob } from "@/lib/yunwu-task-sync"
 import { syncToapisGenerationJob } from "@/lib/toapis-task-sync"
@@ -65,6 +66,16 @@ export async function GET(
         upstreamTaskId: recoveredJob.upstream_task_id,
       })
       const result = await syncApimartGenerationJob(recoveredJob, { mode: "interactive" })
+      return NextResponse.json(normalizeJobTaskStatus(result.job))
+    }
+
+    if (recoveredJob.provider === "grsai") {
+      logTaskSyncRoute("dispatch", {
+        jobId: recoveredJob.id,
+        provider: recoveredJob.provider,
+        upstreamTaskId: recoveredJob.upstream_task_id,
+      })
+      const result = await syncGrsaiGenerationJob(recoveredJob, { mode: "interactive" })
       return NextResponse.json(normalizeJobTaskStatus(result.job))
     }
 
@@ -138,7 +149,7 @@ async function recoverStaleGenerationJobIfDue(job: GenerationJob) {
     ageMs >= synchronousImageOrphanTimeoutMs
   const isAsyncVideoTimeout = job.type === "video" && Boolean(job.upstream_task_id) && ageMs >= asyncVideoTimeoutMs
   const isAsyncImageTimeout =
-    (job.provider === "toapis" || job.provider === "apimart") &&
+    (job.provider === "toapis" || job.provider === "grsai" || job.provider === "apimart") &&
     job.type === "image" &&
     Boolean(job.upstream_task_id) &&
     ageMs >= asyncImageTimeoutMs

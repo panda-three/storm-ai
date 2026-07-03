@@ -83,7 +83,7 @@ function HomeContent() {
 
   useEffect(() => {
     const section = searchParams.get("section")
-    if (section === "image" || section === "video" || section === "history" || section === "credits") {
+    if (section === "image" || section === "video" || section === "upscale" || section === "history" || section === "credits") {
       setActiveSection(section)
     }
   }, [searchParams])

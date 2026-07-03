@@ -439,6 +439,27 @@ export async function loadDueToapisGenerationJobs({ limit = 20 } = {}) {
   return (data ?? []) as GenerationJob[]
 }
 
+export async function loadDueGrsaiGenerationJobs({ limit = 20 } = {}) {
+  const now = new Date().toISOString()
+  const { data, error } = await getSupabaseServerClient()
+    .from("generation_jobs")
+    .select(generationJobSelect)
+    .eq("provider", "grsai")
+    .eq("type", "image")
+    .in("status", ["submitted", "processing"])
+    .not("upstream_task_id", "is", null)
+    .lte("next_check_at", now)
+    .or(`sync_locked_until.is.null,sync_locked_until.lt.${now}`)
+    .order("next_check_at", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(limit)
+
+  if (error) {
+    throw new Error(describeServerError(error, "读取 GrsAi 待同步任务失败。"), { cause: error })
+  }
+  return (data ?? []) as GenerationJob[]
+}
+
 export async function loadDueApimartGenerationJobs({ limit = 20 } = {}) {
   const now = new Date().toISOString()
   const { data, error } = await getSupabaseServerClient()
@@ -527,6 +548,32 @@ export async function loadInteractiveToapisGenerationJobsForUser({
 
   if (error) {
     throw new Error(describeServerError(error, "读取用户 ToAPIs 待同步任务失败。"), { cause: error })
+  }
+  return (data ?? []) as GenerationJob[]
+}
+
+export async function loadInteractiveGrsaiGenerationJobsForUser({
+  limit = 20,
+  userId,
+}: {
+  limit?: number
+  userId: string
+}) {
+  const now = new Date().toISOString()
+  const { data, error } = await getSupabaseServerClient()
+    .from("generation_jobs")
+    .select(generationJobSelect)
+    .eq("provider", "grsai")
+    .eq("type", "image")
+    .eq("user_id", userId)
+    .in("status", ["submitted", "processing"])
+    .not("upstream_task_id", "is", null)
+    .or(`sync_locked_until.is.null,sync_locked_until.lt.${now}`)
+    .order("created_at", { ascending: true })
+    .limit(limit)
+
+  if (error) {
+    throw new Error(describeServerError(error, "读取用户 GrsAi 待同步任务失败。"), { cause: error })
   }
   return (data ?? []) as GenerationJob[]
 }
@@ -623,6 +670,7 @@ export async function loadStaleGenerationJobs({
         `and(provider.eq.vectorengine,type.eq.image,upstream_task_id.is.null,created_at.lte.${new Date(Date.now() - synchronousImageOrphanTimeoutMs).toISOString()})`,
         `and(type.eq.video,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncVideoTimeoutMs).toISOString()})`,
         `and(provider.eq.toapis,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
+        `and(provider.eq.grsai,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
         `and(provider.eq.apimart,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - asyncImageTimeoutMs).toISOString()})`,
         `and(provider.eq.manju,type.eq.image,upstream_task_id.not.is.null,created_at.lte.${new Date(Date.now() - manjuImageTimeoutMs).toISOString()})`,
       ].join(",")
@@ -675,7 +723,7 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
     })
   }
 
-  if ((job.provider === "toapis" || job.provider === "apimart") && job.type === "image") {
+  if ((job.provider === "toapis" || job.provider === "grsai" || job.provider === "apimart") && job.type === "image") {
     return updateGenerationJob(job.id, {
       last_checked_at: new Date().toISOString(),
       last_sync_error: generationTimeoutMessage,
@@ -802,15 +850,17 @@ export function normalizeJobTaskStatus(job: GenerationJob): NormalizedTaskStatus
         ? "mock"
         : job.provider === "yunwu"
           ? "yunwu"
-          : job.provider === "toapis"
-            ? "toapis"
-            : job.provider === "apimart"
-              ? "apimart"
-              : job.provider === "manju"
-                ? "manju"
-                : job.provider === "vectorengine"
-                  ? "vectorengine"
-                  : "mock",
+          : job.provider === "grsai"
+            ? "grsai"
+            : job.provider === "toapis"
+              ? "toapis"
+              : job.provider === "apimart"
+                ? "apimart"
+                : job.provider === "manju"
+                  ? "manju"
+                  : job.provider === "vectorengine"
+                    ? "vectorengine"
+                    : "mock",
     taskId: job.id,
     status: job.status,
     progress: isTerminalGenerationJobStatus(job.status) ? 100 : 0,

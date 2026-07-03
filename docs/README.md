@@ -11,6 +11,7 @@
 | 本地和服务器都可能改代码，如何避免版本打架 | [git-sync-workflow.md](git-sync-workflow.md) |
 | 查看仓库脚本怎么用 | [scripts-manual.md](scripts-manual.md) |
 | 网站或生成任务出问题，看日志 | [logging.md](logging.md) |
+| 对接云雾 Gemini 图片模型 | [yunwu-gemini-3.1-flash-image-preview-integration.md](yunwu-gemini-3.1-flash-image-preview-integration.md) |
 | 查看当前服务器实际信息 | [server-deployment-runbook.md](server-deployment-runbook.md) |
 | 了解后续费用、续费、开支检查 | [operations-costs.md](operations-costs.md) |
 | 准备迁移或维护自托管 Supabase | [self-hosted-supabase.md](self-hosted-supabase.md) |
