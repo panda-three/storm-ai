@@ -179,7 +179,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 633.5
+    "width": 250.5
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -196,6 +196,11 @@
   },
   "active": "f886516434839f9f",
   "lastOpenFiles": [
+    "docs/operations-costs.md",
+    "docs/manual-release.md",
+    "docs/logging.md",
+    "docs/linux-deployment.md",
+    "docs/scripts-manual.md",
     "docs/specs/grsai.md",
     "docs/specs",
     "docs/无限画布_需求文档.md",
@@ -212,15 +217,10 @@
     "CONTEXT.md",
     "docs/handoff-upscale-prototype-0616.md",
     "components/upscale-prototype.tsx",
-    "docs/scripts-manual.md",
     "未命名.md",
     "docs/production-disk-maintenance.md",
-    "docs/manual-release.md",
     "release-checklist.md",
     "docs/release-checklist.md",
-    "docs/operations-costs.md",
-    "docs/logging.md",
-    "docs/linux-deployment.md",
     "docs/无限画布_develop.md",
     "docs/self-hosted-supabase.md",
     "docs/vercel-error-troubleshooting.md",

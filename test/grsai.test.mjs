@@ -25,9 +25,11 @@ function loadTypeScriptModule(path, mocks = {}) {
 }
 
 const {
+  buildGrsaiUpstreamTaskId,
   createGrsaiNanoBanana2ImageTask,
   normalizeGrsaiStatus,
   normalizeGrsaiTaskStatus,
+  parseGrsaiUpstreamTaskId,
 } = loadTypeScriptModule("lib/grsai.ts", {
   "@/lib/model-options": {
     grsaiNanoBanana2ImageApiModelName: "nano-banana-2",
@@ -78,6 +80,61 @@ test("GrsAi image task submission uses Apifox payload contract", async () => {
     }
     global.fetch = originalFetch
   }
+})
+
+test("GrsAi image task submission does not send an image count parameter", async () => {
+  const originalApiKey = process.env.GRSAI_API_KEY
+  const originalFetch = global.fetch
+  let requestBody = null
+
+  process.env.GRSAI_API_KEY = "test-key"
+  global.fetch = async (_url, init) => {
+    requestBody = JSON.parse(String(init.body))
+    return {
+      headers: {
+        get: () => "application/json",
+      },
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () => JSON.stringify({ id: "7-task", status: "submitted" }),
+    }
+  }
+
+  try {
+    const result = await createGrsaiNanoBanana2ImageTask({
+      prompt: "test prompt",
+      quality: "2K",
+      ratio: "1:1",
+    })
+
+    assert.equal(result.taskId, "7-task")
+    assert.equal("imageCount" in requestBody, false)
+    assert.equal("count" in requestBody, false)
+    assert.equal("num_outputs" in requestBody, false)
+  } finally {
+    if (originalApiKey === undefined) {
+      delete process.env.GRSAI_API_KEY
+    } else {
+      process.env.GRSAI_API_KEY = originalApiKey
+    }
+    global.fetch = originalFetch
+  }
+})
+
+test("GrsAi upstream task id envelope round-trips single and multiple tasks", () => {
+  assert.equal(buildGrsaiUpstreamTaskId([{ id: "task-1" }]), "task-1")
+  assert.deepEqual(parseGrsaiUpstreamTaskId("task-1"), [{ id: "task-1" }])
+
+  const envelope = buildGrsaiUpstreamTaskId([
+    { id: "task-1", resultUrls: ["https://example.com/1.png"] },
+    { error: "failed", id: "task-2" },
+  ])
+
+  assert.deepEqual(parseGrsaiUpstreamTaskId(envelope), [
+    { error: undefined, id: "task-1", resultUrls: ["https://example.com/1.png"] },
+    { error: "failed", id: "task-2", resultUrls: undefined },
+  ])
 })
 
 test("GrsAi image task submission reports safe response summary when task id is missing", async () => {

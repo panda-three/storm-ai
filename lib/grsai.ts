@@ -4,6 +4,17 @@ import { grsaiNanoBanana2ImageApiModelName } from "@/lib/model-options"
 const GRSAI_BASE_URL = process.env.GRSAI_BASE_URL ?? "https://grsaiapi.com"
 const grsaiResponseMetaKey = "_grsaiResponseMeta"
 
+export interface GrsaiUpstreamTask {
+  error?: string
+  id: string
+  resultUrls?: string[]
+}
+
+interface GrsaiUpstreamTaskEnvelope {
+  provider: "grsai"
+  tasks: GrsaiUpstreamTask[]
+}
+
 interface GrsaiImageGenerationRequest {
   prompt: string
   quality: string
@@ -102,6 +113,47 @@ export function isGrsaiRateLimitError(message: string) {
 
 export function assertGrsaiConfigured() {
   getGrsaiApiKey()
+}
+
+export function buildGrsaiUpstreamTaskId(tasks: GrsaiUpstreamTask[]) {
+  const normalizedTasks = tasks
+    .map((task) => ({
+      error: task.error || undefined,
+      id: task.id,
+      resultUrls: task.resultUrls && task.resultUrls.length > 0 ? task.resultUrls : undefined,
+    }))
+    .filter((task) => task.id)
+
+  if (normalizedTasks.length === 1) return normalizedTasks[0].id
+
+  const envelope: GrsaiUpstreamTaskEnvelope = {
+    provider: "grsai",
+    tasks: normalizedTasks,
+  }
+  return JSON.stringify(envelope)
+}
+
+export function parseGrsaiUpstreamTaskId(value: string): GrsaiUpstreamTask[] {
+  if (!value) return []
+
+  try {
+    const parsed = JSON.parse(value) as Partial<GrsaiUpstreamTaskEnvelope>
+    if (parsed?.provider === "grsai" && Array.isArray(parsed.tasks)) {
+      return parsed.tasks
+        .map((task) => ({
+          error: typeof task?.error === "string" ? task.error : undefined,
+          id: typeof task?.id === "string" ? task.id : "",
+          resultUrls: Array.isArray(task?.resultUrls)
+            ? task.resultUrls.filter((url): url is string => typeof url === "string" && url.length > 0)
+            : undefined,
+        }))
+        .filter((task) => task.id)
+    }
+  } catch {
+    return [{ id: value }]
+  }
+
+  return [{ id: value }]
 }
 
 async function grsaiRequest(path: string, method: "GET" | "POST", body?: Record<string, unknown>) {

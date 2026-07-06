@@ -14,7 +14,6 @@ import {
   imageModelSettings,
   isGrokImagineImageModel,
   isApimartImageModel,
-  isGrsaiImageModel,
   manjuGrokImagineVideoModelName,
   manjuVeo31Fast1080pVideoModelName,
   isManjuImageModel,
@@ -1240,7 +1239,7 @@ function ImageWorkspace({
   const [imageCount, setImageCount] = useState(imageCountOptions[2])
   const parsedImageCount = parseImageCount(imageCount)
   const isApimartImage = isApimartImageModel(model)
-  const isSingleImageCountModel = isApimartImage || isGrsaiImageModel(model)
+  const isSingleImageCountModel = isApimartImage
   const isGrokImagineImage = isGrokImagineImageModel(model)
   const effectiveImageCount = isSingleImageCountModel ? 1 : parsedImageCount
   const ratioOptions = getImageRatiosForSelection(model, quality)
@@ -1680,7 +1679,7 @@ function ImageWorkspace({
                         setModel(value)
                         setQuality(settings.qualities[1] ?? settings.qualities[0])
                         setRatio(settings.ratios[0])
-                        if (isApimartImageModel(value) || isGrsaiImageModel(value)) {
+                        if (isApimartImageModel(value)) {
                           setImageCount("1")
                         }
                       }}

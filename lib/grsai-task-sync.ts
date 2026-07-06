@@ -1,4 +1,10 @@
-import { getGrsaiImageTaskStatus, isGrsaiRateLimitError } from "@/lib/grsai"
+import {
+  buildGrsaiUpstreamTaskId,
+  getGrsaiImageTaskStatus,
+  isGrsaiRateLimitError,
+  parseGrsaiUpstreamTaskId,
+  type GrsaiUpstreamTask,
+} from "@/lib/grsai"
 import {
   failGenerationJobWithRefund,
   getGenerationJobExpiresAt,
@@ -64,33 +70,83 @@ export async function syncGrsaiGenerationJob(
   })
 
   try {
-    const result = await getGrsaiImageTaskStatus(lockedJob.upstream_task_id)
     const expectedResultCount = Math.max(1, lockedJob.expected_result_count)
-    const upstreamResultUrls = uniqueUrls(result.imageUrls).slice(0, expectedResultCount)
+    const tasks = parseGrsaiUpstreamTaskId(lockedJob.upstream_task_id)
+    const syncedTasks: GrsaiUpstreamTask[] = []
+    const taskErrors: string[] = []
+    let hasPendingTask = false
+
+    for (const task of tasks) {
+      if (task.resultUrls && task.resultUrls.length > 0) {
+        syncedTasks.push(task)
+        continue
+      }
+
+      const result = await getGrsaiImageTaskStatus(task.id)
+      if (result.status === "completed" && result.imageUrls.length > 0) {
+        syncedTasks.push({
+          ...task,
+          id: task.id || result.taskId,
+          resultUrls: result.imageUrls,
+        })
+        continue
+      }
+
+      if (result.status === "completed") {
+        const message = result.taskError || "任务已完成，但接口没有返回图片地址。"
+        taskErrors.push(message)
+        syncedTasks.push({
+          ...task,
+          error: message,
+        })
+        continue
+      }
+
+      if (result.status === "failed") {
+        const message = result.taskError || "GrsAi 图片生成失败。"
+        taskErrors.push(message)
+        syncedTasks.push({
+          ...task,
+          error: message,
+        })
+        continue
+      }
+
+      hasPendingTask = true
+      syncedTasks.push(task)
+    }
+
+    const upstreamResultUrls = uniqueUrls([
+      ...lockedJob.result_urls,
+      ...syncedTasks.flatMap((task) => task.resultUrls ?? []),
+    ]).slice(0, expectedResultCount)
     const persisted = await persistResultUrls({
       job: lockedJob,
       urls: upstreamResultUrls,
     })
     const resultUrls = persisted.resultUrls
+    const isFinished = !hasPendingTask
     const missingResultError =
-      result.status === "completed" && resultUrls.length === 0 ? "任务已完成，但接口没有返回图片地址。" : ""
-    const isPartialImageResult = result.status === "completed" && resultUrls.length > 0 && resultUrls.length < expectedResultCount
+      isFinished && resultUrls.length === 0 && taskErrors.length === 0 ? "任务已完成，但接口没有返回图片地址。" : ""
+    const isPartialImageResult = isFinished && resultUrls.length > 0 && resultUrls.length < expectedResultCount
     const partialResultError = isPartialImageResult
       ? buildPartialImageMessage({
           amount: lockedJob.amount,
           expectedResultCount,
           successCount: resultUrls.length,
           sourceLabel: "GrsAi completed 结果",
-          upstreamErrors: [persisted.error].filter((error): error is string => Boolean(error)),
+          upstreamErrors: [lockedJob.task_error, ...taskErrors, persisted.error].filter((error): error is string => Boolean(error)),
         })
       : ""
-    const taskError = missingResultError || partialResultError || persisted.error || (result.status === "failed" ? result.taskError : "")
+    const taskError = missingResultError || partialResultError || taskErrors.join("；") || persisted.error || lockedJob.task_error || ""
     const status: GenerationJobStatus =
-      missingResultError && result.status === "completed"
+      isFinished && resultUrls.length === 0
         ? "failed"
         : isPartialImageResult
           ? "partial_completed"
-          : result.status
+          : isFinished
+            ? "completed"
+            : "processing"
 
     if (status === "failed" && lockedJob.status !== "failed") {
       const failedJob = await failGenerationJobWithRefund({
@@ -128,6 +184,7 @@ export async function syncGrsaiGenerationJob(
       storage_urls: Array.from(new Set([...(lockedJob.storage_urls ?? []), ...persisted.storageUrls])),
       sync_locked_until: null,
       task_error: taskError || null,
+      upstream_task_id: buildGrsaiUpstreamTaskId(syncedTasks),
     })
 
     if (!updatedJob) {

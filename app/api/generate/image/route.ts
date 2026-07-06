@@ -66,7 +66,12 @@ import {
   validateReferenceImageMetadata,
 } from "@/lib/reference-images"
 import { assertApimartConfigured, createApimartGptImage2Task } from "@/lib/apimart"
-import { assertGrsaiConfigured, createGrsaiNanoBanana2ImageTask } from "@/lib/grsai"
+import {
+  assertGrsaiConfigured,
+  buildGrsaiUpstreamTaskId,
+  createGrsaiNanoBanana2ImageTask,
+  type GrsaiUpstreamTask,
+} from "@/lib/grsai"
 import { assertToapisConfigured, createToapisGptImageTask } from "@/lib/toapis"
 import {
   assertManjuConfigured,
@@ -117,7 +122,7 @@ export async function POST(request: Request) {
     jobModel = model
     const quality = String(getValue("quality") ?? "2K")
     const rawRatio = String(getValue("ratio") ?? "1:1")
-    let imageCount = parseImageCount(getValue("imageCount"))
+    const imageCount = parseImageCount(getValue("imageCount"))
     clientRequestId = String(getValue("clientRequestId") ?? "").trim()
     const referenceFiles = body instanceof FormData ? body.getAll("referenceImages").filter(isImageFile) : []
     const storedReferenceImages = body instanceof FormData ? [] : parseStoredReferenceImages(getValue("referenceImages"))
@@ -236,12 +241,6 @@ export async function POST(request: Request) {
 
     if (isApimartImage && imageCount !== 1) {
       return NextResponse.json({ ok: false, error: "image2-M通道暂时仅支持单张生成。" }, { status: 400 })
-    }
-
-    if (isGrsaiImage) {
-      imageCount = 1
-      billingAmount = isFree ? 0 : calculatePricingCredits(pricing)
-      billingReason = `AI 生图 · ${model} · ${quality} · 1 张${isFree ? " · 会员免费" : ""}`
     }
 
     if (isApimartImage) {
@@ -419,21 +418,62 @@ export async function POST(request: Request) {
 
     if (isGrsaiImage) {
       stage = "submit_grsai_generation"
-      const result = await createGrsaiNanoBanana2ImageTask({
-        prompt,
-        quality,
-        ratio,
-        referenceImages: grsaiReferenceImageUrls,
-      })
-      upstreamTaskId = result.taskId
+      const upstreamTasks: GrsaiUpstreamTask[] = []
+      const submitErrors: string[] = []
       cleanupPreparedReferenceImages = false
 
+      for (let index = 0; index < imageCount; index += 1) {
+        try {
+          const result = await createGrsaiNanoBanana2ImageTask({
+            prompt,
+            quality,
+            ratio,
+            referenceImages: grsaiReferenceImageUrls,
+          })
+          upstreamTasks.push({
+            id: result.taskId,
+          })
+          upstreamTaskId = buildGrsaiUpstreamTaskId(upstreamTasks)
+        } catch (error) {
+          submitErrors.push(describeServerError(error, "GrsAi 图片生成失败。"))
+        }
+      }
+
+      if (upstreamTasks.length === 0) {
+        const taskError = submitErrors.join("；") || "GrsAi 图片生成失败。"
+        const failedJob = await failGenerationJobWithRefund({
+          jobId: job.id,
+          reason: buildGenerationSubmitFailureRefundReason({
+            error: taskError,
+            model,
+            provider,
+            type: "image",
+          }),
+        })
+
+        return NextResponse.json({
+          ok: true,
+          mode: "grsai",
+          taskId: failedJob.id,
+          upstreamTaskId: "",
+          status: failedJob.status,
+          type: "image",
+          imageUrls: [],
+          referenceImages: inputReferenceImages,
+          clientRequestId,
+          progress: 0,
+          taskError,
+        })
+      }
+
+      upstreamTaskId = buildGrsaiUpstreamTaskId(upstreamTasks)
       stage = "record_grsai_task"
       const nextJob = await updateActiveGenerationJob(job.id, {
         next_check_at: new Date(Date.now() + 5000).toISOString(),
-        status: result.status === "submitted" ? "submitted" : "processing",
+        status: "processing",
         storage_urls: grsaiReferenceImageUrls,
-        upstream_task_id: result.taskId,
+        task_error: submitErrors.join("；") || null,
+        upstream_task_id: upstreamTaskId,
       })
 
       if (!nextJob) {
@@ -443,14 +483,15 @@ export async function POST(request: Request) {
       logGenerateImage("grsai output", {
         jobId: job.id,
         status: nextJob.status,
-        upstreamTaskId: maskId(result.taskId),
+        submittedTaskCount: upstreamTasks.length,
+        upstreamTaskId: maskId(upstreamTaskId),
       })
 
       return NextResponse.json({
         ok: true,
         mode: "grsai",
         taskId: job.id,
-        upstreamTaskId: result.taskId,
+        upstreamTaskId,
         status: nextJob.status,
         type: "image",
         imageUrls: [],
