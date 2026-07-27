@@ -964,6 +964,9 @@ create index if not exists generation_jobs_active_created_at_idx
 on public.generation_jobs (created_at asc)
 include (provider, type, upstream_task_id, sync_locked_until)
 where status in ('submitted', 'processing');
+create index if not exists generation_jobs_user_active_image_idx
+on public.generation_jobs (user_id)
+where type = 'image' and status in ('submitted', 'processing');
 drop index if exists generation_jobs_sync_due_idx;
 create index if not exists generation_jobs_sync_due_idx
 on public.generation_jobs (next_check_at, created_at)
@@ -1037,6 +1040,17 @@ values (
     'wechatId', '',
     'qrCodeUrl', '',
     'description', '联系客服购买兑换码后，在站内输入兑换码完成点数充值。'
+  )
+)
+on conflict (key) do nothing;
+
+insert into public.site_settings (key, value)
+values (
+  'generation_limits',
+  jsonb_build_object(
+    'enabled', true,
+    'maxActiveImageTasks', 3,
+    'maxDailyImageTasks', 50
   )
 )
 on conflict (key) do nothing;
@@ -1873,6 +1887,14 @@ declare
   v_reference text := trim(p_reference);
   v_client_request_id text := nullif(trim(coalesce(p_client_request_id, '')), '');
   v_reason text := coalesce(nullif(trim(p_reason), ''), 'AI 生成');
+  v_limits jsonb := '{}'::jsonb;
+  v_limits_enabled boolean := true;
+  v_max_active_image_tasks integer := 3;
+  v_max_daily_image_tasks integer := 50;
+  v_active_image_tasks bigint := 0;
+  v_daily_image_tasks bigint := 0;
+  v_daily_reset_at timestamptz;
+  v_daily_start_at timestamptz;
   v_ledger jsonb;
   v_job public.generation_jobs%rowtype;
 begin
@@ -1913,6 +1935,88 @@ begin
     insert into public.user_accounts (user_id)
     values (p_user_id)
     on conflict (user_id) do nothing;
+
+    perform 1
+    from public.user_accounts
+    where user_id = p_user_id
+    for update;
+
+    if v_client_request_id is not null then
+      select *
+      into v_job
+      from public.generation_jobs
+      where user_id = p_user_id
+        and client_request_id = v_client_request_id
+      limit 1;
+
+      if found then
+        return to_jsonb(v_job) || jsonb_build_object('already_exists', true);
+      end if;
+    end if;
+
+    if p_type = 'image' then
+      select value
+      into v_limits
+      from public.site_settings
+      where key = 'generation_limits';
+
+      if not found or jsonb_typeof(v_limits) <> 'object' then
+        v_limits := '{}'::jsonb;
+      end if;
+
+      if jsonb_typeof(v_limits->'enabled') = 'boolean' then
+        v_limits_enabled := (v_limits->>'enabled')::boolean;
+      end if;
+
+      if jsonb_typeof(v_limits->'maxActiveImageTasks') = 'number'
+        and (v_limits->>'maxActiveImageTasks') ~ '^[1-9][0-9]*$'
+        and char_length(v_limits->>'maxActiveImageTasks') <= 9 then
+        v_max_active_image_tasks := (v_limits->>'maxActiveImageTasks')::integer;
+      end if;
+
+      if jsonb_typeof(v_limits->'maxDailyImageTasks') = 'number'
+        and (v_limits->>'maxDailyImageTasks') ~ '^[1-9][0-9]*$'
+        and char_length(v_limits->>'maxDailyImageTasks') <= 9 then
+        v_max_daily_image_tasks := (v_limits->>'maxDailyImageTasks')::integer;
+      end if;
+
+      if v_limits_enabled then
+        select count(*)
+        into v_active_image_tasks
+        from public.generation_jobs
+        where user_id = p_user_id
+          and type = 'image'
+          and status in ('submitted', 'processing');
+
+        if v_active_image_tasks >= v_max_active_image_tasks then
+          return jsonb_build_object(
+            'limit_code', 'ACTIVE_IMAGE_TASK_LIMIT',
+            'current', v_active_image_tasks,
+            'limit', v_max_active_image_tasks
+          );
+        end if;
+
+        v_daily_reset_at := (date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '1 day') at time zone 'Asia/Shanghai';
+        v_daily_start_at := v_daily_reset_at - interval '1 day';
+
+        select count(*)
+        into v_daily_image_tasks
+        from public.generation_jobs
+        where user_id = p_user_id
+          and type = 'image'
+          and created_at >= v_daily_start_at
+          and created_at < v_daily_reset_at;
+
+        if v_daily_image_tasks >= v_max_daily_image_tasks then
+          return jsonb_build_object(
+            'limit_code', 'DAILY_IMAGE_TASK_LIMIT',
+            'current', v_daily_image_tasks,
+            'limit', v_max_daily_image_tasks,
+            'reset_at', v_daily_reset_at
+          );
+        end if;
+      end if;
+    end if;
 
     if p_is_free then
       v_ledger := jsonb_build_object(

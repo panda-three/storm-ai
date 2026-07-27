@@ -83,6 +83,7 @@ import {
   buildGenerationPartialFailureRefundReason,
   buildGenerationSubmitFailureRefundReason,
 } from "@/lib/generation-ledger"
+import { GenerationLimitError, getGenerationLimitErrorPayload } from "@/lib/generation-limits"
 
 interface PreparedReferenceImage {
   buffer: Buffer
@@ -907,6 +908,10 @@ export async function POST(request: Request) {
       taskError: taskError ?? "",
     })
   } catch (error) {
+    if (error instanceof GenerationLimitError) {
+      return NextResponse.json(getGenerationLimitErrorPayload(error.result), { status: 429 })
+    }
+
     const message = describeServerError(error, "生图任务提交失败。")
     const failureMessage = buildFailureMessage({ message, stage })
     logGenerateImage("error", {

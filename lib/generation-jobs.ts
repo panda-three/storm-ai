@@ -2,6 +2,7 @@ import { getSupabaseServerClient } from "@/lib/server-supabase"
 import { deleteGeneratedImageByPublicUrl, describeServerError, getGeneratedStorageObjectPath } from "@/lib/server-supabase"
 import type { GenerationKind, NormalizedTaskStatus } from "@/lib/generation-types"
 import { buildGenerationFailureRefundReason } from "@/lib/generation-ledger"
+import { GenerationLimitError, parseGenerationLimitResult } from "@/lib/generation-limits"
 import type { ProjectReferenceImage } from "@/lib/reference-images"
 import { getManjuVideoTaskStatus } from "@/lib/manju"
 import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
@@ -168,6 +169,12 @@ export async function createGenerationJobWithBilling({
   if (error) {
     throw new Error(describeServerError(error, "创建生成任务失败。"), { cause: error })
   }
+
+  const generationLimit = parseGenerationLimitResult(data)
+  if (generationLimit) {
+    throw new GenerationLimitError(generationLimit)
+  }
+
   return data as GenerationJob
 }
 

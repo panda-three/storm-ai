@@ -16,11 +16,17 @@ _Avoid_: 普通缩放, 重绘增强
 An externally returned output image that is previewed and downloaded in the current session without being saved to project history or site storage.
 _Avoid_: 生成历史, 画布素材
 
+**在途图片任务**:
+An image generation job whose status is `submitted` or `processing` and which therefore occupies one account-level active generation slot.
+_Avoid_: completed, partial_completed, failed, video task
+
 ## Relationships
 
 - A **高清放大器** performs **AI 超分放大** on exactly one source image.
 - A **高清放大器** produces exactly one **临时结果图** in the V1 flow.
 - A **临时结果图** is not a history project and is not a canvas asset.
+- A **在途图片任务** releases its active slot as soon as it becomes `completed`, `partial_completed`, or `failed`.
+- A successfully created image job counts toward the Beijing-time daily generation limit even if it later becomes `failed`.
 
 ## Example Dialogue
 

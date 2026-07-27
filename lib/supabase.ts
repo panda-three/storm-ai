@@ -1,4 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+import {
+  normalizeGenerationLimitsSettings,
+  validateGenerationLimitsSettings,
+  type GenerationLimitsSettings,
+} from "@/lib/generation-limits"
 import type { LocalAccountData, MembershipTier } from "@/lib/local-store"
 import { isDeletedProjectItem } from "@/lib/project-history"
 
@@ -410,6 +415,35 @@ export async function saveCustomerServiceSettings(settings: CustomerServiceSetti
   const { error } = await supabase.from("site_settings").upsert({
     key: "customer_service",
     value: settings,
+    updated_at: new Date().toISOString(),
+  })
+
+  if (error) throw error
+}
+
+export async function loadGenerationLimitsSettings(): Promise<GenerationLimitsSettings> {
+  const supabase = getSupabaseClient()
+  if (!supabase) return normalizeGenerationLimitsSettings(null)
+
+  const { data, error } = await supabase
+    .from("site_settings")
+    .select("value")
+    .eq("key", "generation_limits")
+    .maybeSingle()
+
+  if (error) throw error
+
+  return normalizeGenerationLimitsSettings(data?.value)
+}
+
+export async function saveGenerationLimitsSettings(settings: GenerationLimitsSettings) {
+  const supabase = getSupabaseClient()
+  if (!supabase) return
+
+  const value = validateGenerationLimitsSettings(settings)
+  const { error } = await supabase.from("site_settings").upsert({
+    key: "generation_limits",
+    value,
     updated_at: new Date().toISOString(),
   })
 

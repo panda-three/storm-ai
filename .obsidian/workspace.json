@@ -196,11 +196,12 @@
   },
   "active": "f886516434839f9f",
   "lastOpenFiles": [
+    "problem/slow-query.md",
+    "docs/scripts-manual.md",
     "docs/operations-costs.md",
     "docs/manual-release.md",
     "docs/logging.md",
     "docs/linux-deployment.md",
-    "docs/scripts-manual.md",
     "docs/specs/grsai.md",
     "docs/specs",
     "docs/无限画布_需求文档.md",
@@ -229,7 +230,6 @@
     "docs/README.md",
     "docs/generation-queue-and-task-flow-research.md",
     "docs/git-sync-workflow.md",
-    "problem/slow-query.md",
     "problem/slow-query~.md",
     "problem/需求文档.md"
   ]
