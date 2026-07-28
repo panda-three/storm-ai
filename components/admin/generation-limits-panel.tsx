@@ -31,7 +31,8 @@ export function GenerationLimitsPanel() {
     setFeedback("")
 
     try {
-      await saveGenerationLimitsSettings(form)
+      const savedSettings = await saveGenerationLimitsSettings(form)
+      if (savedSettings) setForm(savedSettings)
       setFeedback("生成限制已保存。")
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "生成限制保存失败。")

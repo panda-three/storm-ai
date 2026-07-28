@@ -20,6 +20,10 @@ _Avoid_: 生成历史, 画布素材
 An image generation job whose status is `submitted` or `processing` and which therefore occupies one account-level active generation slot.
 _Avoid_: completed, partial_completed, failed, video task
 
+**生成限制配置**:
+The global image-task limits saved by an administrator. An enabled active-task limit may never be saved below any account's current number of **在途图片任务**.
+_Avoid_: terminating existing jobs, retroactive refunds, per-account overrides
+
 ## Relationships
 
 - A **高清放大器** performs **AI 超分放大** on exactly one source image.
@@ -27,6 +31,8 @@ _Avoid_: completed, partial_completed, failed, video task
 - A **临时结果图** is not a history project and is not a canvas asset.
 - A **在途图片任务** releases its active slot as soon as it becomes `completed`, `partial_completed`, or `failed`.
 - A successfully created image job counts toward the Beijing-time daily generation limit even if it later becomes `failed`.
+- Saving **生成限制配置** takes an exclusive lock on the settings row; creating an image job takes a shared lock on that same row before checking limits and inserting the job.
+- Disabling **生成限制配置** never terminates or refunds existing jobs. When enabled, equality with the proposed active limit is allowed; only current usage above it blocks the save.
 
 ## Example Dialogue
 

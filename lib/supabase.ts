@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import {
+  GenerationLimitsSaveConflictError,
   normalizeGenerationLimitsSettings,
+  parseGenerationLimitsSaveConflict,
   validateGenerationLimitsSettings,
   type GenerationLimitsSettings,
 } from "@/lib/generation-limits"
@@ -440,14 +442,25 @@ export async function saveGenerationLimitsSettings(settings: GenerationLimitsSet
   const supabase = getSupabaseClient()
   if (!supabase) return
 
-  const value = validateGenerationLimitsSettings(settings)
-  const { error } = await supabase.from("site_settings").upsert({
-    key: "generation_limits",
-    value,
-    updated_at: new Date().toISOString(),
+  const value = settings.enabled
+    ? validateGenerationLimitsSettings(settings)
+    : normalizeGenerationLimitsSettings(settings)
+  const { data, error } = await supabase.rpc("save_generation_limits", {
+    p_enabled: value.enabled,
+    p_max_active: value.maxActiveImageTasks,
+    p_max_daily: value.maxDailyImageTasks,
   })
 
   if (error) throw error
+
+  const conflict = parseGenerationLimitsSaveConflict(data)
+  if (conflict) throw new GenerationLimitsSaveConflictError(conflict)
+
+  if (!data || typeof data !== "object" || data.ok !== true) {
+    throw new Error("生成限制保存失败。")
+  }
+
+  return normalizeGenerationLimitsSettings(data.settings)
 }
 
 export async function loadCreditPackages({ includeDisabled = false } = {}): Promise<CreditPackage[]> {

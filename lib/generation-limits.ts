@@ -13,10 +13,23 @@ export interface GenerationLimitResult {
   resetAt?: string
 }
 
+export interface GenerationLimitsSaveConflict {
+  affectedAccounts: number
+  currentMax: number
+  limit: number
+}
+
 export class GenerationLimitError extends Error {
   constructor(readonly result: GenerationLimitResult) {
     super(getGenerationLimitErrorPayload(result).error)
     this.name = "GenerationLimitError"
+  }
+}
+
+export class GenerationLimitsSaveConflictError extends Error {
+  constructor(readonly conflict: GenerationLimitsSaveConflict) {
+    super(`当前有 ${conflict.affectedAccounts} 个账号超过新上限，最高 ${conflict.currentMax} 个。请等待任务完成后再保存。`)
+    this.name = "GenerationLimitsSaveConflictError"
   }
 }
 
@@ -69,6 +82,21 @@ export function parseGenerationLimitResult(value: unknown): GenerationLimitResul
     limit: result.limit,
     limitCode,
     ...(limitCode === "DAILY_IMAGE_TASK_LIMIT" ? { resetAt: result.reset_at as string } : {}),
+  }
+}
+
+export function parseGenerationLimitsSaveConflict(value: unknown): GenerationLimitsSaveConflict | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+
+  const result = value as Record<string, unknown>
+  if (result.code !== "ACTIVE_IMAGE_TASKS_EXCEED_NEW_LIMIT") return null
+  if (!isNonNegativeInteger(result.current_max) || !isPositiveInteger(result.limit)) return null
+  if (!isPositiveInteger(result.affected_accounts)) return null
+
+  return {
+    affectedAccounts: result.affected_accounts,
+    currentMax: result.current_max,
+    limit: result.limit,
   }
 }
 

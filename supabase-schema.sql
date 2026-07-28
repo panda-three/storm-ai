@@ -1861,6 +1861,90 @@ begin
 end;
 $$;
 
+create or replace function public.save_generation_limits(
+  p_enabled boolean,
+  p_max_active integer,
+  p_max_daily integer
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_affected_accounts bigint := 0;
+  v_current_max bigint := 0;
+  v_settings jsonb;
+begin
+  if not public.is_admin() then
+    raise exception '无管理员权限。';
+  end if;
+
+  perform public.assert_current_active_session();
+
+  if p_enabled is null then
+    raise exception '缺少生成限制开关。';
+  end if;
+
+  if p_max_active is null or p_max_active <= 0 or p_max_daily is null or p_max_daily <= 0 then
+    raise exception '生成限制额度必须是正整数。';
+  end if;
+
+  insert into public.site_settings (key, value)
+  values (
+    'generation_limits',
+    jsonb_build_object(
+      'enabled', true,
+      'maxActiveImageTasks', 3,
+      'maxDailyImageTasks', 50
+    )
+  )
+  on conflict (key) do nothing;
+
+  perform 1
+  from public.site_settings
+  where key = 'generation_limits'
+  for update;
+
+  if p_enabled then
+    select
+      coalesce(max(active_tasks), 0),
+      count(*) filter (where active_tasks > p_max_active)
+    into v_current_max, v_affected_accounts
+    from (
+      select user_id, count(*) as active_tasks
+      from public.generation_jobs
+      where type = 'image'
+        and status in ('submitted', 'processing')
+      group by user_id
+    ) as account_usage;
+
+    if v_affected_accounts > 0 then
+      return jsonb_build_object(
+        'ok', false,
+        'code', 'ACTIVE_IMAGE_TASKS_EXCEED_NEW_LIMIT',
+        'current_max', v_current_max,
+        'limit', p_max_active,
+        'affected_accounts', v_affected_accounts
+      );
+    end if;
+  end if;
+
+  v_settings := jsonb_build_object(
+    'enabled', p_enabled,
+    'maxActiveImageTasks', p_max_active,
+    'maxDailyImageTasks', p_max_daily
+  );
+
+  update public.site_settings
+  set value = v_settings,
+      updated_at = now()
+  where key = 'generation_limits';
+
+  return jsonb_build_object('ok', true, 'settings', v_settings);
+end;
+$$;
+
 create or replace function public.create_generation_job_with_billing(
   p_user_id uuid,
   p_amount integer,
@@ -1958,7 +2042,8 @@ begin
       select value
       into v_limits
       from public.site_settings
-      where key = 'generation_limits';
+      where key = 'generation_limits'
+      for share;
 
       if not found or jsonb_typeof(v_limits) <> 'object' then
         v_limits := '{}'::jsonb;
@@ -2406,6 +2491,8 @@ grant execute on function public.claim_current_auth_session(text) to authenticat
 grant execute on function public.release_current_auth_session() to authenticated;
 grant execute on function public.admin_revoke_active_session(uuid, text) to authenticated;
 grant execute on function public.save_user_projects(jsonb) to authenticated;
+revoke execute on function public.save_generation_limits(boolean, integer, integer) from public, anon;
+grant execute on function public.save_generation_limits(boolean, integer, integer) to authenticated;
 revoke execute on function public.spend_credits(integer, text, text) from public, anon, authenticated;
 revoke execute on function public.refund_credits(integer, text, text) from public, anon, authenticated;
 revoke execute on function public.spend_generation_credits(uuid, integer, text, text) from public, anon, authenticated;
