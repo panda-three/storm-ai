@@ -13,6 +13,7 @@ import {
   MessageCircle,
   RefreshCcw,
   Sparkles,
+  Workflow,
 } from "lucide-react"
 
 interface SidebarProps {
@@ -37,7 +38,7 @@ type SidebarNavItem = {
 
 type SidebarLinkItem = {
   href: string
-  id: "canvas"
+  id: "canvas" | "digital-canvas"
   kind: "link"
   label: string
   description: string
@@ -68,6 +69,14 @@ const navItems: Array<SidebarNavItem | SidebarLinkItem> = [
     label: "无限画布",
     description: "空间化整理与继续创作",
     icon: LayoutDashboard,
+  },
+  {
+    href: "/digital-canvas",
+    id: "digital-canvas",
+    kind: "link",
+    label: "数字画布",
+    description: "节点工作流式 AI 创作",
+    icon: Workflow,
   },
   {
     id: "credits",
