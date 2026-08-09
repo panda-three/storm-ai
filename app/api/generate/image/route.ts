@@ -37,7 +37,6 @@ import {
 import {
   apimartImageProviderName,
   grsaiImageProviderName,
-  gptImage2Supported4KRatios,
   imageModelSettings,
   isApimartImageModel,
   isGrsaiImageModel,
@@ -65,7 +64,7 @@ import {
   type StoredReferenceImage,
   validateReferenceImageMetadata,
 } from "@/lib/reference-images"
-import { assertApimartConfigured, createApimartGptImage2Task } from "@/lib/apimart"
+import { assertApimartConfigured, createApimartImageTask } from "@/lib/apimart"
 import {
   assertGrsaiConfigured,
   buildGrsaiUpstreamTaskId,
@@ -141,7 +140,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: `GPT-Image-2 选择 4K 时仅支持这些图片比例：${gptImage2Supported4KRatios.join(" / ")}。`,
+          error: "请选择当前模型支持的图片比例。",
         },
         { status: 400 }
       )
@@ -241,7 +240,7 @@ export async function POST(request: Request) {
     }
 
     if (isApimartImage && imageCount !== 1) {
-      return NextResponse.json({ ok: false, error: "image2-M通道暂时仅支持单张生成。" }, { status: 400 })
+      return NextResponse.json({ ok: false, error: "APIMart 当前模型暂时仅支持单张生成。" }, { status: 400 })
     }
 
     if (isApimartImage) {
@@ -505,7 +504,8 @@ export async function POST(request: Request) {
 
     if (isApimartImage) {
       stage = "submit_apimart_generation"
-      const result = await createApimartGptImage2Task({
+      const result = await createApimartImageTask({
+        model,
         prompt,
         quality,
         ratio,

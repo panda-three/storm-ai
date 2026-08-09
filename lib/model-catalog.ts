@@ -1,6 +1,7 @@
 import {
   apimartGptImage2ApiModelName,
   apimartGptImage2ModelName,
+  apimartSeedream5ProImageModelName,
   gptImage2AllModelName,
   grsaiNanoBanana2ImageApiModelName,
   grsaiNanoBanana2ImageModelName,
@@ -128,6 +129,13 @@ export const modelCatalog: ModelCatalogEntry[] = [
     apiModel: apimartGptImage2ApiModelName,
     defaultDisplayName: "GPT Image 2 · M通道",
     model: apimartGptImage2ModelName,
+    provider: "apimart",
+    type: "image",
+  },
+  {
+    apiModel: apimartSeedream5ProImageModelName,
+    defaultDisplayName: "Seedream 5.0 Pro · M通道",
+    model: apimartSeedream5ProImageModelName,
     provider: "apimart",
     type: "image",
   },

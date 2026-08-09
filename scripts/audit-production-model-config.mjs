@@ -23,6 +23,7 @@ const supported = new Set([
   "image:grok-imagine-image-pro",
   "image:gpt-image-2-all",
   "image:image2-M通道",
+  "image:doubao-seedream-5-0-pro",
   "image:image2-Toa通道",
   "image:nano-banana-2-grsai",
   "image:doubao-seedream-5-0-260128",
