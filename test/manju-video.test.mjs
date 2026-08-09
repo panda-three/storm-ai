@@ -22,7 +22,7 @@ function loadTypeScriptModule(path, mocks = {}) {
   return module.exports
 }
 
-test("Gemini Omni Flash video task submission uses input_reference payload", async () => {
+test("Gemini Omni Flash video task submission uses messages payload", async () => {
   const modelOptions = loadTypeScriptModule("lib/model-options.ts")
   const { createManjuVideoTask } = loadTypeScriptModule("lib/manju.ts", {
     "@/lib/model-options": modelOptions,
@@ -61,8 +61,31 @@ test("Gemini Omni Flash video task submission uses input_reference payload", asy
       model: "Gemini Omni Flash",
       prompt: "test prompt",
       resolution: "720p",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "test prompt",
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: "https://example.com/reference-1.png",
+              },
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: "https://example.com/reference-2.png",
+              },
+            },
+          ],
+        },
+      ],
     })
-    assert.equal("messages" in requestBody, false)
+    assert.equal(Array.isArray(requestBody.messages), true)
   } finally {
     if (originalApiKey === undefined) {
       delete process.env.MANJU_API_KEY
@@ -111,8 +134,19 @@ test("Gemini Omni Flash video task submission supports empty input_reference pay
       model: "Gemini Omni Flash",
       prompt: "test prompt",
       resolution: "720p",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "test prompt",
+            },
+          ],
+        },
+      ],
     })
-    assert.equal("messages" in requestBody, false)
+    assert.equal(Array.isArray(requestBody.messages), true)
   } finally {
     if (originalApiKey === undefined) {
       delete process.env.MANJU_API_KEY

@@ -326,6 +326,23 @@ function buildManjuVideoPayload(request: ManjuVideoRequest): Record<string, unkn
       prompt: request.prompt,
       duration: normalizeManjuOmniFlashVideoDuration(request.durationSeconds),
       input_reference: referenceImages,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: request.prompt,
+            },
+            ...referenceImages.map((url) => ({
+              type: "image_url",
+              image_url: {
+                url,
+              },
+            })),
+          ],
+        },
+      ],
     }
   }
 
