@@ -1,10 +1,7 @@
 // 数字画布（Digital Canvas）核心数据模型
 // 节点工作流形态：节点带类型化端口，通过连线传递数据。
 
-export type DigitalCanvasNodeKind = "text" | "image" | "ai-image" | "note"
-
-// 便签颜色档（P1）
-export type DigitalCanvasNoteColor = "amber" | "rose" | "sky" | "emerald" | "violet"
+export type DigitalCanvasNodeKind = "text" | "image" | "ai-image"
 
 export interface DigitalCanvasImagePayload {
   url: string
@@ -41,17 +38,10 @@ export interface DigitalCanvasAiImageNodeData {
   taskId?: string
 }
 
-export interface DigitalCanvasNoteNodeData {
-  kind: "note"
-  text: string
-  color: DigitalCanvasNoteColor
-}
-
 export type DigitalCanvasNodeData =
   | DigitalCanvasTextNodeData
   | DigitalCanvasImageNodeData
   | DigitalCanvasAiImageNodeData
-  | DigitalCanvasNoteNodeData
 
 export interface DigitalCanvasNode {
   id: string
