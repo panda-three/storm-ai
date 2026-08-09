@@ -271,7 +271,7 @@ function ToolbarButton({
 }) {
   return (
     <button
-      className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition ${
+      className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-sm transition ${
         primary
           ? "border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100"
           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900"
@@ -279,7 +279,7 @@ function ToolbarButton({
       onClick={onClick}
       type="button"
     >
-      <Icon className="h-3.5 w-3.5" />
+      <Icon className="h-3.5 w-3.5 shrink-0" />
       {label}
     </button>
   )
