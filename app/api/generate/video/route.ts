@@ -369,7 +369,7 @@ function parseStoredReferenceImages(value: unknown): StoredReferenceImage[] {
 
 function validateReferenceImageCount(referenceImageCount: number, minReferenceImages: number, maxReferenceImages: number) {
   if (referenceImageCount < minReferenceImages) {
-    throw new Error(minReferenceImages === 2 && maxReferenceImages === 5 ? "Gemini Omni Flash 需要至少 2 张参考图。" : `当前视频模型至少需要 ${minReferenceImages} 张参考图。`)
+    throw new Error(`当前视频模型至少需要 ${minReferenceImages} 张参考图。`)
   }
 
   if (referenceImageCount > maxReferenceImages) {

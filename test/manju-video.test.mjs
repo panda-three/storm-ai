@@ -73,6 +73,56 @@ test("Gemini Omni Flash video task submission uses input_reference payload", asy
   }
 })
 
+test("Gemini Omni Flash video task submission supports empty input_reference payload", async () => {
+  const modelOptions = loadTypeScriptModule("lib/model-options.ts")
+  const { createManjuVideoTask } = loadTypeScriptModule("lib/manju.ts", {
+    "@/lib/model-options": modelOptions,
+  })
+
+  const originalApiKey = process.env.MANJU_API_KEY
+  const originalFetch = global.fetch
+  let requestBody = null
+
+  process.env.MANJU_API_KEY = "test-key"
+  global.fetch = async (_url, init) => {
+    requestBody = JSON.parse(String(init.body))
+    return {
+      json: async () => ({ id: "task-2", status: "queued" }),
+      ok: true,
+      status: 200,
+      statusText: "OK",
+    }
+  }
+
+  try {
+    const result = await createManjuVideoTask({
+      aspectRatio: "16:9",
+      durationSeconds: 6,
+      model: modelOptions.manjuGeminiOmniFlashVideoModelName,
+      prompt: "test prompt",
+      quality: "720P",
+    })
+
+    assert.equal(result.taskId, "task-2")
+    assert.deepEqual(requestBody, {
+      aspect_ratio: "16:9",
+      duration: 6,
+      input_reference: [],
+      model: "gemini-omni-flash-preview",
+      prompt: "test prompt",
+      resolution: "720p",
+    })
+    assert.equal("messages" in requestBody, false)
+  } finally {
+    if (originalApiKey === undefined) {
+      delete process.env.MANJU_API_KEY
+    } else {
+      process.env.MANJU_API_KEY = originalApiKey
+    }
+    global.fetch = originalFetch
+  }
+})
+
 test("Gemini Omni Flash appears in model metadata and reference limits", () => {
   const modelOptions = loadTypeScriptModule("lib/model-options.ts")
   const modelCatalog = loadTypeScriptModule("lib/model-catalog.ts", {
@@ -88,7 +138,7 @@ test("Gemini Omni Flash appears in model metadata and reference limits", () => {
   assert.equal(modelOptions.isManjuVideoModel(modelOptions.manjuGeminiOmniFlashVideoModelName), true)
   assert.deepEqual(modelOptions.getVideoReferenceImageLimits(modelOptions.manjuGeminiOmniFlashVideoModelName), {
     max: 5,
-    min: 2,
+    min: 0,
   })
   assert.deepEqual(modelCatalog.getCatalogEntry("video", modelOptions.manjuGeminiOmniFlashVideoModelName), {
     apiModel: "gemini-omni-flash-preview",

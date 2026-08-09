@@ -652,7 +652,7 @@ function ReferenceImageThumb({ image, index }: { image: ReferenceImage; index: n
 }
 
 function getVideoReferenceHelperText(model: string) {
-  if (isManjuGeminiOmniFlashVideoModel(model)) return "2-5张参考图"
+  if (isManjuGeminiOmniFlashVideoModel(model)) return "0-5张参考图"
   if (model === manjuGrokImagineVideoModelName) return "0张文生；1-4张参考图，可用 @Image 1/@Image 2 指代"
   if (model === manjuVeo31Fast1080pVideoModelName) return "0张文生；1-3张参考图"
   if (model === yunwuSeedance15ProVideoModelName) return "0张文生；1张首帧；2张首尾帧"
@@ -1995,7 +1995,7 @@ function VideoWorkspace({
     }
 
     if (referenceImages.length < videoReferenceLimits.min) {
-      setError(videoReferenceLimits.min === 2 && videoReferenceLimits.max === 5 ? "Gemini Omni Flash 需要至少 2 张参考图。" : `当前视频模型至少需要 ${videoReferenceLimits.min} 张参考图。`)
+      setError(`当前视频模型至少需要 ${videoReferenceLimits.min} 张参考图。`)
       return
     }
 

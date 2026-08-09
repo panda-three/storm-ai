@@ -91,6 +91,16 @@ process.env.LOG_GENERATION_DEBUG === "1"
 
 如果报错了，代码会把失败阶段和上游任务信息拼进错误消息里，便于你在 Vercel Logs 里对照。
 
+## FUNCTION_PAYLOAD_TOO_LARGE
+
+如果报错信息是 `FUNCTION_PAYLOAD_TOO_LARGE`，先别看业务逻辑，优先判断是不是请求体太大：
+
+1. 是否把图片、视频、base64、超长 JSON 或大数组直接发进了 Vercel Function。
+2. 是否可以先上传到 Supabase Storage，再只提交 URL。
+3. 是否有接口在代理返回大文件。
+
+在这个仓库里，视频参考图不要再和 `/api/generate/video` 一起通过 multipart/form-data 上传。更稳妥的流程是先走 `app/api/uploads/reference-image/route.ts` 上传到 Storage，再把 `referenceImages` 里的存储地址提交给视频生成接口。
+
 ## 你发给我时，最少提供什么
 
 最少发这 4 项就够开始排查：
@@ -140,4 +150,3 @@ Logs:
 route.ts:
 现象描述:
 ```
-

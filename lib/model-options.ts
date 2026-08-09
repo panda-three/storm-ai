@@ -341,7 +341,7 @@ export function isManjuGeminiOmniFlashVideoModel(model: string) {
 
 export function getVideoReferenceImageLimits(model: string) {
   if (isManjuGeminiOmniFlashVideoModel(model)) {
-    return { min: 2, max: 5 }
+    return { min: 0, max: 5 }
   }
 
   if (model === yunwuVeo31FastVideoModelName || model === manjuVeo31Fast1080pVideoModelName) {
