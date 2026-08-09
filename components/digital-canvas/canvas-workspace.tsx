@@ -204,7 +204,11 @@ function CanvasInner({ email }: CanvasInnerProps) {
         </div>
 
         <div className="ml-auto flex items-center gap-3">
-          {message ? <span className="text-xs text-rose-500">{message}</span> : null}
+          {message ? (
+            <span className="max-w-64 truncate rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700" title={message}>
+              {message}
+            </span>
+          ) : null}
           <button
             className="flex items-center gap-1.5 rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
             disabled={status === "saving" || status === "loading"}
