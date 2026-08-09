@@ -198,6 +198,7 @@
   },
   "active": "f886516434839f9f",
   "lastOpenFiles": [
+    "test/apimart-seedream.test.mjs",
     "docs/handoff-gemini-omni-flash-0809.md",
     "problem/slow-query.md",
     "docs/scripts-manual.md",
@@ -232,7 +233,6 @@
     "docs/server-deployment-runbook.md",
     "docs/README.md",
     "docs/generation-queue-and-task-flow-research.md",
-    "docs/git-sync-workflow.md",
-    "problem/slow-query~.md"
+    "docs/git-sync-workflow.md"
   ]
 }

@@ -58,7 +58,7 @@ test("Gemini Omni Flash video task submission uses input_reference payload", asy
       aspect_ratio: "16:9",
       duration: 6,
       input_reference: ["https://example.com/reference-1.png", "https://example.com/reference-2.png"],
-      model: "gemini-omni-flash-preview",
+      model: "Gemini Omni Flash",
       prompt: "test prompt",
       resolution: "720p",
     })
@@ -108,7 +108,7 @@ test("Gemini Omni Flash video task submission supports empty input_reference pay
       aspect_ratio: "16:9",
       duration: 6,
       input_reference: [],
-      model: "gemini-omni-flash-preview",
+      model: "Gemini Omni Flash",
       prompt: "test prompt",
       resolution: "720p",
     })
@@ -141,7 +141,7 @@ test("Gemini Omni Flash appears in model metadata and reference limits", () => {
     min: 0,
   })
   assert.deepEqual(modelCatalog.getCatalogEntry("video", modelOptions.manjuGeminiOmniFlashVideoModelName), {
-    apiModel: "gemini-omni-flash-preview",
+    apiModel: "Gemini Omni Flash",
     defaultDisplayName: "Gemini Omni Flash · Manju",
     model: "gemini-omni-flash-preview",
     provider: "manju",
