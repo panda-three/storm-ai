@@ -16,10 +16,9 @@ const sceneLead: Record<RenderSceneKind, string> = {
   product: "product still-life visualization",
 }
 
-const modeLead: Record<RenderMode, string> = {
-  inpaint: "Refine only the masked region of the reference image, keep everything outside the mask pixel-identical",
-  redraw: "Redraw the reference image while preserving its layout, structure and camera",
-  "text-to-image": "Generate",
+// 冠词按首字母元音选择，避免出现 "a interior"
+function article(word: string) {
+  return /^[aeiou]/i.test(word) ? "an" : "a"
 }
 
 export interface ComposePromptInput {
@@ -44,7 +43,14 @@ export function composePrompt(input: ComposePromptInput): { prompt: string; phra
     if (option?.prompt) phrases.push(option.prompt)
   }
 
-  const segments: string[] = [`${modeLead[mode]} a ${sceneLead[scene]}`]
+  const lead = sceneLead[scene]
+  const segments: string[] = [
+    mode === "text-to-image"
+      ? `Generate ${article(lead)} ${lead}`
+      : mode === "redraw"
+        ? `Redraw the reference image as ${article(lead)} ${lead}, preserving its layout, structure and camera`
+        : `Refine only the masked region of the reference image as ${article(lead)} ${lead}, keep everything outside the mask pixel-identical`,
+  ]
 
   const trimmedDescription = description?.trim()
   if (trimmedDescription) segments.push(trimmedDescription)

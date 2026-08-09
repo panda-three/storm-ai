@@ -57,7 +57,6 @@ function ImageNodeComponent({ id, data, selected }: NodeProps) {
             onClick={() => inputRef.current?.click()}
             title="点击替换图片"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img alt="画布图片" className="h-auto w-full" src={nodeData.image.url} />
           </button>
         ) : (

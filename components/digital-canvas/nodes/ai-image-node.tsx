@@ -217,7 +217,6 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
 
         {nodeData.outputs?.[0]?.url ? (
           <div className="overflow-hidden rounded-lg border border-slate-200">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img alt="AI 生成结果" className="h-auto w-full" src={nodeData.outputs[0].url} />
           </div>
         ) : null}

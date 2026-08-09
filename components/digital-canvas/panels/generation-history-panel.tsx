@@ -92,7 +92,6 @@ export function GenerationHistoryPanel({ onClose, onInsert, open }: GenerationHi
               title={image.prompt || "加入画布"}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 alt={image.prompt || "生成结果"}
                 className="h-full w-full object-cover"

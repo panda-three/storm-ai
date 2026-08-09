@@ -45,7 +45,6 @@ export function ImageSlot({ busy = false, hint, label, onClear, onPick, url }: I
       >
         {url ? (
           <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img alt={label} className="h-full w-full object-cover" src={url} />
             <button
               aria-label={`移除${label}`}

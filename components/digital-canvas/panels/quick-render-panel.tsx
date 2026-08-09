@@ -45,7 +45,7 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
   const [scene, setScene] = useState<RenderSceneKind>("interior")
   const [values, setValues] = useState<RenderParamValues>(() => createDefaultParamValues())
   const [description, setDescription] = useState("")
-  const [model, setModel] = useState(imageModelOptions[0]?.value ?? "")
+  const [model, setModel] = useState(imageModelOptions[0] ?? "")
   const [ratio, setRatio] = useState("")
   const [quality, setQuality] = useState("")
   const [showPrompt, setShowPrompt] = useState(false)
@@ -249,8 +249,8 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
                 value={model}
               >
                 {imageModelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+                  <option key={option} value={option}>
+                    {option}
                   </option>
                 ))}
               </select>

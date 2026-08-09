@@ -239,7 +239,9 @@ export function getImageRatiosForSelection(model: string, quality: string) {
   if (isApimartImageModel(model)) return apimartImageRatios
   if (isToapisImageModel(model)) return getToapisImageRatiosForQuality(quality)
   if (isGrsaiImageModel(model)) return grsaiNanoBanana2ImageRatios
-  return isGptImage2Restricted4K(quality, model) ? gptImage2Supported4KRatios : imageModelSettings[model].ratios
+  if (isGptImage2Restricted4K(quality, model)) return gptImage2Supported4KRatios
+  // 模型可能来自历史保存记录，配置缺失时回退到默认模型，避免整页崩溃。
+  return (imageModelSettings[model] ?? imageModelSettings[imageModelOptions[0]]).ratios
 }
 
 export function isValidImageRatioForQuality(model: string, quality: string, ratio: string) {

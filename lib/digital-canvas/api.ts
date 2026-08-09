@@ -192,7 +192,6 @@ export async function pollImageTask(
   const timeoutMs = 5 * 60 * 1000
   const intervalMs = 2500
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     if (signal?.aborted) throw new Error("生成已取消。")
     if (Date.now() - start > timeoutMs) throw new Error("生成超时，请稍后重试。")
