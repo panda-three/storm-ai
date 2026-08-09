@@ -2,6 +2,7 @@ import type { GenerationResponse, NormalizedTaskStatus } from "@/lib/generation-
 import {
   manjuGemini4KImageApiModelName,
   manjuGemini4KImageModelName,
+  manjuGeminiOmniFlashVideoApiModelName,
   manjuGrokImagineImageProApiModelName,
   manjuGrokImagineImageProModelName,
   manjuGrokImagineVideoModelName,
@@ -14,6 +15,7 @@ import {
   manjuNanoBanana2ImageApiModelName,
   manjuNanoBanana2ImageModelName,
   manjuVeo31Fast1080pVideoModelName,
+  isManjuGeminiOmniFlashVideoModel,
 } from "@/lib/model-options"
 
 const MANJU_BASE_URL = process.env.MANJU_BASE_URL ?? "https://manjuapi.com"
@@ -314,20 +316,30 @@ function buildManjuVideoPayload(request: ManjuVideoRequest): Record<string, unkn
   const referenceImages = request.referenceImages ?? []
   const common = {
     model: getManjuVideoApiModel(request.model),
-    duration: normalizeManjuVideoDuration(request.durationSeconds),
     aspect_ratio: normalizeManjuVideoRatio(request.aspectRatio),
     resolution: normalizeManjuVideoResolution(request.quality),
+  }
+
+  if (isManjuGeminiOmniFlashVideoModel(request.model)) {
+    return {
+      ...common,
+      prompt: request.prompt,
+      duration: normalizeManjuOmniFlashVideoDuration(request.durationSeconds),
+      input_reference: referenceImages,
+    }
   }
 
   if (referenceImages.length === 0) {
     return {
       ...common,
+      duration: normalizeManjuVideoDuration(request.durationSeconds),
       prompt: request.prompt,
     }
   }
 
   return {
     ...common,
+    duration: normalizeManjuVideoDuration(request.durationSeconds),
     stream: false,
     messages: [
       {
@@ -366,6 +378,7 @@ function summarizeManjuImagePayload(payload: ReturnType<typeof buildManjuChatIma
 }
 
 function summarizeManjuVideoPayload(payload: Record<string, unknown>) {
+  const inputReference = Array.isArray(payload.input_reference) ? payload.input_reference : []
   const messages = Array.isArray(payload.messages) ? payload.messages : []
   const firstMessage = messages[0] && typeof messages[0] === "object" ? messages[0] as Record<string, unknown> : {}
   const content = Array.isArray(firstMessage.content) ? firstMessage.content : []
@@ -376,6 +389,7 @@ function summarizeManjuVideoPayload(payload: Record<string, unknown>) {
     aspect_ratio: payload.aspect_ratio,
     contentItems: content.length,
     duration: payload.duration,
+    inputReferenceCount: inputReference.length,
     imageUrlCount,
     model: payload.model,
     promptLength: typeof payload.prompt === "string" ? payload.prompt.length : 0,
@@ -399,6 +413,13 @@ function normalizeManjuImageResolution(quality: string) {
 function normalizeManjuVideoDuration(durationSeconds: number) {
   if (!Number.isFinite(durationSeconds)) return "6"
   return String(Math.trunc(durationSeconds) || 6)
+}
+
+function normalizeManjuOmniFlashVideoDuration(durationSeconds: number) {
+  if (!Number.isFinite(durationSeconds)) return 6
+
+  const value = Math.trunc(durationSeconds) || 6
+  return Math.min(10, Math.max(3, value))
 }
 
 function normalizeManjuVideoRatio(ratio: string) {
@@ -425,6 +446,7 @@ function getManjuImageApiModel(model: string) {
 }
 
 function getManjuVideoApiModel(model: string) {
+  if (isManjuGeminiOmniFlashVideoModel(model)) return manjuGeminiOmniFlashVideoApiModelName
   if (model === manjuGrokImagineVideoModelName) return manjuGrokImagineVideoModelName
   if (model === manjuVeo31Fast1080pVideoModelName) return manjuVeo31Fast1080pVideoModelName
   return model

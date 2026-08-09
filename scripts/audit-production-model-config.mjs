@@ -30,6 +30,7 @@ const supported = new Set([
   "video:veo_3_1-fast",
   "video:grok-imagine-video",
   "video:Veo 3.1 Fast 1080p",
+  "video:gemini-omni-flash-preview",
   "video:grok-video-3",
   "video:grok-video-3-10s",
   "video:doubao-seedance-1-5-pro-251215",

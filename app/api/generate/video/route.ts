@@ -15,12 +15,11 @@ import {
   uploadGeneratedImage,
 } from "@/lib/server-supabase"
 import {
+  getVideoReferenceImageLimits,
   isManjuVideoModel,
   isSelectableVideoModel,
   isYunwuVideoModel,
-  manjuVeo31Fast1080pVideoModelName,
   videoModelSettings,
-  yunwuSeedance15ProVideoModelName,
   yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 import {
@@ -31,10 +30,6 @@ import {
   validateReferenceImageMetadata,
 } from "@/lib/reference-images"
 import { buildGenerationSubmitFailureRefundReason } from "@/lib/generation-ledger"
-
-const maxDefaultVideoReferenceImages = 4
-const maxYunwuSeedance15ProReferenceImages = 2
-const maxYunwuVeoComponentsReferenceImages = 3
 
 interface PreparedVideoReferenceImage {
   bucket?: string
@@ -102,16 +97,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "请选择有效视频模型。" }, { status: 400 })
     }
 
-    const maxReferenceImages = getMaxVideoReferenceImages(model)
-    validateReferenceFiles(referenceFiles, maxReferenceImages)
-    validateStoredReferenceImages(storedReferenceImages, userId, maxReferenceImages)
-
     if (referenceFiles.length > 0 && storedReferenceImages.length > 0) {
       return NextResponse.json(
         { ok: false, error: "请不要同时提交参考图文件和参考图存储地址。" },
         { status: 400 }
       )
     }
+
+    const { min, max } = getVideoReferenceImageLimits(model)
+    const referenceCount = referenceFiles.length > 0 ? referenceFiles.length : storedReferenceImages.length
+    validateReferenceImageCount(referenceCount, min, max)
+
+    validateReferenceFiles(referenceFiles, max)
+    validateStoredReferenceImages(storedReferenceImages, userId, max)
 
     const pricing = await loadVideoPricing({
       durationSeconds: normalizeVideoDuration(duration),
@@ -369,12 +367,14 @@ function parseStoredReferenceImages(value: unknown): StoredReferenceImage[] {
   })
 }
 
-function getMaxVideoReferenceImages(model: string) {
-  return model === yunwuVeo31FastVideoModelName || model === manjuVeo31Fast1080pVideoModelName
-    ? maxYunwuVeoComponentsReferenceImages
-    : model === yunwuSeedance15ProVideoModelName
-      ? maxYunwuSeedance15ProReferenceImages
-    : maxDefaultVideoReferenceImages
+function validateReferenceImageCount(referenceImageCount: number, minReferenceImages: number, maxReferenceImages: number) {
+  if (referenceImageCount < minReferenceImages) {
+    throw new Error(minReferenceImages === 2 && maxReferenceImages === 5 ? "Gemini Omni Flash 需要至少 2 张参考图。" : `当前视频模型至少需要 ${minReferenceImages} 张参考图。`)
+  }
+
+  if (referenceImageCount > maxReferenceImages) {
+    throw new Error(`参考图最多上传 ${maxReferenceImages} 张。`)
+  }
 }
 
 function validateReferenceFiles(referenceImages: File[], maxReferenceImages: number) {

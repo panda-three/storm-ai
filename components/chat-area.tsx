@@ -15,11 +15,12 @@ import {
   isGrokImagineImageModel,
   isApimartImageModel,
   manjuGrokImagineVideoModelName,
+  getVideoReferenceImageLimits,
+  isManjuGeminiOmniFlashVideoModel,
   manjuVeo31Fast1080pVideoModelName,
   isManjuImageModel,
   videoModelSettings,
   yunwuSeedance15ProVideoModelName,
-  yunwuVeo31FastVideoModelName,
 } from "@/lib/model-options"
 import { UpscaleWorkspace } from "@/components/upscale-workspace"
 import {
@@ -650,14 +651,8 @@ function ReferenceImageThumb({ image, index }: { image: ReferenceImage; index: n
   )
 }
 
-function getMaxVideoReferenceImages(model: string) {
-  if (model === yunwuVeo31FastVideoModelName) return 3
-  if (model === manjuVeo31Fast1080pVideoModelName) return 3
-  if (model === yunwuSeedance15ProVideoModelName) return 2
-  return maxReferenceImages
-}
-
 function getVideoReferenceHelperText(model: string) {
+  if (isManjuGeminiOmniFlashVideoModel(model)) return "2-5张参考图"
   if (model === manjuGrokImagineVideoModelName) return "0张文生；1-4张参考图，可用 @Image 1/@Image 2 指代"
   if (model === manjuVeo31Fast1080pVideoModelName) return "0张文生；1-3张参考图"
   if (model === yunwuSeedance15ProVideoModelName) return "0张文生；1张首帧；2张首尾帧"
@@ -1783,6 +1778,7 @@ function VideoWorkspace({
   const [model, setModel] = useState(defaultModel)
   const modelSettings = videoModelSettings[model]
   const availableVariants = getAvailableVideoVariants(modelPricing, model)
+  const videoReferenceLimits = getVideoReferenceImageLimits(model)
   const [duration, setDuration] = useState(getPreferredVideoDuration(model, availableVariants))
   const [quality, setQuality] = useState(getPreferredVideoQuality(model, availableVariants))
   const [aspectRatio, setAspectRatio] = useState(modelSettings.aspectRatios[0])
@@ -1793,7 +1789,7 @@ function VideoWorkspace({
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const videoObjectUrlsRef = useRef<Set<string>>(new Set())
-  const maxVideoReferenceImages = getMaxVideoReferenceImages(model)
+  const maxVideoReferenceImages = videoReferenceLimits.max
   const videoReferenceHelperText = getVideoReferenceHelperText(model)
   const currentPricing = findModelPricing(modelPricing, {
     aspectRatio,
@@ -1818,7 +1814,7 @@ function VideoWorkspace({
     const nextDuration = draft.duration && settings.durations.includes(draft.duration) ? draft.duration : defaultSettings.durations[0]
     const nextQuality = draft.quality && settings.qualities.includes(draft.quality) ? draft.quality : defaultSettings.qualities[0]
     const nextAspectRatio = draft.aspectRatio && settings.aspectRatios.includes(draft.aspectRatio) ? draft.aspectRatio : defaultSettings.aspectRatios[0]
-    const nextMaxReferences = getMaxVideoReferenceImages(nextModel)
+    const nextMaxReferences = getVideoReferenceImageLimits(nextModel).max
 
     setModel(nextModel)
     setDuration(nextDuration)
@@ -1995,6 +1991,11 @@ function VideoWorkspace({
 
     if (estimatedCredits === null || creditBalance < estimatedCredits) {
       setError("点数余额不足，请先充值。")
+      return
+    }
+
+    if (referenceImages.length < videoReferenceLimits.min) {
+      setError(videoReferenceLimits.min === 2 && videoReferenceLimits.max === 5 ? "Gemini Omni Flash 需要至少 2 张参考图。" : `当前视频模型至少需要 ${videoReferenceLimits.min} 张参考图。`)
       return
     }
 
