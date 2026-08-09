@@ -289,6 +289,37 @@ async function getCurrentAccessToken() {
   return token
 }
 
+async function uploadReferenceImageToStorage(file: File, accessToken: string): Promise<ProjectReferenceImage> {
+  const formData = new FormData()
+  formData.set("file", file)
+
+  const response = await fetch("/api/uploads/reference-image", {
+    body: formData,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    method: "POST",
+  })
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || !data.ok) {
+    throw new Error(getErrorMessage(data, "参考图上传失败。"))
+  }
+
+  if (!data.bucket || !data.path || !data.publicUrl) {
+    throw new Error("参考图上传返回结果无效。")
+  }
+
+  return {
+    bucket: String(data.bucket),
+    name: typeof data.name === "string" && data.name ? data.name : file.name || "reference-image",
+    path: String(data.path),
+    publicUrl: String(data.publicUrl),
+    size: typeof data.size === "number" ? data.size : file.size,
+    type: typeof data.type === "string" && data.type ? data.type : file.type,
+  }
+}
+
 function getStoredReferenceImages(referenceImages: ReferenceImage[]) {
   return referenceImages.map((image) => image.stored).filter((image): image is ProjectReferenceImage => Boolean(image))
 }
@@ -2030,44 +2061,31 @@ function VideoWorkspace({
       const accessToken = await getCurrentAccessToken()
       const storedReferenceImages = getStoredReferenceImages(referenceImages)
       const fileReferenceImages = getFileReferenceImages(referenceImages)
-      const hasFileReferenceImages = fileReferenceImages.length > 0
 
-      if (hasFileReferenceImages && storedReferenceImages.length > 0) {
+      if (fileReferenceImages.length > 0 && storedReferenceImages.length > 0) {
         throw new Error("请不要同时提交本地参考图和历史参考图。")
       }
 
-      const body = hasFileReferenceImages
-        ? (() => {
-            const formData = new FormData()
-            formData.set("prompt", trimmedPrompt)
-            formData.set("model", model)
-            formData.set("duration", duration)
-            formData.set("quality", quality)
-            formData.set("aspectRatio", aspectRatio)
-            formData.set("clientRequestId", clientRequestId)
-            fileReferenceImages.forEach((image) => {
-              formData.append("referenceImages", image.file)
-            })
-            return formData
-          })()
-        : JSON.stringify({
-            prompt: trimmedPrompt,
-            model,
-            duration,
-            quality,
-            aspectRatio,
-            clientRequestId,
-            referenceImages: storedReferenceImages,
-          })
+      const uploadedReferenceImages =
+        fileReferenceImages.length > 0
+          ? await Promise.all(fileReferenceImages.map((image) => uploadReferenceImageToStorage(image.file, accessToken)))
+          : []
+
+      const referenceImagesPayload = storedReferenceImages.length > 0 ? storedReferenceImages : uploadedReferenceImages
+      const body = JSON.stringify({
+        prompt: trimmedPrompt,
+        model,
+        duration,
+        quality,
+        aspectRatio,
+        clientRequestId,
+        referenceImages: referenceImagesPayload,
+      })
       const response = await fetch("/api/generate/video", {
-        headers: hasFileReferenceImages
-          ? {
-              Authorization: `Bearer ${accessToken}`,
-            }
-          : {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
         method: "POST",
         body,
       }).catch((error) => {
@@ -2081,7 +2099,7 @@ function VideoWorkspace({
 
       const responseReferenceImages = Array.isArray(data.referenceImages)
         ? data.referenceImages.filter((image: unknown): image is ProjectReferenceImage => Boolean(image && typeof image === "object"))
-        : storedReferenceImages
+        : referenceImagesPayload
       const generatedResult: VideoResult = {
         id: typeof data.taskId === "string" && data.taskId ? data.taskId : optimisticId,
         clientRequestId: typeof data.clientRequestId === "string" ? data.clientRequestId : clientRequestId,

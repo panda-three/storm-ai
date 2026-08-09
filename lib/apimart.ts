@@ -4,6 +4,7 @@ import tls from "node:tls"
 import type { Duplex } from "node:stream"
 import {
   apimartGptImage2ApiModelName,
+  apimartSeedream5ProImageModelName,
   gptImage2ApiModelName,
   gptImage2AllModelName,
   gptImage2ModelName,
@@ -55,6 +56,13 @@ interface ApimartGptImage2Request {
   referenceImages?: string[]
 }
 
+interface ApimartSeedream5ProRequest {
+  prompt: string
+  quality: string
+  ratio: string
+  referenceImages?: string[]
+}
+
 interface ApimartTaskResponse {
   code?: number
   data?: unknown
@@ -65,6 +73,7 @@ interface ApimartTaskResponse {
 export const imageModelMap: Record<string, string> = {
   "Gemini Nano Banana Pro": "gemini-3.1-flash-image-preview",
   [gptImage2ModelName]: gptImage2ApiModelName,
+  [apimartSeedream5ProImageModelName]: apimartSeedream5ProImageModelName,
 }
 
 export const videoModelMap: Record<string, string> = {
@@ -183,6 +192,48 @@ export async function createApimartGptImage2Task(request: ApimartGptImage2Reques
   return result
 }
 
+export async function createApimartImageTask(
+  request: ApimartSeedream5ProRequest & { model: string }
+): Promise<GenerationResponse> {
+  if (request.model === apimartSeedream5ProImageModelName) {
+    return createApimartSeedream5ProTask(request)
+  }
+
+  return createApimartGptImage2Task(request)
+}
+
+export async function createApimartSeedream5ProTask(
+  request: ApimartSeedream5ProRequest
+): Promise<GenerationResponse> {
+  assertApimartConfigured()
+
+  const payload = {
+    model: apimartSeedream5ProImageModelName,
+    prompt: request.prompt,
+    resolution: normalizeApimartSeedream5ProImageResolution(request.quality),
+    size: request.ratio,
+    output_format: "png",
+    ...(request.referenceImages?.length ? { image_urls: request.referenceImages } : {}),
+  }
+
+  logApimart("seedream-5-pro submit input", {
+    promptLength: request.prompt.length,
+    quality: request.quality,
+    ratio: request.ratio,
+    referenceImages: request.referenceImages?.length ?? 0,
+  })
+
+  const response = await apimartFetch("/images/generations", payload)
+  const result = normalizeGenerationResponse(response, "image")
+
+  logApimart("seedream-5-pro submit output", {
+    status: result.status,
+    taskId: result.taskId,
+  })
+
+  return result
+}
+
 export function assertApimartConfigured() {
   if (!process.env.APIMART_API_KEY) {
     throw new Error("APIMart API Key 未配置，请设置 APIMART_API_KEY。")
@@ -194,6 +245,13 @@ function normalizeApimartImageResolution(quality: string) {
   if (value === "4k" || value === "超清") return "4k"
   if (value === "2k" || value === "高清") return "2k"
   return "1k"
+}
+
+function normalizeApimartSeedream5ProImageResolution(quality: string) {
+  const value = quality.trim().toUpperCase()
+  if (value === "2K" || quality.trim() === "高清") return "2K"
+  if (value === "1.5K") return "1.5K"
+  return "1K"
 }
 
 function normalizeImageCount(value: number | undefined): number {
@@ -375,6 +433,19 @@ function apimartRawRequest(
   headers: Record<string, string | number>,
   payload?: Buffer
 ) {
+  const testRequest = (
+    globalThis as typeof globalThis & {
+      __apimartTestRequest?: (
+        targetUrl: URL,
+        method: "GET" | "POST",
+        headers: Record<string, string | number>,
+        payload?: Buffer
+      ) => Promise<ApimartTaskResponse>
+    }
+  ).__apimartTestRequest
+
+  if (testRequest) return testRequest(targetUrl, method, headers, payload)
+
   return new Promise<ApimartTaskResponse>((resolve, reject) => {
     const requestOptions: https.RequestOptions = {
       method,

@@ -9,6 +9,8 @@ export const apimartGptImage2ModelName = "image2-M通道"
 export const apimartGptImage2ApiModelName = "gpt-image-2"
 export const apimartImageProviderName = "apimart"
 export const apimartImageRatios = ["auto", "1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "16:9", "9:16", "2:1", "1:2", "21:9", "9:21"]
+export const apimartSeedream5ProImageModelName = "doubao-seedream-5-0-pro"
+export const apimartSeedream5ProImageRatios = ["auto", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"]
 export const toaGptImage2ModelName = "image2-Toa通道"
 export const toapisGptImage2ApiModelName = "gpt-image-2"
 export const toapisImageProviderName = "toapis"
@@ -67,6 +69,7 @@ export const imageModelOptions = [
   manjuGrokImagineImageProModelName,
   gptImage2AllModelName,
   apimartGptImage2ModelName,
+  apimartSeedream5ProImageModelName,
   toaGptImage2ModelName,
   grsaiNanoBanana2ImageModelName,
   yunwuSeedream5ImageModelName,
@@ -140,6 +143,10 @@ export const imageModelSettings: Record<
     qualities: ["1K", "2K", "4K"],
     ratios: apimartImageRatios,
   },
+  [apimartSeedream5ProImageModelName]: {
+    qualities: ["1K", "1.5K", "2K"],
+    ratios: apimartSeedream5ProImageRatios,
+  },
   [toaGptImage2ModelName]: {
     qualities: ["1K", "2K", "4K"],
     ratios: toapisImage2KRatios,
@@ -207,7 +214,7 @@ export function isGrsaiImageModel(model: string) {
 }
 
 export function isApimartImageModel(model: string) {
-  return model === apimartGptImage2ModelName
+  return model === apimartGptImage2ModelName || model === apimartSeedream5ProImageModelName
 }
 
 export function isVectorEngineImageModel(model: string) {
@@ -228,6 +235,7 @@ export function isGptImage2Restricted4K(quality: string, model: string) {
 }
 
 export function getImageRatiosForSelection(model: string, quality: string) {
+  if (model === apimartSeedream5ProImageModelName) return apimartSeedream5ProImageRatios
   if (isApimartImageModel(model)) return apimartImageRatios
   if (isToapisImageModel(model)) return getToapisImageRatiosForQuality(quality)
   if (isGrsaiImageModel(model)) return grsaiNanoBanana2ImageRatios
@@ -235,6 +243,7 @@ export function getImageRatiosForSelection(model: string, quality: string) {
 }
 
 export function isValidImageRatioForQuality(model: string, quality: string, ratio: string) {
+  if (model === apimartSeedream5ProImageModelName) return apimartSeedream5ProImageRatios.includes(ratio)
   if (isApimartImageModel(model)) return apimartImageRatios.includes(ratio)
   if (isToapisImageModel(model)) return getToapisImageRatiosForQuality(quality).includes(ratio)
   if (isGrsaiImageModel(model)) return grsaiNanoBanana2ImageRatios.includes(ratio)

@@ -823,6 +823,10 @@ values ('image', 'image2-M通道', 'GPT Image 2 · M通道', true, false, 30)
 on conflict (type, model) do nothing;
 
 insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
+values ('image', 'doubao-seedream-5-0-pro', 'Seedream 5.0 Pro · M通道', true, false, 35)
+on conflict (type, model) do nothing;
+
+insert into public.model_configs (type, model, display_name, frontend_enabled, initial_selected, sort_order)
 values ('image', 'image2-Toa通道', 'GPT Image 2 · ToA通道', true, false, 40)
 on conflict (type, model) do nothing;
 
