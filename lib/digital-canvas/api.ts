@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "@/lib/supabase"
+import type { ProjectItem } from "@/lib/project-history"
 import type { StoredReferenceImage } from "@/lib/reference-images"
 import type {
   DigitalCanvasDocument,
@@ -105,6 +106,37 @@ export async function uploadReferenceImageFromUrl(url: string): Promise<StoredRe
     size: payload.size,
     type: payload.type,
   }
+}
+
+// 直接上传本地文件作为参考图（快捷渲染面板的图槽）。
+export async function uploadReferenceImageFile(file: File): Promise<StoredReferenceImage> {
+  const token = await getAccessToken()
+  const formData = new FormData()
+  formData.append("file", file)
+
+  const response = await fetch("/api/uploads/reference-image", {
+    body: formData,
+    headers: { Authorization: `Bearer ${token}` },
+    method: "POST",
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(getErrorMessage(payload, "参考图上传失败。"))
+  }
+
+  return {
+    bucket: payload.bucket,
+    name: payload.name,
+    path: payload.path,
+    size: payload.size,
+    type: payload.type,
+  }
+}
+
+// 生成历史（复用创作台历史接口，供画布「生成历史」面板取图）。
+export async function listGenerationHistory() {
+  const payload = await request<{ projects?: ProjectItem[] }>("/api/history")
+  return (payload.projects ?? []).filter((project) => !project.deletedAt)
 }
 
 // 提交图片生成任务（支持参考图，用于图生图/编辑）。
