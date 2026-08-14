@@ -151,6 +151,7 @@ export async function createManjuVideoTask(request: ManjuVideoRequest): Promise<
   assertManjuConfigured()
 
   const payload = buildManjuVideoPayload(request)
+  const submitPath = getManjuVideoSubmitPath(request.model)
   const referenceCount = request.referenceImages?.length ?? 0
 
   logManju("video.submit.input", {
@@ -161,10 +162,11 @@ export async function createManjuVideoTask(request: ManjuVideoRequest): Promise<
     promptLength: request.prompt.length,
     quality: request.quality,
     referenceImages: referenceCount,
+    submitPath,
   })
   logManju("video.submit.payload", summarizeManjuVideoPayload(payload))
 
-  const data = await manjuRequest("/v1/chat/completions", "POST", payload, {
+  const data = await manjuRequest(submitPath, "POST", payload, {
     timeoutMessage: "Manju 视频任务提交等待超时，请稍后重试。",
     timeoutMs: manjuVideoSubmitTimeoutMs,
   }) as ManjuTaskResponse
@@ -230,6 +232,17 @@ export async function getManjuVideoTaskStatus(taskIdOrPollUrl: string): Promise<
     taskError,
     raw: response,
   }
+}
+
+export class ManjuTaskNotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ManjuTaskNotFoundError"
+  }
+}
+
+export function isManjuFatalTaskError(error: unknown) {
+  return error instanceof ManjuTaskNotFoundError
 }
 
 export function isManjuRateLimitError(message: string) {
@@ -321,12 +334,24 @@ function buildManjuVideoPayload(request: ManjuVideoRequest): Record<string, unkn
   }
 
   if (isManjuGeminiOmniFlashVideoModel(request.model)) {
-    return {
-      ...common,
+    // POST /v1/videos 三种模式：0 张为文生视频（不带 input_reference）、
+    // 1 张为首帧图生视频（input_reference 为字符串）、2-5 张为多参考素材视频（input_reference 为数组）。
+    // 该接口 additionalProperties: false，不能附带 stream/messages 等额外字段。
+    const omniFlashPayload: Record<string, unknown> = {
+      model: manjuGeminiOmniFlashVideoApiModelName,
       prompt: request.prompt,
       duration: normalizeManjuOmniFlashVideoDuration(request.durationSeconds),
-      input_reference: referenceImages,
+      aspect_ratio: normalizeManjuOmniFlashVideoRatio(request.aspectRatio),
+      resolution: "720p",
     }
+
+    if (referenceImages.length === 1) {
+      omniFlashPayload.input_reference = referenceImages[0]
+    } else if (referenceImages.length >= 2) {
+      omniFlashPayload.input_reference = referenceImages.slice(0, 5)
+    }
+
+    return omniFlashPayload
   }
 
   if (referenceImages.length === 0) {
@@ -378,7 +403,11 @@ function summarizeManjuImagePayload(payload: ReturnType<typeof buildManjuChatIma
 }
 
 function summarizeManjuVideoPayload(payload: Record<string, unknown>) {
-  const inputReference = Array.isArray(payload.input_reference) ? payload.input_reference : []
+  const inputReference = Array.isArray(payload.input_reference)
+    ? payload.input_reference
+    : typeof payload.input_reference === "string" && payload.input_reference
+      ? [payload.input_reference]
+      : []
   const messages = Array.isArray(payload.messages) ? payload.messages : []
   const firstMessage = messages[0] && typeof messages[0] === "object" ? messages[0] as Record<string, unknown> : {}
   const content = Array.isArray(firstMessage.content) ? firstMessage.content : []
@@ -422,6 +451,10 @@ function normalizeManjuOmniFlashVideoDuration(durationSeconds: number) {
   return Math.min(10, Math.max(3, value))
 }
 
+function normalizeManjuOmniFlashVideoRatio(ratio: string) {
+  return ratio.trim() === "9:16" ? "9:16" : "16:9"
+}
+
 function normalizeManjuVideoRatio(ratio: string) {
   const normalized = ratio.trim()
   if (normalized === "9:16" || normalized === "1:1") return normalized
@@ -450,6 +483,12 @@ function getManjuVideoApiModel(model: string) {
   if (model === manjuGrokImagineVideoModelName) return manjuGrokImagineVideoModelName
   if (model === manjuVeo31Fast1080pVideoModelName) return manjuVeo31Fast1080pVideoModelName
   return model
+}
+
+function getManjuVideoSubmitPath(model: string) {
+  // 接入文档：视频创建统一走 POST /v1/videos，查询走 GET /v1/videos/{task_id}。
+  if (isManjuGeminiOmniFlashVideoModel(model)) return "/v1/videos"
+  return "/v1/chat/completions"
 }
 
 function getManjuTaskStatusPath(taskIdOrPollUrl: string) {
@@ -492,7 +531,8 @@ function normalizeManjuPollUrl(value: string) {
     return ""
   }
 
-  if (!url.pathname.startsWith("/api/tasks/") && !url.pathname.startsWith("/v1/videos/")) return ""
+  const allowedPrefixes = ["/api/tasks/", "/v1/videos/", "/v1/tasks/"]
+  if (!allowedPrefixes.some((prefix) => url.pathname.startsWith(prefix))) return ""
   return url.toString()
 }
 
@@ -533,7 +573,15 @@ async function manjuRequest(
   logManjuRawResponse(url.pathname, response.status, data)
 
   if (!response.ok) {
-    throw new Error(`Manju 请求失败：HTTP ${response.status} ${extractManjuError(data) || response.statusText}`)
+    const message = `Manju 请求失败：HTTP ${response.status} ${extractManjuError(data) || response.statusText}`
+
+    // 上游明确回 404 / task_not_found 时任务不可能再变成功，必须立刻判失败，
+    // 否则会被当成可重试错误无限退避，前台长期停在“生成中”。
+    if (response.status === 404 || findStringValue(data, ["code"]) === "task_not_found") {
+      throw new ManjuTaskNotFoundError(message)
+    }
+
+    throw new Error(message)
   }
 
   const code = findNumberValue(data, ["code", "status_code"])
