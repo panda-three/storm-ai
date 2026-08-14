@@ -4,7 +4,7 @@ import type { GenerationKind, NormalizedTaskStatus } from "@/lib/generation-type
 import { buildGenerationFailureRefundReason } from "@/lib/generation-ledger"
 import { GenerationLimitError, parseGenerationLimitResult } from "@/lib/generation-limits"
 import type { ProjectReferenceImage } from "@/lib/reference-images"
-import { getManjuVideoTaskStatus } from "@/lib/manju"
+import { getManjuVideoTaskStatus, isManjuFatalTaskError } from "@/lib/manju"
 import { getYunwuVideoTaskStatus } from "@/lib/yunwu"
 
 export type GenerationJobStatus = "submitted" | "processing" | "completed" | "failed" | "partial_completed"
@@ -15,6 +15,8 @@ export const synchronousImageOrphanTimeoutMs = 10 * 60 * 1000
 export const asyncVideoTimeoutMs = 60 * 60 * 1000
 export const asyncImageTimeoutMs = 60 * 60 * 1000
 export const manjuImageTimeoutMs = 30 * 60 * 1000
+// 超过该时长的视频任务无论上游返回什么都直接结束并退点，防止无限停在“生成中”。
+export const videoHardFailTimeoutMs = 3 * 60 * 60 * 1000
 export const generationHistoryRetentionHours = 24
 export const generationHistoryRetentionMs = generationHistoryRetentionHours * 60 * 60 * 1000
 const videoMissingResultRetryMs = 90 * 1000
@@ -766,6 +768,18 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
       taskError && result.status === "completed" ? "failed" : shouldRetryMissingVideoResult ? "processing" : result.status
 
     if (!isTerminalGenerationJobStatus(status)) {
+      if (isPastVideoHardDeadline(job)) {
+        return failGenerationJobWithRefund({
+          jobId: job.id,
+          reason: buildGenerationFailureRefundReason({
+            error: generationTimeoutMessage,
+            model: job.model,
+            provider: job.provider,
+            type: job.type,
+          }),
+        })
+      }
+
       return updateGenerationJob(job.id, {
         last_checked_at: new Date().toISOString(),
         last_sync_error: generationTimeoutMessage,
@@ -811,6 +825,20 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
       jobId: job.id,
       upstreamTaskId: job.upstream_task_id,
     })
+
+    // 上游任务不存在，或已超过硬性截止时间，都不再继续查询，直接结束任务并退点。
+    if (isManjuFatalTaskError(error) || isPastVideoHardDeadline(job)) {
+      return failGenerationJobWithRefund({
+        jobId: job.id,
+        reason: buildGenerationFailureRefundReason({
+          error: message,
+          model: job.model,
+          provider: job.provider,
+          type: job.type,
+        }),
+      })
+    }
+
     return updateGenerationJob(job.id, {
       check_attempts: job.check_attempts + 1,
       last_checked_at: new Date().toISOString(),
@@ -824,6 +852,13 @@ export async function recoverStaleGenerationJob(job: GenerationJob) {
 function shouldStopWaitingForVideoUrl(job: GenerationJob) {
   if (job.type !== "video") return true
   return Date.now() - Date.parse(job.created_at) >= videoMissingResultRetryMs
+}
+
+function isPastVideoHardDeadline(job: GenerationJob) {
+  if (job.type !== "video") return false
+  const createdAt = Date.parse(job.created_at)
+  if (!Number.isFinite(createdAt)) return false
+  return Date.now() - createdAt >= videoHardFailTimeoutMs
 }
 
 export async function lockGenerationJobForSync(id: string, lockMs = 2 * 60 * 1000) {

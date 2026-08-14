@@ -1,5 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import {
+  normalizeAnnouncementSettings,
+  type AnnouncementSettings,
+} from "@/lib/announcement"
+import {
   GenerationLimitsSaveConflictError,
   normalizeGenerationLimitsSettings,
   parseGenerationLimitsSaveConflict,
@@ -421,6 +425,37 @@ export async function saveCustomerServiceSettings(settings: CustomerServiceSetti
   })
 
   if (error) throw error
+}
+
+export async function loadAnnouncementSettings(): Promise<AnnouncementSettings> {
+  const supabase = getSupabaseClient()
+  if (!supabase) return normalizeAnnouncementSettings(null)
+
+  const { data, error } = await supabase
+    .from("site_settings")
+    .select("value")
+    .eq("key", "announcement")
+    .maybeSingle()
+
+  if (error) throw error
+
+  return normalizeAnnouncementSettings(data?.value)
+}
+
+export async function saveAnnouncementSettings(settings: AnnouncementSettings): Promise<AnnouncementSettings> {
+  const normalized = normalizeAnnouncementSettings({ ...settings, version: new Date().toISOString() })
+  const supabase = getSupabaseClient()
+  if (!supabase) return normalized
+
+  const { error } = await supabase.from("site_settings").upsert({
+    key: "announcement",
+    value: normalized,
+    updated_at: normalized.version,
+  })
+
+  if (error) throw error
+
+  return normalized
 }
 
 export async function loadGenerationLimitsSettings(): Promise<GenerationLimitsSettings> {
