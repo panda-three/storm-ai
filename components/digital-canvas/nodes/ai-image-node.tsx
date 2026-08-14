@@ -1,6 +1,7 @@
 "use client"
 
 import { memo, useCallback, useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 import { Handle, Position, useReactFlow, type NodeProps } from "@xyflow/react"
 import {
   AlertCircle,
@@ -138,14 +139,14 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
 
   // 局部精修：把涂选后的合成图作为参考图，只重绘涂抹区域。
   const handleRefine = useCallback(
-    async (masked: File) => {
+    async (masked: File, refinePrompt: string) => {
       patch({ error: undefined, progress: 0, status: "running" })
       try {
         const reference = await uploadReferenceImageFile(masked)
-        const basePrompt = nodeData.prompt?.trim()
+        const instruction = refinePrompt.trim() || nodeData.prompt?.trim() || ""
         const prompt = [
-          basePrompt,
-          "Refine only the region covered by the semi-transparent pink mask in the reference image; keep everything outside the mask pixel-identical, and remove the mask color itself.",
+          instruction ? `Inside the marked region, repaint it as: ${instruction}.` : "",
+          "The reference image has a semi-transparent pink marked region. Repaint only that region, keep everything outside it pixel-identical, and remove the pink mask color from the output. Match the original lighting, material and perspective seamlessly.",
         ]
           .filter(Boolean)
           .join(" ")
@@ -345,35 +346,40 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
         <MaskEditor
           busy={running}
           imageUrl={proxiedResultUrl}
+          initialPrompt=""
           onCancel={() => setMaskOpen(false)}
-          onConfirm={async (composited) => {
+          onConfirm={async (composited, refinePrompt) => {
             setMaskOpen(false)
-            await handleRefine(composited)
+            await handleRefine(composited, refinePrompt)
           }}
         />
       ) : null}
 
-      {lightboxOpen && resultUrl ? (
-        <div
-          className="nodrag nowheel fixed inset-0 z-50 flex items-center justify-center bg-slate-900/75 p-6"
-          onClick={() => setLightboxOpen(false)}
-          role="presentation"
-        >
-          <img
-            alt="AI 生成结果大图"
-            className="max-h-full max-w-full rounded-xl shadow-2xl"
-            src={resultUrl}
-          />
-          <button
-            aria-label="关闭大图"
-            className="absolute right-5 top-5 grid h-9 w-9 place-items-center rounded-full bg-white/90 text-slate-700 transition hover:bg-white"
-            onClick={() => setLightboxOpen(false)}
-            type="button"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      ) : null}
+      {lightboxOpen && resultUrl && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/85 p-3 sm:p-6"
+              onClick={() => setLightboxOpen(false)}
+              role="presentation"
+            >
+              <img
+                alt="AI 生成结果大图"
+                className="max-h-[95vh] max-w-[95vw] rounded-xl object-contain shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+                src={resultUrl}
+              />
+              <button
+                aria-label="关闭大图"
+                className="absolute right-5 top-5 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-slate-700 transition hover:bg-white"
+                onClick={() => setLightboxOpen(false)}
+                type="button"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>,
+            document.body
+          )
+        : null}
 
       <Handle
         type="target"

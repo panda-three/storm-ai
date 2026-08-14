@@ -123,10 +123,11 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
     setDescription("")
   }
 
-  async function submit(submitMode: RenderMode, overrideBase?: File) {
+  async function submit(submitMode: RenderMode, overrideBase?: File, maskInstruction?: string) {
     const finalBase = overrideBase ?? baseFile
     const finalPrompt = composePrompt({
       description,
+      maskInstruction,
       mode: submitMode,
       scene,
       values,
@@ -347,10 +348,11 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
         <MaskEditor
           busy={busy}
           imageUrl={baseUrl}
+          initialPrompt=""
           onCancel={() => setMaskOpen(false)}
-          onConfirm={async (composited) => {
+          onConfirm={async (composited, refinePrompt) => {
             setMaskOpen(false)
-            await submit("inpaint", composited)
+            await submit("inpaint", composited, refinePrompt)
           }}
         />
       ) : null}
