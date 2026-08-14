@@ -20,27 +20,67 @@ export function MaskEditor({ busy = false, imageUrl, onCancel, onConfirm }: Mask
   const [brush, setBrush] = useState(48)
   const [ready, setReady] = useState(false)
   const [hasMask, setHasMask] = useState(false)
+  const [loadError, setLoadError] = useState("")
 
-  // 载入底图并铺满画布
+  // 载入底图并铺满画布：先把图片抓成同源 blob，避免跨域污染 canvas 导致无法导出
   useEffect(() => {
+    let cancelled = false
+    let objectUrl = ""
     const image = new Image()
-    image.crossOrigin = "anonymous"
-    image.onload = () => {
-      imageRef.current = image
-      const canvas = canvasRef.current
-      if (!canvas) return
-      // 限制最长边，避免超大图导致卡顿
-      const maxEdge = 1280
-      const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight))
-      canvas.width = Math.round(image.naturalWidth * scale)
-      canvas.height = Math.round(image.naturalHeight * scale)
-      const ctx = canvas.getContext("2d")
-      if (ctx) ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
-      setReady(true)
-      setHasMask(false)
+
+    setReady(false)
+    setHasMask(false)
+    setLoadError("")
+
+    async function load() {
+      try {
+        const response = await fetch(imageUrl)
+        if (!response.ok) throw new Error(`图片载入失败（${response.status}）`)
+        const blob = await response.blob()
+        if (cancelled) return
+
+        objectUrl = URL.createObjectURL(blob)
+        image.onload = () => {
+          if (cancelled) return
+          imageRef.current = image
+          setReady(true)
+        }
+        image.onerror = () => {
+          if (!cancelled) setLoadError("图片解码失败，请重试。")
+        }
+        image.src = objectUrl
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error.message : "图片载入失败，请重试。")
+        }
+      }
     }
-    image.src = imageUrl
+
+    void load()
+
+    return () => {
+      cancelled = true
+      image.onload = null
+      image.onerror = null
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
   }, [imageUrl])
+
+  // canvas 需要先挂载才能取到 ref，因此在图片就绪后单独绘制底图
+  useEffect(() => {
+    const image = imageRef.current
+    const canvas = canvasRef.current
+    if (!ready || !image || !canvas) return
+
+    // 限制最长边，避免超大图导致卡顿
+    const maxEdge = 1280
+    const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight))
+    canvas.width = Math.round(image.naturalWidth * scale)
+    canvas.height = Math.round(image.naturalHeight * scale)
+    const ctx = canvas.getContext("2d")
+    if (ctx) ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+    setHasMask(false)
+  }, [ready])
 
   const paint = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -118,6 +158,8 @@ export function MaskEditor({ busy = false, imageUrl, onCancel, onConfirm }: Mask
               }}
               ref={canvasRef}
             />
+          ) : loadError ? (
+            <div className="py-12 text-center text-sm text-red-500">{loadError}</div>
           ) : (
             <div className="flex items-center gap-2 py-12 text-sm text-slate-500">
               <Loader2 className="h-4 w-4 animate-spin" />
