@@ -3,6 +3,7 @@
 import { memo, useCallback } from "react"
 import { useReactFlow, type NodeProps } from "@xyflow/react"
 
+import { NodeDeleteButton } from "@/components/digital-canvas/nodes/node-delete-button"
 import type { DigitalCanvasNoteColor, DigitalCanvasNoteNodeData } from "@/lib/digital-canvas/types"
 
 const colorStyles: Record<DigitalCanvasNoteColor, string> = {
@@ -40,10 +41,11 @@ function NoteNodeComponent({ data, id, selected }: NodeProps) {
 
   return (
     <div
-      className={`flex h-full w-full flex-col gap-1.5 rounded-xl border p-2.5 shadow-sm transition ${
+      className={`group relative flex h-full w-full flex-col gap-1.5 rounded-xl border p-2.5 shadow-sm transition ${
         colorStyles[color]
       } ${selected ? "ring-2 ring-cyan-400" : ""}`}
     >
+      <NodeDeleteButton id={id} label="删除便签节点" />
       <div className="flex shrink-0 items-center gap-1">
         {colorOrder.map((option) => (
           <button

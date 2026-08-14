@@ -24,6 +24,7 @@ import {
   ImageIcon,
   Loader2,
   Save,
+  SlidersHorizontal,
   StickyNote,
   Type,
   Wand2,
@@ -44,6 +45,10 @@ import { ImageNode } from "@/components/digital-canvas/nodes/image-node"
 import { NoteNode } from "@/components/digital-canvas/nodes/note-node"
 import { TextNode } from "@/components/digital-canvas/nodes/text-node"
 import { GenerationHistoryPanel } from "@/components/digital-canvas/panels/generation-history-panel"
+import {
+  CustomRenderPanel,
+  type CustomRenderSubmit,
+} from "@/components/digital-canvas/panels/custom-render-panel"
 import {
   QuickRenderPanel,
   type QuickRenderSubmit,
@@ -124,8 +129,10 @@ function CanvasInner({ email }: CanvasInnerProps) {
 
   // P1 面板状态
   const [renderPanelOpen, setRenderPanelOpen] = useState(true)
+  const [customPanelOpen, setCustomPanelOpen] = useState(false)
   const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
   const [rendering, setRendering] = useState(false)
+  const [customRendering, setCustomRendering] = useState(false)
 
   // 初始化：加载最近的画布，或创建一个新画布。
   useEffect(() => {
@@ -289,6 +296,84 @@ function CanvasInner({ email }: CanvasInnerProps) {
     [insertImageNode, nextSpot, setNodes]
   )
 
+  // 自定义渲染面板提交：多张参考图 + 自由提示词，可一次出多张
+  const handleCustomRender = useCallback(
+    async (input: CustomRenderSubmit) => {
+      setCustomRendering(true)
+      setMessage("")
+
+      const placeholderId = nextNodeId()
+      const position = nextSpot()
+
+      setNodes((current) =>
+        current.concat({
+          data: {
+            imageCount: input.imageCount,
+            kind: "ai-image",
+            model: input.model,
+            outputs: [],
+            progress: 0,
+            prompt: input.prompt,
+            quality: input.quality,
+            ratio: input.ratio,
+            status: "running",
+          } as unknown as Record<string, unknown>,
+          id: placeholderId,
+          position,
+          type: "ai-image",
+        })
+      )
+
+      const patchPlaceholder = (partial: Record<string, unknown>) => {
+        setNodes((current) =>
+          current.map((node) =>
+            node.id === placeholderId ? { ...node, data: { ...node.data, ...partial } } : node
+          )
+        )
+      }
+
+      try {
+        const references = []
+        for (const file of input.files) {
+          references.push(await uploadReferenceImageFile(file))
+        }
+
+        const task = await createImageGenerationTask({
+          imageCount: input.imageCount,
+          model: input.model,
+          prompt: input.prompt,
+          quality: input.quality,
+          ratio: input.ratio,
+          referenceImages: references.length > 0 ? references : undefined,
+        })
+
+        const result = await pollImageTask(task.taskId, {
+          initialImageUrls: task.imageUrls ?? [],
+          onProgress: (progress) => patchPlaceholder({ progress }),
+        })
+
+        patchPlaceholder({
+          outputs: result.imageUrls.map((url) => ({ url })),
+          progress: 100,
+          status: "done",
+          taskId: task.taskId,
+        })
+
+        // 每张结果都落一个图片节点，便于继续连线
+        result.imageUrls.forEach((url, index) => {
+          insertImageNode(url, { x: position.x + 360, y: position.y + index * 300 })
+        })
+      } catch (error) {
+        const text = error instanceof Error ? error.message : "生成失败。"
+        patchPlaceholder({ error: text, status: "error" })
+        setMessage(text)
+      } finally {
+        setCustomRendering(false)
+      }
+    },
+    [insertImageNode, nextSpot, setNodes]
+  )
+
   const handleSave = useCallback(async () => {
     if (!documentId) return
     setStatus("saving")
@@ -353,6 +438,12 @@ function CanvasInner({ email }: CanvasInnerProps) {
             onClick={() => setRenderPanelOpen((previous) => !previous)}
             primary
           />
+          <ToolbarButton
+            icon={SlidersHorizontal}
+            label="自定义渲染"
+            onClick={() => setCustomPanelOpen((previous) => !previous)}
+            primary
+          />
           <ToolbarButton icon={Type} label="文字" onClick={() => addNode("text")} />
           <ToolbarButton icon={ImageIcon} label="图片" onClick={() => addNode("image")} />
           <ToolbarButton icon={StickyNote} label="便签" onClick={() => addNode("note")} />
@@ -392,6 +483,7 @@ function CanvasInner({ email }: CanvasInnerProps) {
           </div>
         ) : (
           <ReactFlow
+            deleteKeyCode={["Delete", "Backspace"]}
             edges={edges}
             fitView
             fitViewOptions={fitViewOptions}
@@ -420,6 +512,12 @@ function CanvasInner({ email }: CanvasInnerProps) {
               onClose={() => setRenderPanelOpen(false)}
               onSubmit={handleQuickRender}
               open={renderPanelOpen}
+            />
+            <CustomRenderPanel
+              busy={customRendering}
+              onClose={() => setCustomPanelOpen(false)}
+              onSubmit={handleCustomRender}
+              open={customPanelOpen}
             />
             <GenerationHistoryPanel
               onClose={() => setHistoryPanelOpen(false)}
