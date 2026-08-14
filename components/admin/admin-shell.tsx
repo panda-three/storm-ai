@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   BarChart3,
   Coins,
+  Megaphone,
   Menu,
   QrCode,
   ReceiptText,
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils"
 
 const adminNavItems = [
   { href: "/admin", label: "总览", icon: BarChart3 },
+  { href: "/admin/announcement", label: "系统公告", icon: Megaphone },
   { href: "/admin/customer-service", label: "客服配置", icon: QrCode },
   { href: "/admin/packages", label: "套餐", icon: Coins },
   { href: "/admin/model-config", label: "模型配置", icon: Settings2 },
