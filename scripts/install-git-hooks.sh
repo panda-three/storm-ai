@@ -8,6 +8,7 @@ cd "$repo_root"
 git config core.hooksPath .githooks
 
 chmod +x .githooks/_sync-check.sh
+chmod +x .githooks/_secret-scan.sh
 chmod +x .githooks/pre-commit
 chmod +x .githooks/pre-push
 

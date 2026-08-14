@@ -2,6 +2,7 @@ import {
   buildManjuUpstreamTaskId,
   getManjuImageTaskStatus,
   getManjuVideoTaskStatus,
+  isManjuFatalTaskError,
   isManjuRateLimitError,
   parseManjuUpstreamTaskId,
   type ManjuUpstreamTask,
@@ -240,6 +241,27 @@ export async function syncManjuGenerationJob(
     return { job: updatedJob, locked: true, status: "synced" }
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务状态查询失败。"
+
+    // 上游任务不存在属于确定性失败，不再退避重试，直接结束任务并退点，避免长期停在“生成中”。
+    if (isManjuFatalTaskError(error)) {
+      const failedJob = await failGenerationJobWithRefund({
+        jobId: lockedJob.id,
+        reason: buildGenerationFailureRefundReason({
+          error: message,
+          model: lockedJob.model,
+          provider: lockedJob.provider,
+          type: lockedJob.type,
+        }),
+      })
+      await cleanupReferenceUrls(lockedJob.storage_urls)
+      logManjuSync("fatal_error_refund", {
+        error: message,
+        jobId: lockedJob.id,
+        upstreamTaskId: lockedJob.upstream_task_id,
+      })
+      return { job: failedJob, locked: true, status: "synced" }
+    }
+
     const attempts = lockedJob.check_attempts + 1
     const now = new Date().toISOString()
     const nextJob = await updateGenerationJob(lockedJob.id, {

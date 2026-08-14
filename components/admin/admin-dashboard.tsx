@@ -1,12 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { Coins, QrCode, Settings2, SlidersHorizontal, Ticket, Users, ReceiptText } from "lucide-react"
+import { Coins, Megaphone, QrCode, Settings2, SlidersHorizontal, Ticket, Users, ReceiptText } from "lucide-react"
 import { AdminMetricCard } from "@/components/admin/admin-form-controls"
 import { useAdmin } from "@/components/admin/admin-provider"
 import { isSelectableModelPricing } from "@/lib/model-options"
 
 const dashboardLinks = [
+  { href: "/admin/announcement", label: "系统公告", description: "工作台弹窗公告内容", icon: Megaphone },
   { href: "/admin/customer-service", label: "客服配置", description: "微信号、二维码和充值说明", icon: QrCode },
   { href: "/admin/packages", label: "套餐管理", description: "点数包和会员包", icon: Coins },
   { href: "/admin/model-config", label: "模型配置", description: "模型展示和图片/视频扣点", icon: Settings2 },

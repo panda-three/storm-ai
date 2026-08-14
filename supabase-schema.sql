@@ -1054,6 +1054,19 @@ on conflict (key) do nothing;
 
 insert into public.site_settings (key, value)
 values (
+  'announcement',
+  jsonb_build_object(
+    'enabled', false,
+    'title', '系统公告',
+    'subtitle', '',
+    'version', '',
+    'items', '[]'::jsonb
+  )
+)
+on conflict (key) do nothing;
+
+insert into public.site_settings (key, value)
+values (
   'generation_limits',
   jsonb_build_object(
     'enabled', true,

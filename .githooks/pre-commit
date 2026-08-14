@@ -3,3 +3,4 @@
 set -eu
 
 "$(dirname "$0")/_sync-check.sh" "commit"
+"$(dirname "$0")/_secret-scan.sh"
