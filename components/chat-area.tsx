@@ -22,6 +22,7 @@ import {
   videoModelSettings,
   yunwuSeedance15ProVideoModelName,
 } from "@/lib/model-options"
+import { AnnouncementCenter } from "@/components/announcement-center"
 import { UpscaleWorkspace } from "@/components/upscale-workspace"
 import {
   findModelPricing,
@@ -1161,6 +1162,7 @@ export function ChatArea({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <AnnouncementCenter />
           <Badge className="hidden rounded-full border-cyan-200 bg-cyan-50 text-cyan-700 sm:inline-flex" variant="outline">
             余额 {creditBalance.toLocaleString()} 点
           </Badge>
