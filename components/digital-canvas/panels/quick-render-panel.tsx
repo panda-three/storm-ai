@@ -5,9 +5,9 @@ import { ChevronDown, Loader2, RotateCcw, Sparkles, Wand2, X } from "lucide-reac
 
 import {
   getImageRatiosForSelection,
-  imageModelOptions,
-  imageModelSettings,
 } from "@/lib/model-options"
+import { getAvailableQualities, getPreferredImageQuality } from "@/lib/studio-options"
+import type { ModelConfig, PublicModelPricing } from "@/lib/supabase"
 import {
   AUTO_VALUE,
   countActiveParams,
@@ -39,13 +39,24 @@ interface QuickRenderPanelProps {
   onClose: () => void
   onSubmit: (input: QuickRenderSubmit) => Promise<void> | void
   busy?: boolean
+  imageModels: ModelConfig[]
+  modelOptionsReady: boolean
+  modelPricing: PublicModelPricing[]
 }
 
-export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: QuickRenderPanelProps) {
+export function QuickRenderPanel({
+  busy = false,
+  imageModels,
+  modelOptionsReady,
+  modelPricing,
+  onClose,
+  onSubmit,
+  open,
+}: QuickRenderPanelProps) {
   const [scene, setScene] = useState<RenderSceneKind>("interior")
   const [values, setValues] = useState<RenderParamValues>(() => createDefaultParamValues())
   const [description, setDescription] = useState("")
-  const [model, setModel] = useState(imageModelOptions[0] ?? "")
+  const [model, setModel] = useState("")
   const [ratio, setRatio] = useState("")
   const [quality, setQuality] = useState("")
   const [showPrompt, setShowPrompt] = useState(false)
@@ -58,17 +69,22 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
 
   const groups = useMemo(() => groupsForScene(scene), [scene])
   const activeCount = useMemo(() => countActiveParams(values, scene), [values, scene])
+  const defaultModel = imageModels.find((item) => item.initial_selected)?.model ?? imageModels[0]?.model ?? ""
 
   // 清晰度与比例随模型联动，避免出现该模型不支持的组合
-  const qualities = useMemo(
-    () => imageModelSettings[model]?.qualities ?? ["1K", "2K", "4K"],
-    [model]
-  )
+  const qualities = useMemo(() => getAvailableQualities(modelPricing, "image", model), [model, modelPricing])
   const ratios = useMemo(() => getImageRatiosForSelection(model, quality), [model, quality])
+  const canSubmit = modelOptionsReady && imageModels.length > 0 && Boolean(model)
 
   useEffect(() => {
-    if (!qualities.includes(quality)) setQuality(qualities[0] ?? "")
-  }, [qualities, quality])
+    if (!imageModels.some((item) => item.model === model)) {
+      setModel(defaultModel)
+    }
+  }, [defaultModel, imageModels, model])
+
+  useEffect(() => {
+    if (!qualities.includes(quality)) setQuality(getPreferredImageQuality(model, qualities))
+  }, [model, qualities, quality])
 
   useEffect(() => {
     if (ratios.length > 0 && !ratios.includes(ratio)) setRatio(ratios[0])
@@ -124,7 +140,15 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
   }
 
   async function submit(submitMode: RenderMode, overrideBase?: File, maskInstruction?: string) {
+    if (!canSubmit) return
     const finalBase = overrideBase ?? baseFile
+    const finalModel = imageModels.some((item) => item.model === model) ? model : defaultModel
+    const finalQualities = getAvailableQualities(modelPricing, "image", finalModel)
+    const finalQuality = finalQualities.includes(quality)
+      ? quality
+      : getPreferredImageQuality(finalModel, finalQualities)
+    const finalRatios = getImageRatiosForSelection(finalModel, finalQuality)
+    const finalRatio = finalRatios.includes(ratio) ? ratio : finalRatios[0] ?? ""
     const finalPrompt = composePrompt({
       description,
       maskInstruction,
@@ -136,10 +160,10 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
     await onSubmit({
       baseFile: finalBase,
       mode: submitMode,
-      model,
+      model: finalModel,
       prompt: finalPrompt,
-      quality,
-      ratio,
+      quality: finalQuality,
+      ratio: finalRatio,
       styleFile,
     })
   }
@@ -247,11 +271,17 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
               <select
                 className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none transition focus:border-cyan-400"
                 onChange={(event) => setModel(event.target.value)}
+                disabled={!modelOptionsReady || imageModels.length === 0}
                 value={model}
               >
-                {imageModelOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
+                {imageModels.length === 0 ? (
+                  <option value="">
+                    {modelOptionsReady ? "暂无可用图片模型" : "模型加载中..."}
+                  </option>
+                ) : null}
+                {imageModels.map((option) => (
+                  <option key={option.model} value={option.model}>
+                    {option.display_name}
                   </option>
                 ))}
               </select>
@@ -310,7 +340,7 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
         <footer className="flex shrink-0 flex-col gap-2 border-t border-slate-100 px-3 py-2.5">
           <button
             className="flex items-center justify-center gap-1.5 rounded-xl bg-cyan-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={busy}
+            disabled={busy || !canSubmit}
             onClick={() => submit(mode)}
             type="button"
           >
@@ -319,13 +349,13 @@ export function QuickRenderPanel({ busy = false, onClose, onSubmit, open }: Quic
             ) : (
               <Sparkles className="h-4 w-4" />
             )}
-            {baseFile ? "整图重绘" : "生成效果图"}
+            {!modelOptionsReady ? "模型加载中" : imageModels.length === 0 ? "暂无可用模型" : baseFile ? "整图重绘" : "生成效果图"}
           </button>
 
           <div className="flex items-center gap-2">
             <button
               className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!baseUrl || busy}
+              disabled={!baseUrl || busy || !canSubmit}
               onClick={() => setMaskOpen(true)}
               title={baseUrl ? "涂选局部区域重绘" : "请先放入底图"}
               type="button"

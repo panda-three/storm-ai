@@ -5,9 +5,9 @@ import { ArrowRight, ImageIcon, ImagePlus, Loader2, X } from "lucide-react"
 
 import {
   getImageRatiosForSelection,
-  imageModelOptions,
-  imageModelSettings,
 } from "@/lib/model-options"
+import { getAvailableQualities, getPreferredImageQuality } from "@/lib/studio-options"
+import type { ModelConfig, PublicModelPricing } from "@/lib/supabase"
 import {
   maxReferenceImageBytes,
   maxReferenceImages,
@@ -27,6 +27,9 @@ export interface CustomRenderSubmit {
 interface CustomRenderPanelProps {
   open: boolean
   busy?: boolean
+  imageModels: ModelConfig[]
+  modelOptionsReady: boolean
+  modelPricing: PublicModelPricing[]
   onClose: () => void
   onSubmit: (input: CustomRenderSubmit) => Promise<void> | void
 }
@@ -41,6 +44,9 @@ const imageCountOptions = [1, 2, 3, 4]
 
 export function CustomRenderPanel({
   busy = false,
+  imageModels,
+  modelOptionsReady,
+  modelPricing,
   onClose,
   onSubmit,
   open,
@@ -48,21 +54,26 @@ export function CustomRenderPanel({
   const inputRef = useRef<HTMLInputElement>(null)
   const [images, setImages] = useState<PickedImage[]>([])
   const [prompt, setPrompt] = useState("")
-  const [model, setModel] = useState(imageModelOptions[0] ?? "")
+  const [model, setModel] = useState("")
   const [quality, setQuality] = useState("")
   const [ratio, setRatio] = useState("")
   const [imageCount, setImageCount] = useState(1)
   const [error, setError] = useState("")
+  const defaultModel = imageModels.find((item) => item.initial_selected)?.model ?? imageModels[0]?.model ?? ""
 
-  const qualities = useMemo(
-    () => imageModelSettings[model]?.qualities ?? ["1K", "2K", "4K"],
-    [model]
-  )
+  const qualities = useMemo(() => getAvailableQualities(modelPricing, "image", model), [model, modelPricing])
   const ratios = useMemo(() => getImageRatiosForSelection(model, quality), [model, quality])
+  const canSubmit = modelOptionsReady && imageModels.length > 0 && Boolean(model)
 
   useEffect(() => {
-    if (!qualities.includes(quality)) setQuality(qualities[0] ?? "")
-  }, [qualities, quality])
+    if (!imageModels.some((item) => item.model === model)) {
+      setModel(defaultModel)
+    }
+  }, [defaultModel, imageModels, model])
+
+  useEffect(() => {
+    if (!qualities.includes(quality)) setQuality(getPreferredImageQuality(model, qualities))
+  }, [model, qualities, quality])
 
   useEffect(() => {
     if (ratios.length > 0 && !ratios.includes(ratio)) setRatio(ratios[0])
@@ -125,19 +136,27 @@ export function CustomRenderPanel({
   }
 
   async function submit() {
+    if (!canSubmit) return
     const trimmed = prompt.trim()
     if (!trimmed) {
       setError("请填写图片描述。")
       return
     }
+    const finalModel = imageModels.some((item) => item.model === model) ? model : defaultModel
+    const finalQualities = getAvailableQualities(modelPricing, "image", finalModel)
+    const finalQuality = finalQualities.includes(quality)
+      ? quality
+      : getPreferredImageQuality(finalModel, finalQualities)
+    const finalRatios = getImageRatiosForSelection(finalModel, finalQuality)
+    const finalRatio = finalRatios.includes(ratio) ? ratio : finalRatios[0] ?? ""
     setError("")
     await onSubmit({
       files: images.map((item) => item.file),
       imageCount,
-      model,
+      model: finalModel,
       prompt: trimmed,
-      quality,
-      ratio,
+      quality: finalQuality,
+      ratio: finalRatio,
     })
   }
 
@@ -231,7 +250,16 @@ export function CustomRenderPanel({
             <PillSelect
               icon={ImageIcon}
               onChange={setModel}
-              options={imageModelOptions.map((option) => ({ label: option, value: option }))}
+              options={
+                imageModels.length > 0
+                  ? imageModels.map((option) => ({ label: option.display_name, value: option.model }))
+                  : [
+                      {
+                        label: modelOptionsReady ? "暂无可用图片模型" : "模型加载中...",
+                        value: "",
+                      },
+                    ]
+              }
               value={model}
             />
             <PillSelect
@@ -255,7 +283,7 @@ export function CustomRenderPanel({
 
             <button
               className="ml-auto flex h-11 items-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={busy}
+              disabled={busy || !canSubmit}
               onClick={submit}
               type="button"
             >
@@ -264,7 +292,7 @@ export function CustomRenderPanel({
               ) : (
                 <ArrowRight className="h-4 w-4" />
               )}
-              生成图片
+              {!modelOptionsReady ? "模型加载中" : imageModels.length === 0 ? "暂无可用模型" : "生成图片"}
             </button>
           </div>
 

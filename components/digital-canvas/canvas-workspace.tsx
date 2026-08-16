@@ -15,6 +15,7 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type NodeProps,
   type ReactFlowInstance,
 } from "@xyflow/react"
 import {
@@ -29,7 +30,14 @@ import {
   Type,
   Wand2,
 } from "lucide-react"
-import { imageModelOptions, imageModelSettings } from "@/lib/model-options"
+import { getImageRatiosForSelection } from "@/lib/model-options"
+import { getAvailableModelConfigs, getAvailableQualities, getPreferredImageQuality } from "@/lib/studio-options"
+import {
+  loadPublicModelConfigs,
+  loadPublicModelPricing,
+  type ModelConfig,
+  type PublicModelPricing,
+} from "@/lib/supabase"
 import {
   createDigitalCanvasDocument,
   createImageGenerationTask,
@@ -87,7 +95,25 @@ function nextNodeId() {
   return `node_${Date.now()}_${nodeSeq}`
 }
 
-function createNodeData(kind: DigitalCanvasNodeKind) {
+function resolveImageGenerationDefaults(
+  model: string,
+  pricing: PublicModelPricing[],
+  fallback?: { quality?: string; ratio?: string }
+) {
+  const qualities = getAvailableQualities(pricing, "image", model)
+  const quality = qualities.includes(fallback?.quality ?? "")
+    ? fallback?.quality ?? ""
+    : getPreferredImageQuality(model, qualities)
+  const ratios = getImageRatiosForSelection(model, quality)
+  const ratio = ratios.includes(fallback?.ratio ?? "") ? fallback?.ratio ?? "" : ratios[0] ?? ""
+
+  return { quality, ratio }
+}
+
+function createNodeData(
+  kind: DigitalCanvasNodeKind,
+  defaults: { model: string; quality: string; ratio: string }
+) {
   if (kind === "text") {
     return { kind: "text", text: "" }
   }
@@ -97,18 +123,16 @@ function createNodeData(kind: DigitalCanvasNodeKind) {
   if (kind === "note") {
     return { color: "amber", kind: "note", text: "" }
   }
-  const defaultModel = imageModelOptions[0]
-  const settings = imageModelSettings[defaultModel]
   return {
     error: undefined,
     imageCount: 1,
     kind: "ai-image",
-    model: defaultModel,
+    model: defaults.model,
     outputs: [],
     progress: 0,
     prompt: "",
-    quality: settings?.qualities?.[0] ?? "1K",
-    ratio: settings?.ratios?.[0] ?? "默认",
+    quality: defaults.quality,
+    ratio: defaults.ratio,
     status: "idle",
   }
 }
@@ -124,6 +148,9 @@ function CanvasInner({ email }: CanvasInnerProps) {
   const [title, setTitle] = useState("未命名数字画布")
   const [status, setStatus] = useState<"loading" | "ready" | "saving" | "saved" | "error">("loading")
   const [message, setMessage] = useState("")
+  const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
+  const [modelPricing, setModelPricing] = useState<PublicModelPricing[]>([])
+  const [modelOptionsReady, setModelOptionsReady] = useState(false)
   const rfInstance = useRef<ReactFlowInstance<Node, Edge> | null>(null)
   const { screenToFlowPosition } = useReactFlow()
 
@@ -133,6 +160,56 @@ function CanvasInner({ email }: CanvasInnerProps) {
   const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
   const [rendering, setRendering] = useState(false)
   const [customRendering, setCustomRendering] = useState(false)
+  const availableImageModels = useMemo(
+    () => getAvailableModelConfigs("image", modelConfigs, modelPricing),
+    [modelConfigs, modelPricing]
+  )
+  const defaultImageModel = availableImageModels.find((item) => item.initial_selected)?.model ?? availableImageModels[0]?.model ?? ""
+  const defaultImageSettings = useMemo(() => {
+    if (!defaultImageModel) return { quality: "", ratio: "" }
+    return resolveImageGenerationDefaults(defaultImageModel, modelPricing)
+  }, [defaultImageModel, modelPricing])
+  const imageGenerationDefaults = useMemo(
+    () => ({
+      model: defaultImageModel,
+      quality: defaultImageSettings.quality,
+      ratio: defaultImageSettings.ratio,
+    }),
+    [defaultImageModel, defaultImageSettings.quality, defaultImageSettings.ratio]
+  )
+
+  const digitalCanvasNodeTypes = useMemo(
+    () => ({
+      ...nodeTypes,
+      "ai-image": (props: NodeProps) => (
+        <AiImageNode
+          {...props}
+          imageModels={availableImageModels}
+          modelOptionsReady={modelOptionsReady}
+          modelPricing={modelPricing}
+        />
+      ),
+    }),
+    [availableImageModels, modelOptionsReady, modelPricing]
+  )
+
+  const resolveVisibleImageInput = useCallback(
+    (input: { model: string; quality: string; ratio: string }) => {
+      const model = availableImageModels.some((item) => item.model === input.model)
+        ? input.model
+        : defaultImageModel
+      if (!model) return null
+
+      return {
+        model,
+        ...resolveImageGenerationDefaults(model, modelPricing, {
+          quality: input.quality,
+          ratio: input.ratio,
+        }),
+      }
+    },
+    [availableImageModels, defaultImageModel, modelPricing]
+  )
 
   // 初始化：加载最近的画布，或创建一个新画布。
   useEffect(() => {
@@ -160,6 +237,30 @@ function CanvasInner({ email }: CanvasInnerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      try {
+        setModelOptionsReady(false)
+        const [configs, pricing] = await Promise.all([
+          loadPublicModelConfigs(),
+          loadPublicModelPricing(),
+        ])
+        if (!active) return
+        setModelConfigs(configs)
+        setModelPricing(pricing)
+      } catch (error) {
+        if (!active) return
+        setMessage(error instanceof Error ? error.message : "加载模型配置失败。")
+      } finally {
+        if (active) setModelOptionsReady(true)
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [])
+
   const onConnect = useCallback(
     (connection: Connection) => setEdges((current) => addEdge(connection, current)),
     [setEdges]
@@ -182,7 +283,7 @@ function CanvasInner({ email }: CanvasInnerProps) {
           : { x: position.x - 140, y: position.y - 100 }
 
         const node: Node = {
-          data: createNodeData(kind) as unknown as Record<string, unknown>,
+          data: createNodeData(kind, imageGenerationDefaults) as unknown as Record<string, unknown>,
           id: nextNodeId(),
           position: origin,
           type: kind,
@@ -191,7 +292,7 @@ function CanvasInner({ email }: CanvasInnerProps) {
         return current.concat(node)
       })
     },
-    [screenToFlowPosition, setNodes]
+    [imageGenerationDefaults, screenToFlowPosition, setNodes]
   )
 
   // 在画布可视区域中央附近找一个空位放新节点
@@ -224,6 +325,11 @@ function CanvasInner({ email }: CanvasInnerProps) {
   // 快捷渲染面板提交：上传参考图 → 建 AI 节点占位 → 轮询 → 回填结果
   const handleQuickRender = useCallback(
     async (input: QuickRenderSubmit) => {
+      const visibleInput = resolveVisibleImageInput(input)
+      if (!visibleInput) {
+        setMessage(modelOptionsReady ? "暂无可用图片模型。" : "模型配置加载中，请稍后再试。")
+        return
+      }
       setRendering(true)
       setMessage("")
 
@@ -236,12 +342,12 @@ function CanvasInner({ email }: CanvasInnerProps) {
           data: {
             imageCount: 1,
             kind: "ai-image",
-            model: input.model,
+            model: visibleInput.model,
             outputs: [],
             progress: 0,
             prompt: input.prompt,
-            quality: input.quality,
-            ratio: input.ratio,
+            quality: visibleInput.quality,
+            ratio: visibleInput.ratio,
             status: "running",
           } as unknown as Record<string, unknown>,
           id: placeholderId,
@@ -266,10 +372,10 @@ function CanvasInner({ email }: CanvasInnerProps) {
 
         const task = await createImageGenerationTask({
           imageCount: 1,
-          model: input.model,
+          model: visibleInput.model,
           prompt: input.prompt,
-          quality: input.quality,
-          ratio: input.ratio,
+          quality: visibleInput.quality,
+          ratio: visibleInput.ratio,
           referenceImages: references.length > 0 ? references : undefined,
         })
 
@@ -293,12 +399,17 @@ function CanvasInner({ email }: CanvasInnerProps) {
         setRendering(false)
       }
     },
-    [insertImageNode, nextSpot, setNodes]
+    [insertImageNode, modelOptionsReady, nextSpot, resolveVisibleImageInput, setNodes]
   )
 
   // 自定义渲染面板提交：多张参考图 + 自由提示词，可一次出多张
   const handleCustomRender = useCallback(
     async (input: CustomRenderSubmit) => {
+      const visibleInput = resolveVisibleImageInput(input)
+      if (!visibleInput) {
+        setMessage(modelOptionsReady ? "暂无可用图片模型。" : "模型配置加载中，请稍后再试。")
+        return
+      }
       setCustomRendering(true)
       setMessage("")
 
@@ -310,12 +421,12 @@ function CanvasInner({ email }: CanvasInnerProps) {
           data: {
             imageCount: input.imageCount,
             kind: "ai-image",
-            model: input.model,
+            model: visibleInput.model,
             outputs: [],
             progress: 0,
             prompt: input.prompt,
-            quality: input.quality,
-            ratio: input.ratio,
+            quality: visibleInput.quality,
+            ratio: visibleInput.ratio,
             status: "running",
           } as unknown as Record<string, unknown>,
           id: placeholderId,
@@ -340,10 +451,10 @@ function CanvasInner({ email }: CanvasInnerProps) {
 
         const task = await createImageGenerationTask({
           imageCount: input.imageCount,
-          model: input.model,
+          model: visibleInput.model,
           prompt: input.prompt,
-          quality: input.quality,
-          ratio: input.ratio,
+          quality: visibleInput.quality,
+          ratio: visibleInput.ratio,
           referenceImages: references.length > 0 ? references : undefined,
         })
 
@@ -371,7 +482,7 @@ function CanvasInner({ email }: CanvasInnerProps) {
         setCustomRendering(false)
       }
     },
-    [insertImageNode, nextSpot, setNodes]
+    [insertImageNode, modelOptionsReady, nextSpot, resolveVisibleImageInput, setNodes]
   )
 
   const handleSave = useCallback(async () => {
@@ -490,7 +601,7 @@ function CanvasInner({ email }: CanvasInnerProps) {
             minZoom={0.2}
             maxZoom={2}
             nodes={nodes}
-            nodeTypes={nodeTypes}
+            nodeTypes={digitalCanvasNodeTypes}
             onConnect={onConnect}
             onEdgesChange={onEdgesChange}
             onInit={(instance) => {
@@ -509,12 +620,18 @@ function CanvasInner({ email }: CanvasInnerProps) {
           <>
             <QuickRenderPanel
               busy={rendering}
+              imageModels={availableImageModels}
+              modelOptionsReady={modelOptionsReady}
+              modelPricing={modelPricing}
               onClose={() => setRenderPanelOpen(false)}
               onSubmit={handleQuickRender}
               open={renderPanelOpen}
             />
             <CustomRenderPanel
               busy={customRendering}
+              imageModels={availableImageModels}
+              modelOptionsReady={modelOptionsReady}
+              modelPricing={modelPricing}
               onClose={() => setCustomPanelOpen(false)}
               onSubmit={handleCustomRender}
               open={customPanelOpen}

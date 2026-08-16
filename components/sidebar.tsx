@@ -8,7 +8,6 @@ import {
   Coins,
   History,
   ImageIcon,
-  LayoutDashboard,
   LogOut,
   MessageCircle,
   RefreshCcw,
@@ -61,14 +60,6 @@ const navItems: Array<SidebarNavItem | SidebarLinkItem> = [
     description: "查看生成记录",
     icon: History,
     match: ["history"],
-  },
-  {
-    href: "/canvas-lab",
-    id: "canvas",
-    kind: "link",
-    label: "无限画布",
-    description: "空间化整理与继续创作",
-    icon: LayoutDashboard,
   },
   {
     href: "/digital-canvas",

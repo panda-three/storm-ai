@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback, useMemo, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import { Handle, Position, useReactFlow, type NodeProps } from "@xyflow/react"
 import {
@@ -16,9 +16,9 @@ import {
 } from "lucide-react"
 import {
   getImageRatiosForSelection,
-  imageModelOptions,
-  imageModelSettings,
 } from "@/lib/model-options"
+import { getAvailableQualities, getPreferredImageQuality } from "@/lib/studio-options"
+import type { ModelConfig, PublicModelPricing } from "@/lib/supabase"
 import {
   createImageGenerationTask,
   pollImageTask,
@@ -33,21 +33,51 @@ import type {
   DigitalCanvasTextNodeData,
 } from "@/lib/digital-canvas/types"
 
-function AiImageNodeComponent({ id, data, selected }: NodeProps) {
+interface AiImageNodeProps extends NodeProps {
+  imageModels: ModelConfig[]
+  modelOptionsReady: boolean
+  modelPricing: PublicModelPricing[]
+}
+
+function resolveImageGenerationDefaults(
+  model: string,
+  pricing: PublicModelPricing[],
+  fallback?: { quality?: string; ratio?: string }
+) {
+  const qualities = getAvailableQualities(pricing, "image", model)
+  const quality = qualities.includes(fallback?.quality ?? "")
+    ? fallback?.quality ?? ""
+    : getPreferredImageQuality(model, qualities)
+  const ratios = getImageRatiosForSelection(model, quality)
+  const ratio = ratios.includes(fallback?.ratio ?? "") ? fallback?.ratio ?? "" : ratios[0] ?? ""
+
+  return { quality, ratio }
+}
+
+function AiImageNodeComponent({
+  id,
+  data,
+  imageModels,
+  modelOptionsReady,
+  modelPricing,
+  selected,
+}: AiImageNodeProps) {
   const nodeData = data as unknown as DigitalCanvasAiImageNodeData
   const { setNodes, getNodes, getEdges } = useReactFlow()
   const [expanded, setExpanded] = useState(true)
   const [maskOpen, setMaskOpen] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
+  const defaultModel = imageModels.find((item) => item.initial_selected)?.model ?? imageModels[0]?.model ?? ""
 
   const qualities = useMemo(
-    () => imageModelSettings[nodeData.model]?.qualities ?? ["1K", "2K", "4K"],
-    [nodeData.model]
+    () => getAvailableQualities(modelPricing, "image", nodeData.model),
+    [modelPricing, nodeData.model]
   )
   const ratios = useMemo(
     () => getImageRatiosForSelection(nodeData.model, nodeData.quality),
     [nodeData.model, nodeData.quality]
   )
+  const canGenerate = modelOptionsReady && imageModels.length > 0 && Boolean(defaultModel)
 
   const patch = useCallback(
     (partial: Partial<DigitalCanvasAiImageNodeData>) => {
@@ -59,6 +89,34 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
     },
     [id, setNodes]
   )
+
+  const resolveVisibleImageInput = useCallback(() => {
+    const model = imageModels.some((item) => item.model === nodeData.model)
+      ? nodeData.model
+      : defaultModel
+    if (!model) return null
+
+    return {
+      model,
+      ...resolveImageGenerationDefaults(model, modelPricing, {
+        quality: nodeData.quality,
+        ratio: nodeData.ratio,
+      }),
+    }
+  }, [defaultModel, imageModels, modelPricing, nodeData.model, nodeData.quality, nodeData.ratio])
+
+  useEffect(() => {
+    if (!modelOptionsReady || imageModels.length === 0) return
+    const visibleInput = resolveVisibleImageInput()
+    if (!visibleInput) return
+    if (
+      visibleInput.model !== nodeData.model ||
+      visibleInput.quality !== nodeData.quality ||
+      visibleInput.ratio !== nodeData.ratio
+    ) {
+      patch(visibleInput)
+    }
+  }, [imageModels.length, modelOptionsReady, nodeData.model, nodeData.quality, nodeData.ratio, patch, resolveVisibleImageInput])
 
   // 从上游连线节点收集提示词与参考图。
   const collectInputs = useCallback(() => {
@@ -86,6 +144,14 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
   }, [getEdges, getNodes, id])
 
   const handleGenerate = useCallback(async () => {
+    const visibleInput = resolveVisibleImageInput()
+    if (!visibleInput) {
+      patch({
+        error: modelOptionsReady ? "暂无可用图片模型。" : "模型配置加载中，请稍后再试。",
+        status: "error",
+      })
+      return
+    }
     const { upstreamImageUrls, upstreamTexts } = collectInputs()
     const prompt = [nodeData.prompt?.trim(), ...upstreamTexts].filter(Boolean).join("\n")
 
@@ -105,10 +171,10 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
 
       const task = await createImageGenerationTask({
         imageCount: nodeData.imageCount || 1,
-        model: nodeData.model,
+        model: visibleInput.model,
         prompt,
-        quality: nodeData.quality,
-        ratio: nodeData.ratio,
+        quality: visibleInput.quality,
+        ratio: visibleInput.ratio,
         referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
       })
 
@@ -135,11 +201,19 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
         status: "error",
       })
     }
-  }, [collectInputs, nodeData, patch])
+  }, [collectInputs, modelOptionsReady, nodeData.imageCount, nodeData.prompt, patch, resolveVisibleImageInput])
 
   // 局部精修：把涂选后的合成图作为参考图，只重绘涂抹区域。
   const handleRefine = useCallback(
     async (masked: File, refinePrompt: string) => {
+      const visibleInput = resolveVisibleImageInput()
+      if (!visibleInput) {
+        patch({
+          error: modelOptionsReady ? "暂无可用图片模型。" : "模型配置加载中，请稍后再试。",
+          status: "error",
+        })
+        return
+      }
       patch({ error: undefined, progress: 0, status: "running" })
       try {
         const reference = await uploadReferenceImageFile(masked)
@@ -153,10 +227,10 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
 
         const task = await createImageGenerationTask({
           imageCount: 1,
-          model: nodeData.model,
+          model: visibleInput.model,
           prompt,
-          quality: nodeData.quality,
-          ratio: nodeData.ratio,
+          quality: visibleInput.quality,
+          ratio: visibleInput.ratio,
           referenceImages: [reference],
         })
 
@@ -184,7 +258,7 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
         })
       }
     },
-    [nodeData.model, nodeData.prompt, nodeData.quality, nodeData.ratio, patch]
+    [modelOptionsReady, nodeData.prompt, patch, resolveVisibleImageInput]
   )
 
   const running = nodeData.status === "running"
@@ -229,15 +303,22 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
                 className="nodrag rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-cyan-300"
                 onChange={(event) => {
                   const model = event.target.value
-                  const nextQualities = imageModelSettings[model]?.qualities ?? ["1K"]
-                  const nextRatios = getImageRatiosForSelection(model, nextQualities[0])
-                  patch({ model, quality: nextQualities[0], ratio: nextRatios[0] })
+                  patch({
+                    model,
+                    ...resolveImageGenerationDefaults(model, modelPricing),
+                  })
                 }}
+                disabled={!modelOptionsReady || imageModels.length === 0}
                 value={nodeData.model}
               >
-                {imageModelOptions.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
+                {imageModels.length === 0 ? (
+                  <option value="">
+                    {modelOptionsReady ? "暂无可用图片模型" : "模型加载中..."}
+                  </option>
+                ) : null}
+                {imageModels.map((model) => (
+                  <option key={model.model} value={model.model}>
+                    {model.display_name}
                   </option>
                 ))}
               </select>
@@ -324,7 +405,7 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
           <button
             type="button"
             className="nodrag flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 py-2 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={running}
+            disabled={running || !canGenerate}
             onClick={handleGenerate}
           >
             {running ? (
@@ -335,7 +416,7 @@ function AiImageNodeComponent({ id, data, selected }: NodeProps) {
             ) : (
               <>
                 <Sparkles className="h-3.5 w-3.5" />
-                生成
+                {!modelOptionsReady ? "模型加载中" : imageModels.length === 0 ? "暂无可用模型" : "生成"}
               </>
             )}
           </button>
